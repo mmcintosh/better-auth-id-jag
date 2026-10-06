@@ -335,8 +335,8 @@
  {
   "name": "audit: handler errors not caught",
   "file": "src/core/audit.ts",
-  "a": "      try {\n        await handler(structuredClone(full));\n      } catch (e) {\n        sink.logger.error(`[id-jag] events.${name} threw`, e);\n      }",
-  "b": "      await handler(structuredClone(full));",
+  "a": "      try {\n        await handler(full);\n      } catch (e) {\n        sink.logger.error(`[id-jag] events.${name} threw`, e);\n      }",
+  "b": "      await handler(full);",
   "paths": [
    "test/core"
   ]
