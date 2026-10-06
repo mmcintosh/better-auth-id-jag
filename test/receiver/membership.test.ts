@@ -100,7 +100,7 @@ describe("JIT membership: static entries", () => {
     const linked = await linkedUser(s.h, `id-jag:${s.idp.issuer}`, sub);
     expect(await s.attempt({ sub, email: uniqueEmail() })).toMatchObject({ reason: "accepted", userId: linked.id });
     const email = uniqueEmail("corp.example");
-    const byEmail = await s.h.ctx.internalAdapter.createUser({ email, name: "E" }, { method: "admin" });
+    const byEmail = await s.h.ctx.internalAdapter.createUser({ email, name: "E", emailVerified: true }, { method: "admin" });
     expect(await s.attempt({ sub: crypto.randomUUID(), email })).toMatchObject({ reason: "accepted", userId: byEmail.id });
     expect(await membersOf(s.h, org)).toHaveLength(0);
   });

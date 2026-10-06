@@ -71,6 +71,11 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
     if (found) {
       // The user already has an account at this issuer under another subject: not this person's to take.
       if (found.accounts.some((a) => a.providerId === trust.accountProviderId)) refuse("unknown_subject", "email matches a user linked to another subject");
+      // Only a local user who proved the address (D-A23): anyone can register an unverified
+      // account with a victim's email, and linking it would hand them the victim's ID-JAGs while
+      // their password still signs in. As Better Auth's own linking (requireLocalEmailVerified).
+      // Refused, not passed on to JIT, which refuses an existing email anyway.
+      if (found.user.emailVerified !== true) refuse("unknown_subject", "email fallback: the local user's email is not verified");
       assertNotBanned(found.user, now);
       await internal.linkAccount({ userId: found.user.id, providerId: trust.accountProviderId, accountId: claims.sub });
       return { user: found.user, via: "email" };
