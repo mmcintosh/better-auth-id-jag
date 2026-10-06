@@ -70,7 +70,7 @@ describe("verifyIdJag: accepts", () => {
 
   it("act, as Okta sends it for an AI agent (D-010), and a nested delegation chain", async () => {
     const k = await keyPair("RS256");
-    const okta = { sub: "0oa18f03hj0tOU9Hd698", sub_profile: "ai_agent web_app" };
+    const okta = { sub: "0oaEXAMPLEagentClient", sub_profile: "ai_agent web_app" };
     const v = await verifyIdJag(await sign(k, claims({ act: okta, sub_profile: "user" })), k.jwks, at());
     expect(v.claims.act).toEqual(okta);
     const chain = { sub: "a1", act: { sub: "a2", act: { sub: "a3", act: { sub: "a4" } } } };
