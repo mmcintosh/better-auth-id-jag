@@ -296,3 +296,22 @@ describe("parseIdJag: properties (S9)", () => {
     for (const j of seen) expect(j).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 });
+
+describe("sub_id in the SAML NameID format (draft -04 §3.2.1)", () => {
+  it("parses the draft's example; other formats are not this one; malformed ones are refused", async () => {
+    const { parseSamlNameIdSubId } = await import("../../src/core");
+    const example = { format: "saml-nameid", issuer: "https://idp.example.com/exk33qwjcwDda7luK346", nameid: "foo@example.com", nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress", sp_name_qualifier: "https://resource.example.com/saml/sp" };
+    expect(parseSamlNameIdSubId(example)).toEqual(example);
+    expect(parseSamlNameIdSubId(undefined)).toBeUndefined();
+    expect(parseSamlNameIdSubId({ format: "email", email: "a@b.example" })).toBeUndefined();
+    for (const bad of [{ format: "saml-nameid", issuer: "i" }, { format: "saml-nameid", issuer: "i", nameid: "" }, { format: "saml-nameid", issuer: "i", nameid: "n", extra: "x" }, { format: "saml-nameid", issuer: "i", nameid: "n\u0000" }, "saml-nameid", null]) {
+      let reason = "accepted";
+      try {
+        parseSamlNameIdSubId(bad);
+      } catch (e) {
+        reason = (e as { reason?: string }).reason ?? "other";
+      }
+      expect(reason, JSON.stringify(bad)).toBe("invalid_claim");
+    }
+  });
+});

@@ -50,6 +50,31 @@ function actDepth(act: ActClaim | undefined): number {
   return depth;
 }
 
+/**
+ * `sub_id` in the SAML NameID format (draft -04 §3.2.1): `format`, `issuer` and `nameid` required;
+ * `nameid_format`, `name_qualifier`, `sp_name_qualifier`, `sp_provided_id` optional; nothing else.
+ * Strict, for when a receiver resolves users by it. At parse time `sub_id` stays loosely typed
+ * (it's informational until then, and never a source of trust: §8, §9.5).
+ */
+export const samlNameIdSubIdSchema = z.strictObject({
+  format: z.literal("saml-nameid"),
+  issuer: nonEmpty,
+  nameid: nonEmpty,
+  nameid_format: nonEmpty.optional(),
+  name_qualifier: nonEmpty.optional(),
+  sp_name_qualifier: nonEmpty.optional(),
+  sp_provided_id: nonEmpty.optional(),
+});
+export type SamlNameIdSubId = z.infer<typeof samlNameIdSubIdSchema>;
+
+/** The `sub_id` as a SAML NameID subject identifier, or undefined if it isn't one; throws on a malformed one. */
+export function parseSamlNameIdSubId(subId: unknown): SamlNameIdSubId | undefined {
+  if (subId === undefined || (typeof subId === "object" && subId !== null && (subId as { format?: unknown }).format !== "saml-nameid")) return undefined;
+  const parsed = samlNameIdSubIdSchema.safeParse(subId);
+  if (!parsed.success) refuse("invalid_claim", `sub_id: ${parsed.error.issues.map((i) => i.path.join(".") || i.code).join(",")}`);
+  return parsed.data;
+}
+
 /** The claims, required ones strict, optional ones typed when present, unknown ones kept. */
 export const idJagClaimsSchema = z.looseObject({
   iss: nonEmpty,

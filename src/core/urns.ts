@@ -12,6 +12,10 @@ export const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
 export const ID_TOKEN_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
 /** The other subject token type the issuer accepts: a refresh token this IdP issued (draft's MAY). */
 export const REFRESH_TOKEN_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
+/** A SAML 2.0 assertion as a subject token (RFC 8693 §3; draft -04 §4.3.1, §4.5). */
+export const SAML2_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:saml2";
+/** The `sub_id` format for a SAML NameID (draft -04 §3.2.1). */
+export const SAML_NAMEID_SUB_ID_FORMAT = "saml-nameid";
 /** The issuer's grant (RFC 8693). */
 export const TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange";
 /** The receiver's grant (RFC 7523). */

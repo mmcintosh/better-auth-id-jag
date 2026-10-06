@@ -413,5 +413,23 @@
   "paths": [
    "test/core"
   ]
+ },
+ {
+  "name": "sub_id: saml-nameid schema not strict",
+  "file": "src/core/jwt.ts",
+  "a": "export const samlNameIdSubIdSchema = z.strictObject({",
+  "b": "export const samlNameIdSubIdSchema = z.looseObject({",
+  "paths": [
+   "test/core/jwt.test.ts"
+  ]
+ },
+ {
+  "name": "sub_id: nameid optional",
+  "file": "src/core/jwt.ts",
+  "a": "  nameid: nonEmpty,\n  nameid_format",
+  "b": "  nameid: nonEmpty.optional(),\n  nameid_format",
+  "paths": [
+   "test/core/jwt.test.ts"
+  ]
  }
 ]
