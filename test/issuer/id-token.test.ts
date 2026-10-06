@@ -22,9 +22,9 @@ async function ours(alg: "ES256" | "RS256" = "ES256") {
 
 const ctx = {} as GenericEndpointContext;
 
-async function outcome(token: string, jwtOptions: JwtOptions, o: { clientId?: string; now?: number } = {}): Promise<string> {
+async function outcome(token: string, jwtOptions: JwtOptions, o: { clientId?: string; now?: number; maxAgeSeconds?: number } = {}): Promise<string> {
   try {
-    const c = await verifyOwnIdToken(ctx, token, { issuer: ISS, clientId: o.clientId ?? CLIENT, jwtOptions, now: o.now ?? NOW });
+    const c = await verifyOwnIdToken(ctx, token, { issuer: ISS, clientId: o.clientId ?? CLIENT, jwtOptions, now: o.now ?? NOW, ...(o.maxAgeSeconds !== undefined ? { maxAgeSeconds: o.maxAgeSeconds } : {}) });
     return `ok:${c.sub}`;
   } catch (e) {
     if (e instanceof IdJagRefusal) return `${e.reason}:${e.detail ?? ""}`;
@@ -60,6 +60,18 @@ describe("verifyOwnIdToken", () => {
     expect(await outcome(await k.sign({ exp: NOW + 1 }), k.jwtOptions)).toBe("ok:user-1");
     expect(await outcome(await k.sign({ iat: NOW + 61 }), k.jwtOptions)).toBe("invalid_subject_token:iat in the future");
     expect(await outcome(await k.sign({ iat: NOW + 60 }), k.jwtOptions)).toBe("ok:user-1");
+  });
+
+  it("age: iat older than maxAgeSeconds (default 3600) is subject_token_expired although exp is later; no iat is refused", async () => {
+    const k = await ours();
+    const later = { exp: NOW + 36_000 };
+    expect(await outcome(await k.sign({ ...later, iat: NOW - 3600 }), k.jwtOptions)).toBe("ok:user-1");
+    expect(await outcome(await k.sign({ ...later, iat: NOW - 3601 }), k.jwtOptions)).toBe("subject_token_expired:older than 3600 s");
+    expect(await outcome(await k.sign({ ...later, iat: NOW - 60 }), k.jwtOptions, { maxAgeSeconds: 60 })).toBe("ok:user-1");
+    expect(await outcome(await k.sign({ ...later, iat: NOW - 61 }), k.jwtOptions, { maxAgeSeconds: 60 })).toBe("subject_token_expired:older than 60 s");
+    // Like exp, the age depends on the token only, so it is checked before the issuer.
+    expect(await outcome(await k.sign({ ...later, iat: NOW - 3601, iss: "https://other.example" }), k.jwtOptions)).toBe("subject_token_expired:older than 3600 s");
+    expect(await outcome(await k.sign({ ...later, iat: undefined }), k.jwtOptions)).toBe("invalid_subject_token:claims: iat");
   });
 
   it("refuses a symmetric algorithm even if a (misconfigured) key source hands over an oct key", async () => {

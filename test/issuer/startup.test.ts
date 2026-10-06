@@ -60,9 +60,18 @@ describe("startup checks", () => {
       { registry: { enabled: "yes" } },
       { auditLog: { retentionDays: 0 } },
       { sweepIntervalSeconds: Number.POSITIVE_INFINITY },
+      { maxIdTokenAgeSeconds: 59 },
+      { maxIdTokenAgeSeconds: 86_401 },
+      { maxIdTokenAgeSeconds: 600.5 },
+      { maxIdTokenAgeSeconds: Number.NaN },
+      { maxIdTokenAgeSeconds: "3600" },
+      { blocks: { canManage: true } },
+      { blocks: { enabled: true } },
     ]) {
       expect(() => resolveIssuerOptions(bad as never), JSON.stringify(bad)).toThrow(/idJagIssuer: invalid options/);
     }
-    expect(resolveIssuerOptions({})).toMatchObject({ defaultLifetimeSeconds: 300, allowPublicClients: false, registryEnabled: false, cacheSeconds: 60 });
+    expect(resolveIssuerOptions({})).toMatchObject({ defaultLifetimeSeconds: 300, allowPublicClients: false, registryEnabled: false, cacheSeconds: 60, maxIdTokenAgeSeconds: 3600 });
+    expect(resolveIssuerOptions({ maxIdTokenAgeSeconds: 60 }).maxIdTokenAgeSeconds).toBe(60);
+    expect(resolveIssuerOptions({ maxIdTokenAgeSeconds: 86_400 }).maxIdTokenAgeSeconds).toBe(86_400);
   });
 });

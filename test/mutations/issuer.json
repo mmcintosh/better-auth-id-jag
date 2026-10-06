@@ -237,7 +237,7 @@
  {
   "name": "S6 iat in the future accepted",
   "file": "src/issuer/subject/id-token.ts",
-  "a": "  if (claims.iat !== undefined && claims.iat - IAT_SKEW_SECONDS > expected.now) bad(\"iat in the future\");\n",
+  "a": "  if (claims.iat - IAT_SKEW_SECONDS > expected.now) bad(\"iat in the future\");\n",
   "b": "",
   "paths": [
    "test/issuer/id-token.test.ts"
@@ -643,8 +643,8 @@
  {
   "name": "API canManage truthy allows",
   "file": "src/issuer/registry.ts",
-  "a": "    allowed = (await canManage({ user, session: s.session })) === true;",
-  "b": "    allowed = !!(await canManage({ user, session: s.session }));",
+  "a": "      allowed = (await d.canManage({ user, session: s.session })) === true;",
+  "b": "      allowed = !!(await d.canManage({ user, session: s.session }));",
   "paths": [
    "test/issuer/registry.test.ts"
   ]
@@ -652,8 +652,8 @@
  {
   "name": "API canManage throw allows",
   "file": "src/issuer/registry.ts",
-  "a": "    ctx.context.logger.error(\"[id-jag] registry.canManage threw; denied\", e);",
-  "b": "    allowed = true;",
+  "a": "      ctx.context.logger.error(`[id-jag] ${d.name} threw; denied`, e);",
+  "b": "      allowed = true;",
   "paths": [
    "test/issuer/registry.test.ts"
   ]
@@ -1061,8 +1061,8 @@
  {
   "name": "B unknown jti blocked (create-from-jti)",
   "file": "src/issuer/registry.ts",
-  "a": "        if (!row || row.key !== key) throw fail(\"NOT_FOUND\", \"NOT_FOUND\");\n",
-  "b": "",
+  "a": "        if (!issued) throw fail(\"NOT_FOUND\", \"NOT_FOUND\", { message: state.options.auditLog ? JTI_NOT_FOUND.withAudit : JTI_NOT_FOUND.withoutAudit });\n",
+  "b": "        if (!issued) return ctx.json({ block: await create(ctx, who, parse({ userId: ctx.body.jti, reason: ctx.body.reason })) });\n",
   "paths": [
    "test/issuer/blocks.test.ts"
   ]
@@ -1088,7 +1088,7 @@
  {
   "name": "B API without access control (actor not checked on create)",
   "file": "src/issuer/registry.ts",
-  "a": "      const who = await actor(ctx, state);\n      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });",
+  "a": "      const who = await actor(ctx, state, \"blocks\");\n      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });",
   "b": "      const who = { id: \"anyone\" };\n      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });",
   "paths": [
    "test/issuer/blocks.test.ts"
@@ -1097,8 +1097,8 @@
  {
   "name": "B API not mounted without the registry",
   "file": "src/issuer/plugin.ts",
-  "a": "    ...(canManage ? adminEndpoints(state) : {}),",
-  "b": "    ...(canManage && resolved.registryEnabled ? adminEndpoints(state) : {}),",
+  "a": "    ...(manageBlocks ? blockEndpoints(state) : {}),",
+  "b": "    ...(manageBlocks && resolved.registryEnabled ? blockEndpoints(state) : {}),",
   "paths": [
    "test/issuer/blocks.test.ts"
   ]
@@ -1128,6 +1128,231 @@
   "b": "  return `${(ctx.context as unknown as { baseURL: string }).baseURL}${Math.random() > 2 ? \"\" : \"/\"}`.replace(/\\/$/, (provider.options as { disableJwtPlugin?: boolean }).disableJwtPlugin ? \"\" : \"/\");",
   "paths": [
    "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 ID token age not capped",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (expected.now - claims.iat > maxAge) refuse(\"subject_token_expired\", `older than ${maxAge} s`);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts",
+   "test/issuer/subject-age.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 age cap off by one (an iat exactly maxAge old refused)",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (expected.now - claims.iat > maxAge)",
+  "b": "  if (expected.now - claims.iat >= maxAge)",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 iat optional again (no age to measure accepted)",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  iat: seconds,\n",
+  "b": "  iat: seconds.optional(),\n",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 maxIdTokenAgeSeconds ignored (always the default)",
+  "file": "src/issuer/exchange.ts",
+  "a": "maxAgeSeconds: options.maxIdTokenAgeSeconds }",
+  "b": "maxAgeSeconds: 3600 }",
+  "paths": [
+   "test/issuer/subject-age.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 maxIdTokenAgeSeconds not validated",
+  "file": "src/issuer/options.ts",
+  "a": "  maxIdTokenAgeSeconds: intIn(MIN_MAX_ID_TOKEN_AGE_SECONDS, MAX_MAX_ID_TOKEN_AGE_SECONDS).optional(),",
+  "b": "  maxIdTokenAgeSeconds: z.unknown().optional(),",
+  "paths": [
+   "test/issuer/startup.test.ts"
+  ]
+ },
+ {
+  "name": "D-B22 age cap checked after the issuer (no longer token-only)",
+  "edits": [
+   {
+    "file": "src/issuer/subject/id-token.ts",
+    "a": "  if (expected.now - claims.iat > maxAge) refuse(\"subject_token_expired\", `older than ${maxAge} s`);\n",
+    "b": ""
+   },
+   {
+    "file": "src/issuer/subject/id-token.ts",
+    "a": "  if (claims.iss !== expected.issuer) bad(\"issuer\");\n",
+    "b": "  if (claims.iss !== expected.issuer) bad(\"issuer\");\n  if (expected.now - claims.iat > maxAge) refuse(\"subject_token_expired\", `older than ${maxAge} s`);\n"
+   }
+  ],
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "D-B23 sid session not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (claims.sid !== undefined && !(await sessionLive(ctx, claims.sid, expected.now))) bad(\"session ended\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/subject-age.test.ts"
+  ]
+ },
+ {
+  "name": "D-B23 expired session counts as live",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  return !Number.isNaN(exp) && exp > now * 1000;",
+  "b": "  return true;",
+  "paths": [
+   "test/issuer/subject-age.test.ts"
+  ]
+ },
+ {
+  "name": "D-B23 session id not compared exactly",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (!row || String(row.id) !== sid) return false;",
+  "b": "  if (!row) return false;",
+  "paths": [
+   "test/issuer/subject-age.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Defence in depth: SQLite and D1 compare ids case-sensitively, so the database already matches exactly; it matters on a case-folding collation (MySQL's default)."
+ },
+ {
+  "name": "D-B25 no audit-log fallback",
+  "file": "src/issuer/registry.ts",
+  "a": "  if (!state.options.auditLog) return null;\n",
+  "b": "  return null;\n",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B25 fallback without auditLog (reads a table the host may not have)",
+  "file": "src/issuer/registry.ts",
+  "a": "  if (!state.options.auditLog) return null;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts",
+   "test/issuer/client.test.ts"
+  ]
+ },
+ {
+  "name": "D-B25 fallback takes any event type (query and in-memory)",
+  "edits": [
+   {
+    "file": "src/issuer/registry.ts",
+    "a": "      { field: \"type\", value: \"id-jag.issued\" },\n",
+    "b": ""
+   },
+   {
+    "file": "src/issuer/registry.ts",
+    "a": "rows.find((r) => r.type === \"id-jag.issued\" && r.jti === jti)",
+    "b": "rows.find((r) => r.jti === jti)"
+   }
+  ],
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B25 fallback type checked in the query only",
+  "file": "src/issuer/registry.ts",
+  "a": "rows.find((r) => r.type === \"id-jag.issued\" && r.jti === jti)",
+  "b": "rows.find((r) => r.jti === jti)",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Half of a pair: the query's where clause already selects id-jag.issued; both off is caught."
+ },
+ {
+  "name": "D-B25 fallback jti not compared exactly in memory",
+  "file": "src/issuer/registry.ts",
+  "a": "rows.find((r) => r.type === \"id-jag.issued\" && r.jti === jti)",
+  "b": "rows.find((r) => r.type === \"id-jag.issued\")",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Defence in depth: SQLite and D1 compare case-sensitively, so the query already matches the jti exactly; it matters on a case-folding collation."
+ },
+ {
+  "name": "D-B25 an issued record missing a field widens the block",
+  "file": "src/issuer/registry.ts",
+  "a": "typeof clientId === \"string\" && clientId !== \"\" && ",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B25 404 without the explanation",
+  "file": "src/issuer/registry.ts",
+  "a": ", { message: state.options.auditLog ? JTI_NOT_FOUND.withAudit : JTI_NOT_FOUND.withoutAudit }",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts",
+   "test/issuer/client.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 blocks mounted with registry.canManage",
+  "file": "src/issuer/plugin.ts",
+  "a": "    ...(manageBlocks ? blockEndpoints(state) : {}),",
+  "b": "    ...(manageBlocks || manageRegistry ? blockEndpoints(state) : {}),",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 blocks decided by registry.canManage too",
+  "file": "src/issuer/registry.ts",
+  "a": "...(registry && area !== \"blocks\" ?",
+  "b": "...(registry ?",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 registry decided by blocks.canManage too",
+  "file": "src/issuer/registry.ts",
+  "a": "...(blocks && area !== \"registry\" ?",
+  "b": "...(blocks ?",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 audit not mounted with blocks.canManage alone",
+  "file": "src/issuer/plugin.ts",
+  "a": "    ...(manageRegistry || manageBlocks ? auditEndpoints(state) : {}),",
+  "b": "    ...(manageRegistry ? auditEndpoints(state) : {}),",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 a later decider overrides an allow",
+  "file": "src/issuer/registry.ts",
+  "a": "    if (allowed) break;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "D-B24 audit open to anyone",
+  "file": "src/issuer/registry.ts",
+  "a": "        await actor(ctx, state, \"audit\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
   ]
  }
 ]

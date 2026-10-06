@@ -1,20 +1,24 @@
 // Blocks (D-B16): an administrator stops further ID-JAGs for a user, a client, an audience or a
 // combination. Checked before every policy source, for both subject token types; managed over the
-// admin API with the registry's access control, every change an id-jag.admin event.
+// admin API under `blocks.canManage` (D-B24), every change an id-jag.admin event.
 import { decodeJwt } from "jose";
 import { describe, expect, it } from "vitest";
+import { AUDIT_MODEL, auditRow, JTI_MODEL, jtiKey, sweepJtis } from "../../src/core";
 import { type IdJagIssuerOptions, BLOCK_MODEL } from "../../src/issuer";
 import { type Browser, createClient, createIssuerHost, exchange, exchangeRefresh, getTokens, ISSUER, type IssuerHost, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
 const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
 const canManage = ({ user }: { user: Record<string, unknown> }) => user.role === "admin";
 const OTHER_AUDIENCE = "https://other-rs.example";
+const AUDIENCE_OF_OTHERS = "https://rs.example/api/auth";
 
-async function host(o: { registry?: Partial<NonNullable<IdJagIssuerOptions["registry"]>> } = {}) {
+async function host(o: { registry?: NonNullable<IdJagIssuerOptions["registry"]>; auditLog?: boolean } = {}) {
   return createIssuerHost({
     issuer: {
       authorize: () => ({ decision: "allow", scopes: ["read"] }),
-      registry: { enabled: false, canManage, ...o.registry } as NonNullable<IdJagIssuerOptions["registry"]>,
+      blocks: { canManage },
+      ...(o.registry ? { registry: o.registry } : {}),
+      ...(o.auditLog ? { auditLog: { retentionDays: 7 } } : {}),
     },
   });
 }
@@ -207,6 +211,52 @@ describe("blocks: the API", () => {
     expect((await api(w.admin.browser, "/blocks/create-from-jti", { jti, reason: "" })).status).toBe(400);
   });
 
+  it("create-from-jti after the jti row was swept: found in the audit log (with auditLog)", async () => {
+    const h = await host({ auditLog: true });
+    const w = await world(h);
+    const jti = decodeJwt((await exchange(h, w.a.client, w.a.idToken)).body.access_token as string).jti as string;
+    // The jti row expires minutes after the token (exp + 5 min); sweep as if that time had come.
+    await sweepJtis(h.ctx.adapter, new Date(Date.now() + 3600_000));
+    expect(await h.ctx.adapter.findMany({ model: JTI_MODEL, where: [{ field: "key", value: await jtiKey("issued", ISSUER, jti) }] })).toEqual([]);
+    const r = await api(w.admin.browser, "/blocks/create-from-jti", { jti, reason: "seen in the audit log" });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.block).toMatchObject({ userId: w.a.user.id, clientId: w.a.client.client_id, audience: "https://rs.example/api/auth", reason: "seen in the audit log" });
+    expect(await w.status("a")).toEqual([400, 400]);
+    expect(await w.status("a", OTHER_AUDIENCE)).toEqual([200, 200]);
+  });
+
+  it("create-from-jti uses only id-jag.issued audit rows (not a jti a receiver accepted or refused)", async () => {
+    const h = await host({ auditLog: true });
+    const admin = await signUp(h, { role: "admin" });
+    const accepted = `accepted-${crypto.randomUUID()}`;
+    const refused = `refused-${crypto.randomUUID()}`;
+    const at = new Date();
+    await h.ctx.adapter.create({ model: AUDIT_MODEL, data: auditRow({ type: "id-jag.accepted", at, userId: "someone", clientId: "some-client", jti: accepted, scopes: [], iss: "https://other-idp.example", sub: "s" }, 7) });
+    // A refusal row has every column a block needs: only its type keeps it out.
+    await h.ctx.adapter.create({ model: AUDIT_MODEL, data: auditRow({ type: "id-jag.refused", at, side: "receiver", reason: "replay", authenticated: true, clientId: "some-client", userId: "someone", audience: AUDIENCE_OF_OTHERS, jti: refused }, 7) });
+    for (const jti of [accepted, refused]) {
+      const r = await api(admin.browser, "/blocks/create-from-jti", { jti, fields: ["userId"], reason: "r" });
+      expect(r.status, JSON.stringify(r.body)).toBe(404);
+    }
+    // An issued row missing a field is unusable, not a wider block (the missing field must not become "any").
+    const partial = `partial-${crypto.randomUUID()}`;
+    const issued = auditRow({ type: "id-jag.issued", at, userId: "someone", clientId: "some-client", clientIdAtResource: "x", audience: AUDIENCE_OF_OTHERS, scopes: [], jti: partial, expiresAt: at }, 7);
+    await h.ctx.adapter.create({ model: AUDIT_MODEL, data: { ...issued, clientId: null } });
+    expect((await api(admin.browser, "/blocks/create-from-jti", { jti: partial, fields: ["userId", "clientId"], reason: "r" })).status).toBe(404);
+    expect(await h.ctx.adapter.findMany({ model: BLOCK_MODEL, where: [{ field: "createdBy", value: admin.id }] })).toEqual([]);
+  });
+
+  it("without the audit log, a swept jti is a 404 that says why", async () => {
+    const h = await host();
+    const w = await world(h);
+    const jti = decodeJwt((await exchange(h, w.a.client, w.a.idToken)).body.access_token as string).jti as string;
+    await sweepJtis(h.ctx.adapter, new Date(Date.now() + 3600_000));
+    const r = await api(w.admin.browser, "/blocks/create-from-jti", { jti, reason: "r" });
+    expect([r.status, r.body.code]).toEqual([404, "ID_JAG_NOT_FOUND"]);
+    expect(r.body.message).toMatch(/expire minutes after the token/);
+    expect(r.body.message).toMatch(/enable auditLog/);
+  });
+
   it("validation: at least one of userId, clientId, audience; a reason; an https audience; a future expiry; no unknown fields", async () => {
     const h = await host();
     const admin = await signUp(h, { role: "admin" });
@@ -242,7 +292,7 @@ describe("blocks: the API", () => {
   });
 
   it("every create and delete emits id-jag.admin with the actor (and reaches the audit table)", async () => {
-    const h = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: [] }), registry: { enabled: false, canManage }, auditLog: { retentionDays: 7 } } });
+    const h = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: [] }), blocks: { canManage }, auditLog: { retentionDays: 7 } } });
     const admin = await signUp(h, { role: "admin" });
     const id = (await api(admin.browser, "/blocks/create", { block: { clientId: "c-1", reason: "r" } })).body.block.id as string;
     await api(admin.browser, "/blocks/delete", { id });
@@ -255,7 +305,7 @@ describe("blocks: the API", () => {
     expect(events.filter((e) => e.details?.targetId === id).map((e) => e.actorUserId)).toEqual([admin.id, admin.id]);
   });
 
-  it("mounted with canManage even when the registry is disabled (its routes aren't); not mounted without canManage", async () => {
+  it("mounted with blocks.canManage, without the registry (whose routes aren't); not mounted without it, even with registry.canManage", async () => {
     const h = await host();
     const admin = await signUp(h, { role: "admin" });
     expect((await api(admin.browser, "/blocks")).status).toBe(200);
@@ -263,6 +313,39 @@ describe("blocks: the API", () => {
     const bare = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: [] }) } });
     const admin2 = await signUp(bare, { role: "admin" });
     expect((await api(admin2.browser, "/blocks")).status).toBe(404);
+    const registryOnly = await createIssuerHost({ issuer: { registry: { enabled: true, canManage, cacheSeconds: 0 } } });
+    const admin3 = await signUp(registryOnly, { role: "admin" });
+    expect((await api(admin3.browser, "/resource-servers")).status).toBe(200);
+    expect((await api(admin3.browser, "/blocks")).status).toBe(404);
+    expect((await api(admin3.browser, "/blocks/create", { block: { userId: admin3.id, reason: "r" } })).status).toBe(404);
+  });
+
+  it("blocks and the registry each have their own access decision; the audit log is open to either", async () => {
+    const h = await createIssuerHost({
+      issuer: {
+        registry: { enabled: true, canManage, cacheSeconds: 0 },
+        blocks: { canManage: ({ user }) => user.role === "security" },
+        auditLog: { retentionDays: 7 },
+      },
+    });
+    const admin = await signUp(h, { role: "admin" });
+    const security = await signUp(h, { role: "security" });
+    const anyone = await signUp(h);
+    expect((await api(admin.browser, "/resource-servers")).status).toBe(200);
+    expect([(await api(admin.browser, "/blocks")).status, (await api(admin.browser, "/blocks/create", { block: { userId: anyone.id, reason: "r" } })).status]).toEqual([403, 403]);
+    expect((await api(security.browser, "/resource-servers")).status).toBe(403);
+    expect((await api(security.browser, "/blocks/create", { block: { userId: anyone.id, reason: "r" } })).status).toBe(200);
+    expect((await api(admin.browser, "/audit")).status).toBe(200);
+    expect((await api(security.browser, "/audit")).status).toBe(200);
+    expect((await api(anyone.browser, "/audit")).status).toBe(403);
+  });
+
+  it("the audit log with only blocks.canManage: allowed by it alone", async () => {
+    const h = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: [] }), blocks: { canManage }, auditLog: { retentionDays: 7 } } });
+    const admin = await signUp(h, { role: "admin" });
+    const anyone = await signUp(h);
+    expect((await api(admin.browser, "/audit")).status).toBe(200);
+    expect((await api(anyone.browser, "/audit")).status).toBe(403);
   });
 });
 

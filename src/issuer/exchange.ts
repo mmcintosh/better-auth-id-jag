@@ -182,7 +182,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     // Our ID tokens carry the provider's raw issuer (jwt.issuer ?? baseURL), which getIssuer may
     // normalise (https, no trailing slash): check them against what the provider actually signs.
     const idTokenIssuer = jwtOptions?.jwt?.issuer ?? ctx.context.baseURL;
-    const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer: idTokenIssuer, clientId: client.clientId, jwtOptions, now });
+    const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer: idTokenIssuer, clientId: client.clientId, jwtOptions, now, maxAgeSeconds: options.maxIdTokenAgeSeconds });
     const user = (await ctx.context.internalAdapter.findUserById(subject.sub)) as (User & Record<string, unknown>) | null;
     if (!user || user.id !== subject.sub) return refuse("unknown_subject");
     seen.userId = user.id;
@@ -280,7 +280,7 @@ async function verifySubject(
   input: OAuthExtensionGrantHandlerInput,
   type: string,
   token: string,
-  e: { issuer: string; clientId: string; jwtOptions: JwtOptions | undefined; now: number },
+  e: { issuer: string; clientId: string; jwtOptions: JwtOptions | undefined; now: number; maxAgeSeconds: number },
 ): Promise<SubjectTokenClaims> {
   if (type === REFRESH_TOKEN_TOKEN_TYPE) {
     const rt = await verifyOwnRefreshToken(input.ctx, token, { clientId: e.clientId, now: e.now, opts: input.opts, hashToken: input.provider.hashToken });
