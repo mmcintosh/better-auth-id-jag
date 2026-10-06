@@ -21,5 +21,5 @@ pnpm install --ignore-scripts
 node e2e.mjs
 ```
 
-It needs `../better-auth-saml-idp` checked out next to this repository with assertion exchange in its `dist`
-(better-auth-saml-idp ≥ 1.2.0, or its `feat/assertion-exchange` branch before the release).
+It installs better-auth-saml-idp **1.2.0 from npm**, the first release with assertion exchange. To test an
+unreleased branch instead, point the dependency at `file:../../../../better-auth-saml-idp`.

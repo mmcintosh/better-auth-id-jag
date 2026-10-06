@@ -8,9 +8,16 @@
     "@better-auth/oauth-provider": "1.7.6",
     "@better-auth/mcp": "1.7.6",
     "better-auth-id-jag": "file:../../..",
-    "better-auth-saml-idp": "file:../../../../better-auth-saml-idp",
+    "better-auth-saml-idp": "1.2.0",
     "@xmldom/xmldom": "0.8.11",
     "jose": "6.2.12"
   },
-  "pnpm": { "overrides": { "better-auth": "1.7.6", "@better-auth/core": "1.7.6", "@better-auth/oauth-provider": "1.7.6", "@better-auth/utils": "0.4.2" } }
+  "pnpm": {
+    "overrides": {
+      "better-auth": "1.7.6",
+      "@better-auth/core": "1.7.6",
+      "@better-auth/oauth-provider": "1.7.6",
+      "@better-auth/utils": "0.4.2"
+    }
+  }
 }

@@ -433,3 +433,14 @@ adapter's `abortTransaction` after a failed commit then masks the real error. On
 ID-JAG code is involved: it happens in the test's own client registration. The matrix runs MongoDB with
 `transaction: false`; our code uses no transactions, and the unique keys under test are MongoDB's indexes. Worth an
 upstream issue, drafted for approval, after a minimal reproduction.
+
+## D-020: better-auth-saml-idp 1.2.0 (2026-10-06)
+
+The maintainer released better-auth-saml-idp **1.2.0** (assertion exchange, unchanged from `2d54cb4`; npm, with SLSA
+provenance).
+- **Peers:** this package lists `better-auth-saml-idp >=1.2.0 <2` as an **optional** peer, with `@better-auth/mcp`
+  and `@better-auth/sso` (`>=1.7.5 <1.8.0`), also optional. None is imported at runtime: the SAML IdP is detected
+  through the plugin context, and mcp and sso by plugin id.
+- **The cross-repository test** (`test/interop/saml-idp-e2e`) now installs 1.2.0 from npm. Every check passes
+  against it.
+- `pnpm pack:check` is still clean with the new peers.
