@@ -1,0 +1,10 @@
+private/
+node_modules/
+dist/
+*.tgz
+.env*
+!.env.example
+.dev.vars
+.wrangler/
+plans/
+HANDOFF-*.md

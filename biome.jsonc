@@ -1,0 +1,33 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+	"files": {
+		"includes": [
+			"src/**",
+			"test/**",
+			"scripts/**/*.mjs"
+		]
+	},
+	"formatter": { "enabled": false },
+	"assist": { "enabled": false },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"security": {
+				"preset": "recommended",
+				// 60, not the default 41, as in better-auth-saml-idp (where 60 was checked to still catch an
+				// RSA private-key body and an AWS-style key). gitleaks (CI) covers the rest.
+				"noSecrets": { "level": "error", "options": { "entropyThreshold": 60 } }
+			},
+			"suspicious": { "noExplicitAny": "off" }
+		}
+	},
+	"overrides": [
+		{
+			// Tests assert first, then dereference; `!` after an expect() is the idiom.
+			"includes": ["test/**"],
+			"linter": { "rules": { "style": { "noNonNullAssertion": "off" } } }
+		}
+	]
+}
