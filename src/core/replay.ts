@@ -95,3 +95,16 @@ export async function hasJti(adapter: JtiAdapter, side: JtiSide, iss: string, jt
 export async function sweepJtis(adapter: JtiAdapter, now = new Date()): Promise<void> {
   await adapter.deleteMany({ model: JTI_MODEL, where: [{ field: "expiresAt", value: now, operator: "lt" }] });
 }
+
+/**
+ * Adapters known not to enforce UNIQUE: on them, single use (S3) silently fails. Better Auth's
+ * memory adapter is the one that ships; a MongoDB without its indexes built is the other case, and
+ * can't be detected without a write, so it's documented instead (D-007, D-009).
+ */
+const NO_UNIQUE_ADAPTERS = new Set(["memory"]);
+
+/** Logs a warning at startup when the host's adapter can't enforce the jti table's unique key. */
+export function warnIfReplayUnsafe(ctx: { adapter: { id: string }; logger: { warn(message: string): void } }, plugin: string): void {
+  if (NO_UNIQUE_ADAPTERS.has(ctx.adapter.id))
+    ctx.logger.warn(`[id-jag] ${plugin}: the "${ctx.adapter.id}" adapter doesn't enforce unique keys, so ID-JAG single use (replay protection) does not hold. Use a real database outside development.`);
+}

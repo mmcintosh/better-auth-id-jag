@@ -8,7 +8,7 @@
 import type { AuthContext, BetterAuthPlugin } from "better-auth";
 import type { JwtOptions } from "better-auth/plugins";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
-import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXCHANGE_GRANT } from "../core";
+import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXCHANGE_GRANT, warnIfReplayUnsafe } from "../core";
 import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
@@ -71,6 +71,7 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
     init(ctx: AuthContext) {
       checkIssuerHost(ctx, state);
       extendOAuthProvider(ctx, extension);
+      warnIfReplayUnsafe(ctx, "idJagIssuer");
     },
     schema: issuerSchema({ registry: resolved.registryEnabled, auditLog: resolved.auditLog !== undefined }),
     endpoints,

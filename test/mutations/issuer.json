@@ -123,7 +123,9 @@
   "b": "        if (!p.config) {",
   "paths": [
    "test/issuer/registry.test.ts"
-  ]
+  ],
+  "expect": "survive",
+  "why": "Equivalent: a policy row is invalid only when its config does not parse, so the config check decides the same."
  },
  {
   "name": "S1 cache never expires",
@@ -150,7 +152,9 @@
   "b": "",
   "paths": [
    "test/issuer/refusals.test.ts"
-  ]
+  ],
+  "expect": "survive",
+  "why": "Half of a pair: requireCredentials refuses first. Both off is caught (\"S5 both public-client guards off\")."
  },
  {
   "name": "S5 requireCredentials off (defence in depth below it)",
@@ -159,7 +163,9 @@
   "b": "requireCredentials: false",
   "paths": [
    "test/issuer/refusals.test.ts"
-  ]
+  ],
+  "expect": "survive",
+  "why": "Half of a pair: the token_endpoint_auth_method none check refuses next. Both off is caught."
  },
  {
   "name": "S5 both public-client guards off",
@@ -667,7 +673,9 @@
   "b": "  const user = s.user as unknown as (User & Record<string, unknown>) | null;",
   "paths": [
    "test/issuer/registry.test.ts"
-  ]
+  ],
+  "expect": "survive",
+  "why": "Half of a pair: sensitiveSessionMiddleware already reads the user from the database. Both off is caught."
  },
  {
   "name": "API resource server with policies deleted",
@@ -712,7 +720,9 @@
   "b": "        lookupKey: { type: \"string\", required: true, input: false },",
   "paths": [
    "test/issuer/registry.test.ts"
-  ]
+  ],
+  "expect": "survive",
+  "why": "Half of a pair: the named table-level unique index still enforces it. Both off is caught."
  },
  {
   "name": "API stored lookupKey not re-validated",
@@ -730,6 +740,42 @@
   "b": "      if (reason && false)\n        emit(ctx, options, {",
   "paths": [
    "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "API pair: plain sessionMiddleware and the session's user trusted",
+  "edits": [
+   {
+    "file": "src/issuer/registry.ts",
+    "a": "import { APIError, createAuthEndpoint, sensitiveSessionMiddleware } from \"better-auth/api\";",
+    "b": "import { APIError, createAuthEndpoint, sessionMiddleware as sensitiveSessionMiddleware } from \"better-auth/api\";"
+   },
+   {
+    "file": "src/issuer/registry.ts",
+    "a": "  const user = (await ctx.context.internalAdapter.findUserById(s.user.id)) as (User & Record<string, unknown>) | null;",
+    "b": "  const user = s.user as unknown as (User & Record<string, unknown>) | null;"
+   }
+  ],
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API pair: lookupKey field-level unique and the named index both dropped",
+  "edits": [
+   {
+    "file": "src/issuer/schema.ts",
+    "a": "        lookupKey: { type: \"string\", required: true, unique: true, input: false },",
+    "b": "        lookupKey: { type: \"string\", required: true, input: false },"
+   },
+   {
+    "file": "src/issuer/schema.ts",
+    "a": "      indexes: [{ fields: [\"lookupKey\"], unique: true, name: \"id_jag_resource_server_lookup_key_unique\" }],",
+    "b": "      indexes: [],"
+   }
+  ],
+  "paths": [
+   "test/issuer/registry.test.ts"
   ]
  }
 ]

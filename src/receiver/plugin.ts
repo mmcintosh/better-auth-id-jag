@@ -4,7 +4,7 @@
 // `init` (docs/phase-0.md). Options are validated when the plugin is built.
 import type { BetterAuthPlugin } from "better-auth";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
-import { auditSchema, ID_JAG_GRANT_PROFILE, JWT_BEARER_GRANT, jtiSchema, RECEIVER_METADATA_FIELD } from "../core";
+import { auditSchema, ID_JAG_GRANT_PROFILE, JWT_BEARER_GRANT, jtiSchema, RECEIVER_METADATA_FIELD, warnIfReplayUnsafe } from "../core";
 import { handleIdJagGrant, registeredResources } from "./grant";
 import { type IdJagGrantOptions, type ResolvedReceiverOptions, resolveReceiverOptions } from "./options";
 import { trustedIssuerSchema } from "./schema";
@@ -25,6 +25,7 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
     id: RECEIVER_PLUGIN_ID,
     init(ctx) {
       extendOAuthProvider(ctx, idJagGrantExtension(resolved));
+      warnIfReplayUnsafe(ctx, "idJagGrant");
       if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs. The draft says this grant SHOULD be for confidential clients only.");
       if (resolved.trustedIssuers.length === 0 && !resolved.sso && !resolved.trustedIssuerTable) ctx.logger.warn("[id-jag] no trusted issuers configured: every ID-JAG will be refused.");
       if (resolved.sso && !ctx.hasPlugin("sso")) ctx.logger.warn("[id-jag] sso trust is on but the sso plugin is not installed: no sso providers will be trusted.");

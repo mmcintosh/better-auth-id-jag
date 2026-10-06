@@ -77,3 +77,32 @@ describe("jti single use (S3)", () => {
     expect(JTI_MODEL).toBe("idJagJti");
   });
 });
+
+describe("adapters that can't enforce single use (D-009)", () => {
+  it("warns on the memory adapter, not on a real database", async () => {
+    const { warnIfReplayUnsafe } = await import("../../src/core");
+    const warnings: string[] = [];
+    const logger = { warn: (m: string) => void warnings.push(m) };
+    warnIfReplayUnsafe({ adapter: { id: "memory" }, logger }, "idJagGrant");
+    warnIfReplayUnsafe({ adapter: { id: "kysely" }, logger }, "idJagGrant");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/memory.*single use/);
+  });
+
+  it("both plugins call it at startup", async () => {
+    const { betterAuth } = await import("better-auth");
+    const { jwt } = await import("better-auth/plugins");
+    const { oauthProvider } = await import("@better-auth/oauth-provider");
+    const { idJagGrant, idJagIssuer } = await import("../../src");
+    const warnings: string[] = [];
+    const auth = betterAuth({
+      baseURL: "http://localhost:3000",
+      secret: "test-secret-that-is-at-least-32-characters-long",
+      telemetry: { enabled: false },
+      logger: { level: "warn", log: (level, message) => void (level === "warn" && warnings.push(message)) },
+      plugins: [jwt(), oauthProvider({ loginPage: "/l", consentPage: "/c" }) as never, idJagIssuer({ authorize: () => ({ decision: "deny" }) }), idJagGrant({ trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }] })],
+    });
+    await auth.$context;
+    expect(warnings.filter((w) => w.includes("doesn't enforce unique keys"))).toHaveLength(2);
+  });
+});
