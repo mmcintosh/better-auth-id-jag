@@ -354,3 +354,24 @@ Each test was written first and seen to fail.
 - **Evidence:** 668 tests pass (334 per runtime). The mutation lists exit 0: receiver 121 (117 caught, 4 expected),
   issuer 141 (133 caught, 8 expected), each reason recorded in the list. Typecheck and lint are clean. The demo Workers
   were redeployed, and the scripted flow passed afterwards.
+
+## D-016: Phase 3 decisions (2026-10-06) — the maintainer's
+
+On the Phase 3 design (`plans/phase-3-design.md`, private):
+1. **Both SAML paths:**
+   - **(a)** assertion → ID-JAG directly;
+   - **(b)** assertion → refresh token (draft -04 §4.5, RFC 8693, what Okta and the MCP extension use), then the
+     existing refresh-token path.
+   - They share one verifier.
+2. **The SP-to-client mapping** lives on the SAML IdP's SP configuration (`tokenExchange: { clientId }`).
+3. **A failed record at SAML sign-in** doesn't fail the sign-in; that assertion just isn't exchangeable.
+4. **The SP's `authorize()` hook** isn't re-run at exchange.
+5. **The sign-in session must still be alive at exchange,** where sessions are in the database.
+6. **Minting `sub_id` at our issuer** is deferred until a receiver needs it.
+
+Also confirmed:
+- **`maxIdTokenAgeSeconds`** defaults to 3600.
+- **The audit route** stays open to either `canManage`.
+- **The `better-auth-saml-idp` side** (the SP opt-in, the record at issuance, `verifyIssuedAssertion` and its 1.2.0
+  minor release) is built by the maintainer's own SAML agent in that repository, from the brief at
+  `private/saml-idp-exchange-brief.md`. This repository builds against the interface frozen in that brief.
