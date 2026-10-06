@@ -1,9 +1,12 @@
 // The ID-JAG's subject → a local user (plan §3.4 step 10), first hit wins:
 // 1. the host's `resolveSubject` hook: link / continue / reject (a throw is a reject: gates fail closed);
-// 2. an account linked with providerId = the trust entry's account provider id (the sso providerId
-//    for sso-trusted issuers) and accountId = `sub`: what `@better-auth/sso` creates at sign-in;
+// then the subject's key (subjectKey): (the trust entry's account provider id, `sub`), or, for an
+// entry with `samlSubjects`, (the matching mapping's accountProviderId, the SAML NameID of `sub_id`),
+// a malformed, transient or unmapped `sub_id` being refused (draft -04 §3.2.2, §9.5; D-A27–D-A30);
+// 2. an account linked under that key: for sso-trusted issuers the sso providerId and `sub`, for a
+//    SAML mapping the sso SAML providerId and the NameID: what `@better-auth/sso` creates at sign-in;
 // 3. the `email` claim, only when the trust entry allows it and the domain is listed or verified;
-//    links the account on success;
+//    links the account (under the same key) on success;
 // 4. JIT provisioning, only when enabled (off by default); a JIT user joins the trust entry's
 //    organization (membership.ts). Users found by 1–3 are left as they are (D-A19);
 // otherwise `unknown_subject`. A banned user is refused whichever way it was found. Every refusal
@@ -15,13 +18,61 @@
 // and after linking, a request that finds it lost removes what it created and continues with the
 // winner's user. Anything unexpected is an audited `subject_rejected`, never an empty 500.
 import type { GenericEndpointContext, User } from "better-auth";
-import { type IdJagClaims, IdJagRefusal, refuse } from "../core";
+import { type IdJagClaims, IdJagRefusal, parseSamlNameIdSubId, refuse, type SamlNameIdSubId } from "../core";
 import { addJitMembership, type MembershipOutcome } from "./membership";
-import type { ResolvedReceiverOptions, SubjectResolution, TrustEntry, TrustedIssuerView } from "./options";
+import { type ResolvedReceiverOptions, type SamlSubjectMapping, type SubjectResolution, TRANSIENT_NAMEID_FORMAT, type TrustEntry, type TrustedIssuerView } from "./options";
 
 export interface ResolvedSubject {
   user: User;
   via: "hook" | "account" | "email" | "jit";
+}
+
+/** The account key a subject is looked up and linked under: (providerId, accountId). */
+export interface SubjectKey {
+  providerId: string;
+  accountId: string;
+  /** Where it came from: the ID-JAG's `sub`, or its SAML NameID `sub_id` through a mapping. */
+  from: "sub" | "sub_id";
+}
+
+/** The log-safe members of a `sub_id` (no nameid), for the refusal detail an administrator configures from. */
+const describeSubId = (s: SamlNameIdSubId): string =>
+  JSON.stringify({ issuer: s.issuer, sp_name_qualifier: s.sp_name_qualifier ?? null, name_qualifier: s.name_qualifier ?? null, nameid_format: s.nameid_format ?? null });
+
+/** Null-safe: a member absent from the mapping must be absent from the `sub_id` too (draft §3.2.2). */
+const sameNamespace = (m: SamlSubjectMapping, s: SamlNameIdSubId): boolean =>
+  m.issuer === s.issuer && m.spNameQualifier === (s.sp_name_qualifier ?? null) && m.nameQualifier === (s.name_qualifier ?? null);
+
+/**
+ * Draft -04 §3.2.2 and §9.5. With no `samlSubjects` on the trust entry, `sub_id` is ignored and the
+ * key is (accountProviderId, sub). Otherwise a SAML NameID `sub_id` must be well formed, not
+ * transient, and match one of this entry's mappings (issuer and both qualifiers, null-safe; the
+ * format if the mapping lists formats): the key is then (mapping.accountProviderId, nameid). Any
+ * failure there is a refusal, never a fallback to `sub`. A `sub_id` that is absent or of another
+ * format falls back to `sub`, unless the entry requires `sub_id`. Only the mappings of the trust
+ * entry that `iss` (already verified) matched are consulted: `sub_id.issuer` never selects trust.
+ */
+export function subjectKey(trust: TrustEntry, claims: IdJagClaims): SubjectKey {
+  const bySub: SubjectKey = { providerId: trust.accountProviderId, accountId: claims.sub, from: "sub" };
+  const mappings = trust.samlSubjects;
+  if (!mappings || mappings.length === 0) return bySub;
+  let subId: SamlNameIdSubId | undefined;
+  try {
+    subId = parseSamlNameIdSubId(claims.sub_id);
+  } catch (e) {
+    if (e instanceof IdJagRefusal) refuse("subject_rejected", `sub_id malformed (${e.detail ?? ""})`);
+    throw e;
+  }
+  if (!subId) {
+    if (trust.requireSubId === true) refuse("subject_rejected", claims.sub_id ? `sub_id required: format ${claims.sub_id.format} not supported` : "sub_id required: absent");
+    return bySub;
+  }
+  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse("subject_rejected", "sub_id: a transient NameID can't identify a user");
+  const mapping = mappings.find((m) => sameNamespace(m, subId));
+  if (!mapping) refuse("subject_rejected", `sub_id not authorized for this issuer: ${describeSubId(subId)}`);
+  if (mapping.nameIdFormats !== null && (subId.nameid_format === undefined || !mapping.nameIdFormats.includes(subId.nameid_format)))
+    refuse("subject_rejected", `sub_id nameid_format not allowed: ${describeSubId(subId)}`);
+  return { providerId: mapping.accountProviderId, accountId: subId.nameid, from: "sub_id" };
 }
 
 function view(t: TrustEntry): TrustedIssuerView {
@@ -101,15 +152,15 @@ interface Linked {
  * duplicates of the winner (same user) are removed by whoever sees them; a request whose own row lost
  * also removes the user and membership it created (JIT), then continues with the winner's user.
  */
-async function converge(ctx: GenericEndpointContext, trust: TrustEntry, sub: string, mine: Linked): Promise<User> {
+async function converge(ctx: GenericEndpointContext, key: SubjectKey, mine: Linked): Promise<User> {
   const { adapter, internalAdapter, logger } = ctx.context;
-  const rows = await linkedAccounts(ctx, trust.accountProviderId, sub);
+  const rows = await linkedAccounts(ctx, key.providerId, key.accountId);
   const winner = rows[0];
   if (!winner) refuse("subject_rejected", "the account just linked is gone");
   if (rows.length === 1) return mine.user;
   const lost = winner.id !== mine.account.id;
   const remove = rows.slice(1).filter((r) => r.userId === winner.userId || (lost && r.id === mine.account.id));
-  logger.warn(`[id-jag] ${rows.length} accounts link one subject of ${trust.accountProviderId} (concurrent first use); keeping the oldest`);
+  logger.warn(`[id-jag] ${rows.length} accounts link one subject of ${key.providerId} (concurrent first use); keeping the oldest`);
   try {
     for (const r of remove) await adapter.delete({ model: "account", where: [{ field: "id", value: r.id }] });
     if (lost && mine.created) {
@@ -167,7 +218,9 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
     if (decision?.action !== "continue") refuse("subject_rejected", "resolveSubject returned no decision");
   }
 
-  const owner = await findAccountOwner(ctx, trust.accountProviderId, claims.sub);
+  // After the hook (which sees the raw claims), before any lookup: which key this subject has here.
+  const key = subjectKey(trust, claims);
+  const owner = await findAccountOwner(ctx, key.providerId, key.accountId);
   if (owner?.kind === "owned") return { user: assertNotBanned(owner.user, now), via: "account" };
   // An account row whose user is gone: never re-link it to someone else by email.
   if (owner?.kind === "orphaned") refuse("unknown_subject", "orphaned account");
@@ -179,15 +232,15 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
     const found = await internal.findUserByEmail(email, { includeAccounts: true });
     if (found) {
       // The user already has an account at this issuer under another subject: not this person's to take.
-      if (found.accounts.some((a) => a.providerId === trust.accountProviderId)) refuse("unknown_subject", "email matches a user linked to another subject");
+      if (found.accounts.some((a) => a.providerId === key.providerId)) refuse("unknown_subject", "email matches a user linked to another subject");
       // Only a local user who proved the address (D-A23): anyone can register an unverified
       // account with a victim's email, and linking it would hand them the victim's ID-JAGs while
       // their password still signs in. As Better Auth's own linking (requireLocalEmailVerified).
       // Refused, not passed on to JIT, which refuses an existing email anyway.
       if (found.user.emailVerified !== true) refuse("unknown_subject", "email fallback: the local user's email is not verified");
       assertNotBanned(found.user, now);
-      const account = await internal.linkAccount({ userId: found.user.id, providerId: trust.accountProviderId, accountId: claims.sub });
-      const user = await converge(ctx, trust, claims.sub, { account, user: found.user });
+      const account = await internal.linkAccount({ userId: found.user.id, providerId: key.providerId, accountId: key.accountId });
+      const user = await converge(ctx, key, { account, user: found.user });
       return { user: assertNotBanned(user, now), via: "email" };
     }
   }
@@ -214,10 +267,11 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
       }
     }
     if (membershipFailed) refuse("subject_rejected", "JIT: organization membership failed");
-    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });
-    const winner = await converge(ctx, trust, claims.sub, { account, user, created: { membershipOrganizationId: membership === "added" ? trust.organizationId : undefined } });
+    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });
+    const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId: membership === "added" ? trust.organizationId : undefined } });
     return { user: assertNotBanned(winner, now), via: "jit" };
   }
 
-  refuse("unknown_subject", claims.sub);
+  // The NameID may be an email address or an enterprise id (§9.6): not in the audit detail.
+  refuse("unknown_subject", key.from === "sub" ? claims.sub : `sub_id at ${key.providerId}`);
 }

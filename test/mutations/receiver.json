@@ -452,7 +452,7 @@
  {
   "name": "resolve: email fallback takes a user linked to another subject",
   "file": "src/receiver/resolve.ts",
-  "a": "if (found.accounts.some((a) => a.providerId === trust.accountProviderId)) refuse(\"unknown_subject\", \"email matches a user linked to another subject\");",
+  "a": "if (found.accounts.some((a) => a.providerId === key.providerId)) refuse(\"unknown_subject\", \"email matches a user linked to another subject\");",
   "b": "",
   "paths": [
    "test/receiver"
@@ -805,13 +805,13 @@
   "edits": [
    {
     "file": "src/receiver/resolve.ts",
-    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n",
+    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n",
     "b": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n"
    },
    {
     "file": "src/receiver/resolve.ts",
     "a": "    let membershipFailed = false;\n",
-    "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    let membershipFailed = false;\n"
+    "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    let membershipFailed = false;\n"
    }
   ],
   "paths": [
@@ -839,8 +839,8 @@
  {
   "name": "options: jitRole without organizationId accepted",
   "file": "src/receiver/options.ts",
-  "a": "  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, \"jitRole needs organizationId\");",
-  "b": ";",
+  "a": "  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, \"jitRole needs organizationId\")\n",
+  "b": "",
   "paths": [
    "test/receiver/options.test.ts",
    "test/receiver/membership.test.ts"
@@ -878,8 +878,8 @@
  {
   "name": "D-A24 lookup: Better Auth's findAccountOwnerByKey (throws on duplicates: an empty 500)",
   "file": "src/receiver/resolve.ts",
-  "a": "const owner = await findAccountOwner(ctx, trust.accountProviderId, claims.sub);",
-  "b": "const owner = await ctx.context.internalAdapter.findAccountOwnerByKey({ providerId: trust.accountProviderId, accountId: claims.sub });",
+  "a": "const owner = await findAccountOwner(ctx, key.providerId, key.accountId);",
+  "b": "const owner = await ctx.context.internalAdapter.findAccountOwnerByKey({ providerId: key.providerId, accountId: key.accountId });",
   "paths": [
    "test/receiver/concurrency.test.ts"
   ]
@@ -914,7 +914,7 @@
  {
   "name": "D-A24 email fallback: no convergence after linking",
   "file": "src/receiver/resolve.ts",
-  "a": "const user = await converge(ctx, trust, claims.sub, { account, user: found.user });",
+  "a": "const user = await converge(ctx, key, { account, user: found.user });",
   "b": "const user = found.user;",
   "paths": [
    "test/receiver/concurrency.test.ts"
@@ -923,7 +923,7 @@
  {
   "name": "D-A24 JIT: no convergence after linking",
   "file": "src/receiver/resolve.ts",
-  "a": "const winner = await converge(ctx, trust, claims.sub, { account, user, created: { membershipOrganizationId: membership === \"added\" ? trust.organizationId : undefined } });",
+  "a": "const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId: membership === \"added\" ? trust.organizationId : undefined } });",
   "b": "const winner = user;",
   "paths": [
    "test/receiver/concurrency.test.ts"
@@ -1122,6 +1122,335 @@
   "b": "  if (unknown.length < 0) throw new Error(`role",
   "paths": [
    "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S1 sub_id: a mapping matched without comparing the SAML issuer",
+  "file": "src/receiver/resolve.ts",
+  "a": "m.issuer === s.issuer && ",
+  "b": "",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S1 sub_id.issuer selects the trust entry (any entry mapping it is a candidate)",
+  "file": "src/receiver/trust.ts",
+  "a": "o.trustedIssuers.filter((t) => t.issuer === iss)",
+  "b": "o.trustedIssuers.filter((t) => t.issuer === iss || (t.samlSubjects ?? []).some((m) => m.issuer === (claims as { sub_id?: { issuer?: string } }).sub_id?.issuer))",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: sp_name_qualifier not compared",
+  "file": "src/receiver/resolve.ts",
+  "a": "m.spNameQualifier === (s.sp_name_qualifier ?? null) && ",
+  "b": "",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: a qualifier absent from the mapping matches any (not null-safe)",
+  "file": "src/receiver/resolve.ts",
+  "a": "m.spNameQualifier === (s.sp_name_qualifier ?? null)",
+  "b": "(m.spNameQualifier === null || m.spNameQualifier === (s.sp_name_qualifier ?? null))",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: a qualifier absent from the sub_id matches any (not null-safe)",
+  "file": "src/receiver/resolve.ts",
+  "a": "(s.sp_name_qualifier ?? null)",
+  "b": "(s.sp_name_qualifier ?? m.spNameQualifier)",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: name_qualifier not compared",
+  "file": "src/receiver/resolve.ts",
+  "a": " && m.nameQualifier === (s.name_qualifier ?? null)",
+  "b": "",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: nameIdFormats ignored",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (mapping.nameIdFormats !== null && (",
+  "b": "if (mapping.nameIdFormats === undefined && (",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S2 sub_id: an absent nameid_format passes a format list",
+  "file": "src/receiver/resolve.ts",
+  "a": "(subId.nameid_format === undefined || !mapping.nameIdFormats.includes(subId.nameid_format))",
+  "b": "(subId.nameid_format !== undefined && !mapping.nameIdFormats.includes(subId.nameid_format))",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S3 sub_id: a malformed one falls back to sub",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (e instanceof IdJagRefusal) refuse(\"subject_rejected\", `sub_id malformed (${e.detail ?? \"\"})`);\n    throw e;",
+  "b": "return bySub;",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S3 sub_id: a malformed one is the core's public invalid_claim (says why to the caller)",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (e instanceof IdJagRefusal) refuse(",
+  "b": "if (e instanceof Error && e === null) refuse(",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S4 requireSubId ignored",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (trust.requireSubId === true) refuse(",
+  "b": "if (trust.requireSubId === undefined && trust.requireSubId) refuse(",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S4 requireSubId not resolved (static)",
+  "file": "src/receiver/options.ts",
+  "a": "return { samlSubjects: mappings, requireSubId: t.requireSubId === true };",
+  "b": "return { samlSubjects: mappings, requireSubId: false };",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S4 requireSubId not read (table)",
+  "file": "src/receiver/trust.ts",
+  "a": "requireSubId: r.requireSubId,",
+  "b": "requireSubId: false,",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S4 options: requireSubId without samlSubjects accepted",
+  "file": "src/receiver/options.ts",
+  "a": "\n  .refine((t) => t.requireSubId !== true || t.samlSubjects !== undefined, \"requireSubId needs samlSubjects\")",
+  "b": "",
+  "paths": [
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S4 table: a row with requireSubId but no samlSubjects trusted",
+  "file": "src/receiver/trust.ts",
+  "a": "(r.requireSubId && !samlSubjects)",
+  "b": "(r.requireSubId && samlSubjects === undefined)",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S5 no mappings: a sub_id is still parsed (a malformed one refuses)",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (!mappings || mappings.length === 0) return bySub;",
+  "b": "if (!mappings || mappings.length === 0) {\n    if (claims.sub_id) refuse(\"subject_rejected\", \"sub_id without mappings\");\n    return bySub;\n  }",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S6 a transient NameID accepted",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse(\"subject_rejected\", \"sub_id: a transient NameID can't identify a user\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S6 options: the transient format can be listed in nameIdFormats",
+  "file": "src/receiver/options.ts",
+  "a": "(f) => f !== TRANSIENT_NAMEID_FORMAT",
+  "b": "(f) => f !== \"\"",
+  "paths": [
+   "test/receiver/options.test.ts",
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 JIT links under (accountProviderId, sub), not the mapping key",
+  "file": "src/receiver/resolve.ts",
+  "a": "    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    const winner = await converge(ctx, key, {",
+  "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    const winner = await converge(ctx, { providerId: trust.accountProviderId, accountId: claims.sub, from: \"sub\" }, {",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 email fallback links under (accountProviderId, sub), not the mapping key",
+  "file": "src/receiver/resolve.ts",
+  "a": "const account = await internal.linkAccount({ userId: found.user.id, providerId: key.providerId, accountId: key.accountId });\n      const user = await converge(ctx, key, {",
+  "b": "const account = await internal.linkAccount({ userId: found.user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n      const user = await converge(ctx, { providerId: trust.accountProviderId, accountId: claims.sub, from: \"sub\" }, {",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 identical NameIDs of two IdP connections merged (the first mapping's provider id for all)",
+  "file": "src/receiver/resolve.ts",
+  "a": "return { providerId: mapping.accountProviderId, accountId: subId.nameid",
+  "b": "return { providerId: mappings[0]!.accountProviderId, accountId: subId.nameid",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 the hook runs after sub_id resolution (a refused sub_id overrides the host's link)",
+  "file": "src/receiver/resolve.ts",
+  "a": "  const now = o.clock();\n",
+  "b": "  const now = o.clock();\n  subjectKey(trust, claims);\n",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 the NameID in the unknown_subject audit detail (§9.6)",
+  "file": "src/receiver/resolve.ts",
+  "a": "`sub_id at ${key.providerId}`",
+  "b": "`sub_id ${key.accountId} at ${key.providerId}`",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S7 the NameID in the not-authorized audit detail (§9.6)",
+  "file": "src/receiver/resolve.ts",
+  "a": "JSON.stringify({ issuer: s.issuer,",
+  "b": "JSON.stringify({ nameid: s.nameid, issuer: s.issuer,",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S8 email fallback under sub_id: a user already linked in this SAML namespace taken",
+  "file": "src/receiver/resolve.ts",
+  "a": "found.accounts.some((a) => a.providerId === key.providerId)",
+  "b": "found.accounts.some((a) => a.providerId === trust.accountProviderId)",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "R3-S8 email fallback under sub_id: an unverified local email linked",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (found.user.emailVerified !== true) refuse(\"unknown_subject\"",
+  "b": "if (found.user.emailVerified === null) refuse(\"unknown_subject\"",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options: static samlSubjects not carried into the trust entry",
+  "file": "src/receiver/options.ts",
+  "a": "  if (!t.samlSubjects) return { samlSubjects: null, requireSubId: false };",
+  "b": "  if (t.samlSubjects) return { samlSubjects: null, requireSubId: false };",
+  "paths": [
+   "test/receiver/sub-id.test.ts",
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options: an empty samlSubjects list accepted",
+  "file": "src/receiver/options.ts",
+  "a": "samlSubjects: z.array(samlSubjectSchema).min(1).max(100).optional(),",
+  "b": "samlSubjects: z.array(samlSubjectSchema).max(100).optional(),",
+  "paths": [
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options: one SAML namespace listed twice accepted",
+  "file": "src/receiver/options.ts",
+  "a": "if (keys.has(key)) return",
+  "b": "if (keys.has(`${key}#`)) return",
+  "paths": [
+   "test/receiver/options.test.ts",
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options and table rows: two SAML namespaces under one accountProviderId accepted",
+  "file": "src/receiver/options.ts",
+  "a": "if (other !== undefined) return",
+  "b": "if (other === null) return",
+  "paths": [
+   "test/receiver/options.test.ts",
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options and table rows: a mapping under the entry's own sub provider id accepted",
+  "file": "src/receiver/options.ts",
+  "a": "if (mapping.accountProviderId === entryAccountProviderId) return",
+  "b": "if (mapping.accountProviderId === null) return",
+  "paths": [
+   "test/receiver/options.test.ts",
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options: account provider ids not checked across entries",
+  "file": "src/receiver/options.ts",
+  "a": "  checkAccountProvidersAcrossEntries(trustedIssuers);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 options: the across-entries check refuses a shared SAML namespace",
+  "file": "src/receiver/options.ts",
+  "a": "if (owner !== undefined && owner !== key) throw",
+  "b": "if (owner !== undefined) throw",
+  "paths": [
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 table: samlSubjects column not read",
+  "file": "src/receiver/trust.ts",
+  "a": "      samlSubjects,\n",
+  "b": "      samlSubjects: null,\n",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A27 table: an invalid samlSubjects row trusted",
+  "file": "src/receiver/trust.ts",
+  "a": "if (typeof samlSubjects === \"string\" || (r.requireSubId && !samlSubjects)) {",
+  "b": "if (samlSubjects === undefined) {",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 for D-A27: no convergence for links under the mapping key",
+  "file": "src/receiver/resolve.ts",
+  "a": "const rows = await linkedAccounts(ctx, key.providerId, key.accountId);",
+  "b": "const rows = (await linkedAccounts(ctx, key.providerId, key.accountId)).slice(0, key.from === \"sub_id\" ? 1 : undefined);",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
   ]
  }
 ]

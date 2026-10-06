@@ -283,3 +283,83 @@ describe("an unexpected error in subject resolution is an audited refusal, not a
     expect(errors.some((m) => m.includes("subject resolution failed unexpectedly"))).toBe(true);
   });
 });
+
+describe("concurrent first use through a SAML NameID sub_id converges on one link under the mapping key (D-A24 for D-A27)", () => {
+  /** A unique SAML namespace whose NameIDs link under its own account provider id. */
+  const namespace = () => {
+    const u = crypto.randomUUID().slice(0, 8);
+    return { issuer: `https://saml-${u}.example/metadata`, providerId: `saml-${u}` };
+  };
+  /** As accountRace, for the mapping's account provider id. */
+  const samlAccountRace = (samlProviderId: string) => () => accountRace()(samlProviderId);
+  const samlAccounts = (h: ReceiverHost, providerId: string, nameid: string) =>
+    h.ctx.adapter.findMany<{ id: string; userId: string }>({ model: "account", where: [{ field: "providerId", value: providerId }, { field: "accountId", value: nameid }] });
+
+  for (const forced of [false, true]) {
+    it(`email fallback: ${N} parallel grants with one sub_id and ${N} different subs, two instances, ${forced ? "held at the account insert" : "as they come"}: one row under the mapping key, none under sub`, async () => {
+      const domain = `corp-${crypto.randomUUID().slice(0, 8)}.example`;
+      const ns = namespace();
+      const s = await twoInstances({
+        trust: { emailFallback: { domains: [domain] }, samlSubjects: [{ issuer: ns.issuer, accountProviderId: ns.providerId }], requireSubId: true },
+        ...(forced ? { hooks: samlAccountRace(ns.providerId) } : {}),
+      });
+      const email = uniqueEmail(domain);
+      const user = await verifiedUser(s.a, email);
+      const nameid = `alice-${crypto.randomUUID()}`;
+      const subs = Array.from({ length: N }, () => crypto.randomUUID());
+      const sub_id = { format: "saml-nameid", issuer: ns.issuer, nameid };
+      const results = await s.burst((i) => ({ sub: subs[i], email, sub_id }));
+      expectClean(results);
+      expect(results.filter((r) => r.status === 200).length).toBeGreaterThan(0);
+      expect([...s.acceptedUsers()]).toEqual([user.id]);
+      expect(await samlAccounts(s.a, ns.providerId, nameid)).toMatchObject([{ userId: user.id }]);
+      for (const sub of subs) expect(await s.accounts(sub)).toHaveLength(0);
+      expect(await s.later({ sub: crypto.randomUUID(), sub_id })).toMatchObject({ status: 200, userId: user.id });
+    });
+
+    it(`JIT: ${N} parallel grants with one sub_id and ${N} different subs, two instances, ${forced ? "held at the user insert" : "as they come"}: no 500, one user, one row under the mapping key, one membership`, async () => {
+      const domain = `jit-${crypto.randomUUID().slice(0, 8)}.example`;
+      const org = newOrgId();
+      const ns = namespace();
+      const s = await twoInstances({
+        trust: { jitProvisioning: true, organizationId: org, samlSubjects: [{ issuer: ns.issuer, accountProviderId: ns.providerId }] },
+        organization: true,
+        ...(forced ? { hooks: userRace(domain) } : {}),
+      });
+      await createOrganization(s.a, org);
+      const email = uniqueEmail(domain);
+      const nameid = `alice-${crypto.randomUUID()}`;
+      const subs = Array.from({ length: N }, () => crypto.randomUUID());
+      const sub_id = { format: "saml-nameid", issuer: ns.issuer, nameid };
+      const results = await s.burst((i) => ({ sub: subs[i], email, sub_id }));
+      expectClean(results);
+      expect(results.filter((r) => r.status === 200).length).toBeGreaterThan(0);
+      for (const reason of s.refusedReasons()) expect(["subject_rejected", "unknown_subject"]).toContain(reason);
+      if (forced) expect(s.refusedReasons().filter((r) => r === "subject_rejected").length).toBeGreaterThan(0);
+      const found = await s.a.ctx.internalAdapter.findUserByEmail(email);
+      expect(found).not.toBeNull();
+      expect([...s.acceptedUsers()]).toEqual([found?.user.id]);
+      expect(await samlAccounts(s.a, ns.providerId, nameid)).toMatchObject([{ userId: found?.user.id }]);
+      for (const sub of subs) expect(await s.accounts(sub)).toHaveLength(0);
+      expect(await membersOf(s.a, org)).toMatchObject([{ userId: found?.user.id }]);
+      expect(await s.later({ sub: crypto.randomUUID(), sub_id })).toMatchObject({ status: 200, userId: found?.user.id });
+    });
+  }
+
+  it(`JIT with different emails for one sub_id, held at the account insert: the losers' users and rows are removed, one link under the mapping key`, async () => {
+    const domain = `jit-${crypto.randomUUID().slice(0, 8)}.example`;
+    const ns = namespace();
+    const s = await twoInstances({ trust: { jitProvisioning: true, samlSubjects: [{ issuer: ns.issuer, accountProviderId: ns.providerId }] }, hooks: samlAccountRace(ns.providerId) });
+    const emails = Array.from({ length: N }, () => uniqueEmail(domain));
+    const nameid = `alice-${crypto.randomUUID()}`;
+    const sub_id = { format: "saml-nameid", issuer: ns.issuer, nameid };
+    const results = await s.burst((i) => ({ email: emails[i], sub_id }));
+    expectClean(results);
+    expect(results.every((r) => r.status === 200)).toBe(true);
+    const winners = [...s.acceptedUsers()];
+    expect(winners).toHaveLength(1);
+    expect(await samlAccounts(s.a, ns.providerId, nameid)).toMatchObject([{ userId: winners[0] }]);
+    const remaining = (await Promise.all(emails.map((e) => s.a.ctx.internalAdapter.findUserByEmail(e)))).filter((u) => u !== null);
+    expect(remaining.map((u) => u.user.id)).toEqual([winners[0]]);
+  });
+});
