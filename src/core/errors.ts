@@ -35,12 +35,14 @@ export const REASONS = {
   disallowed_alg: { error: "invalid_grant", public: true, description: "The assertion's signature algorithm is not accepted." },
   missing_kid: { error: "invalid_grant", public: true, description: "The assertion has no kid." },
   missing_claim: { error: "invalid_grant", public: true, description: "The assertion is missing a required claim." },
+  unsupported_claim: { error: "invalid_grant", public: true, description: "The assertion carries a claim this server does not support (authorization_details, act)." },
   invalid_claim: { error: "invalid_grant", public: true, description: "The assertion has an invalid claim." },
   lifetime_too_long: { error: "invalid_grant", public: true, description: "The assertion's lifetime is too long." },
   expired: { error: "invalid_grant", public: true, description: "The assertion has expired." },
   not_yet_valid: { error: "invalid_grant", public: true, description: "The assertion is not yet valid." },
   // Receiver: trust and binding. Not public (S8).
   untrusted_issuer: { error: "invalid_grant", public: false },
+  self_issued: { error: "invalid_grant", public: false },
   jwks_unavailable: { error: "invalid_grant", public: false },
   bad_signature: { error: "invalid_grant", public: false },
   wrong_audience: { error: "invalid_grant", public: false },
@@ -63,17 +65,27 @@ export const REASONS = {
 
 export type ReasonCode = keyof typeof REASONS;
 
+/** Strips control, line-separator, bidi and invisible formatting characters and caps the length. */
+export function logSafe(s: string, max = 300): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point.
+  const clean = s.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g, "");
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
 /** A refusal before it is thrown: what the audit event records. */
 export class IdJagRefusal extends Error {
   readonly error: OAuthErrorCode;
+  /** For the audit log only: never sent to the caller. Log-safe and capped (it may quote the caller). */
+  readonly detail: string | undefined;
   constructor(
     readonly reason: ReasonCode,
-    /** For the audit log only: never sent to the caller. */
-    readonly detail?: string,
+    detail?: string,
   ) {
-    super(`${reason}${detail ? `: ${detail}` : ""}`);
+    const safe = detail === undefined ? undefined : logSafe(detail);
+    super(`${reason}${safe ? `: ${safe}` : ""}`);
     this.name = "IdJagRefusal";
     this.error = REASONS[reason].error;
+    this.detail = safe;
   }
 }
 
@@ -85,11 +97,10 @@ export function publicDescription(reason: ReasonCode): string {
 
 /** The APIError the token endpoint turns into `{ error, error_description }`. */
 export function toApiError(refusal: IdJagRefusal): APIError {
-  // 401 for client authentication (RFC 6749 §5.2), 400 for the rest.
-  return new APIError(refusal.error === "invalid_client" ? "UNAUTHORIZED" : "BAD_REQUEST", {
-    error: refusal.error,
-    error_description: publicDescription(refusal.reason),
-  });
+  const body = { error: refusal.error, error_description: publicDescription(refusal.reason) };
+  // 401 with a challenge for client authentication (RFC 6749 §5.2), 400 for the rest.
+  if (refusal.error === "invalid_client") return new APIError("UNAUTHORIZED", body, { "WWW-Authenticate": 'Basic realm="token"' });
+  return new APIError("BAD_REQUEST", body);
 }
 
 /** Throw a refusal (inside core: callers catch it, audit it, and turn it into an APIError). */

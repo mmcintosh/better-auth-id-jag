@@ -1,18 +1,32 @@
-// Building, parsing and verifying ID-JAGs (draft -04 §3). Parsing comes before the signature so a
-// failure names its step, and the receiver can pick the trusted issuer from the (unverified) `iss`
-// before fetching any key, as Okta's resource-app guide asks. Verification is the signature only
-// (jose's compactVerify) followed by our own claim checks, so every failure has our reason code.
-import { compactVerify, decodeJwt, decodeProtectedHeader } from "jose";
+// Building, parsing and verifying ID-JAGs (draft -04 §3, §4.4). Parsing comes before the signature
+// so a failure names its step, and the receiver can pick the trusted issuer from the (unverified)
+// `iss` before fetching any key, as Okta's resource-app guide asks. Verification is the signature
+// only (jose's compactVerify) followed by our own claim checks, so every failure has our reason code.
+//
+// S8 ordering: everything the caller can check for itself (shape, typ, alg, lifetime, time) is
+// checked before anything that depends on our trust configuration (iss, key, signature, aud), so a
+// public refusal never tells the caller whether an issuer is trusted (review of D-006, finding 4).
+import { compactVerify, decodeJwt, decodeProtectedHeader, errors as joseErrors } from "jose";
 import type { CompactVerifyGetKey, CryptoKey, JWTPayload, KeyObject } from "jose";
 import { z } from "zod";
 import { IdJagRefusal, refuse } from "./errors";
-import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TYP, type IdJagAlgorithm, MAX_LIFETIME_SECONDS } from "./urns";
+import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TYP, type IdJagAlgorithm, MAX_CLOCK_SKEW_SECONDS, MAX_LIFETIME_SECONDS } from "./urns";
 
 /** Longer than any real ID-JAG by far; refused before decoding (S9). */
 export const MAX_TOKEN_LENGTH = 16 * 1024;
 
-const nonEmpty = z.string().min(1).max(2048);
+// No C0/C1 controls (NUL included) in identifiers: they end up in keys, logs and comparisons.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+const noControls = (s: string) => !/[\u0000-\u001f\u007f-\u009f]/.test(s);
+const nonEmpty = z.string().min(1).max(2048).refine(noControls, "control characters");
 const seconds = z.number().int().nonnegative().max(2 ** 40);
+
+/**
+ * Claims this package cannot honour yet. The draft says a receiver MUST process
+ * `authorization_details` (RFC 9396) and `act` describes a delegation chain; accepting either while
+ * ignoring it could grant more than the IdP authorised, so they're refused (v1).
+ */
+export const UNSUPPORTED_CLAIMS = ["authorization_details", "act"] as const;
 
 /** The claims, required ones strict, optional ones typed when present, unknown ones kept. */
 export const idJagClaimsSchema = z.looseObject({
@@ -21,7 +35,7 @@ export const idJagClaimsSchema = z.looseObject({
   // A string, or an array with exactly one string (RFC 7519 allows arrays; one audience here).
   aud: z.union([nonEmpty, z.tuple([nonEmpty])]),
   client_id: nonEmpty,
-  jti: z.string().min(1).max(256),
+  jti: z.string().min(1).max(256).refine(noControls, "control characters"),
   exp: seconds,
   iat: seconds,
   nbf: seconds.optional(),
@@ -34,6 +48,8 @@ export const idJagClaimsSchema = z.looseObject({
   tenant: nonEmpty.optional(),
   aud_tenant: nonEmpty.optional(),
   aud_sub: nonEmpty.optional(),
+  // RFC 9493 subject identifier. Never a source of trust (draft §8): informational only.
+  sub_id: z.looseObject({ format: nonEmpty }).optional(),
 });
 export type IdJagClaims = z.infer<typeof idJagClaimsSchema>;
 
@@ -62,11 +78,27 @@ export function isIdJagTyp(typ: unknown): boolean {
   return t === ID_JAG_TYP || t === `application/${ID_JAG_TYP}`;
 }
 
+/** A header value, for a refusal's detail: never calls the caller's toString (it may throw). */
+function describe(v: unknown): string {
+  return typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? `${v}` : `<${v === null ? "null" : typeof v}>`;
+}
+
+/** A host's numeric option, checked: NaN or Infinity would silently switch a check off. */
+function intOption(name: string, value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`id-jag: ${name} must be an integer in [${min}, ${max}], got ${value}`);
+  return value;
+}
+
+export const lifetimeOption = (v: number | undefined) => intOption("maxLifetimeSeconds", v, MAX_LIFETIME_SECONDS, 1, MAX_LIFETIME_SECONDS);
+export const skewOption = (v: number | undefined) => intOption("clockSkewSeconds", v, DEFAULT_CLOCK_SKEW_SECONDS, 0, MAX_CLOCK_SKEW_SECONDS);
+
 /**
  * Header and claims, checked for shape and lifetime, **without** verifying the signature. Throws
  * IdJagRefusal with the step that failed.
  */
 export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {}): ParsedIdJag {
+  const max = lifetimeOption(o.maxLifetimeSeconds);
   if (typeof token !== "string" || token.length === 0 || token.length > MAX_TOKEN_LENGTH) refuse("malformed_token", "length");
   let rawHeader: Record<string, unknown>;
   let rawClaims: JWTPayload;
@@ -77,19 +109,19 @@ export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {
   } catch {
     refuse("malformed_token");
   }
-  if (!isIdJagTyp(rawHeader.typ)) refuse("wrong_typ", String(rawHeader.typ));
-  if (typeof rawHeader.alg !== "string" || !(ALLOWED_ALGORITHMS as readonly string[]).includes(rawHeader.alg)) refuse("disallowed_alg", String(rawHeader.alg));
+  if (!isIdJagTyp(rawHeader.typ)) refuse("wrong_typ", describe(rawHeader.typ));
+  if (typeof rawHeader.alg !== "string" || !(ALLOWED_ALGORITHMS as readonly string[]).includes(rawHeader.alg)) refuse("disallowed_alg", describe(rawHeader.alg));
   if (typeof rawHeader.kid !== "string" || rawHeader.kid.length === 0) refuse("missing_kid");
   // Critical header parameters we don't understand mean "don't accept" (RFC 7515 §4.1.11).
   if (rawHeader.crit !== undefined) refuse("invalid_claim", "crit");
 
   for (const name of REQUIRED) if (rawClaims[name] === undefined) refuse("missing_claim", name);
+  for (const name of UNSUPPORTED_CLAIMS) if (rawClaims[name] !== undefined) refuse("unsupported_claim", name);
   const parsed = idJagClaimsSchema.safeParse(rawClaims);
   if (!parsed.success) refuse("invalid_claim", parsed.error.issues.map((i) => i.path.join(".")).join(","));
   const claims = parsed.data;
 
   if (claims.exp <= claims.iat) refuse("invalid_claim", "exp <= iat");
-  const max = o.maxLifetimeSeconds ?? MAX_LIFETIME_SECONDS;
   if (claims.exp - claims.iat > max) refuse("lifetime_too_long", `${claims.exp - claims.iat}s > ${max}s`);
 
   return {
@@ -114,29 +146,53 @@ export interface VerifyExpectations {
   algorithms?: readonly IdJagAlgorithm[];
 }
 
-/**
- * Parse, verify the signature with `key`, then check `iss`, `aud` and the time claims, in that
- * order. `client_id` continuity and `jti` single use need the request and the database, so the
- * receiver checks them after this returns.
- */
-export async function verifyIdJag(token: string, key: IdJagKey, expected: VerifyExpectations): Promise<ParsedIdJag> {
-  const parsed = parseIdJag(token, expected.maxLifetimeSeconds === undefined ? {} : { maxLifetimeSeconds: expected.maxLifetimeSeconds });
-  const algorithms = [...(expected.algorithms ?? ALLOWED_ALGORITHMS)];
-  if (!algorithms.includes(parsed.header.alg)) refuse("disallowed_alg", parsed.header.alg);
-  // Before the signature: no key is fetched for an issuer the caller didn't resolve.
-  if (parsed.claims.iss !== expected.issuer) refuse("untrusted_issuer", parsed.claims.iss);
+/** jose errors that mean "this token's signature is not valid with these keys". */
+const SIGNATURE_CODES = new Set(["ERR_JWS_SIGNATURE_VERIFICATION_FAILED", "ERR_JWKS_NO_MATCHING_KEY", "ERR_JWS_INVALID", "ERR_JOSE_ALG_NOT_ALLOWED", "ERR_JOSE_NOT_SUPPORTED"]);
+
+async function verifySignature(token: string, key: IdJagKey, algorithms: string[]): Promise<void> {
   try {
     await compactVerify(token, key as CompactVerifyGetKey, { algorithms });
   } catch (error) {
     if (error instanceof IdJagRefusal) throw error;
+    // During rotation an issuer may publish two keys with the same kid: jose hands them over.
+    if (error instanceof joseErrors.JWKSMultipleMatchingKeys) {
+      for await (const candidate of error as unknown as AsyncIterable<CryptoKey>) {
+        try {
+          await compactVerify(token, candidate, { algorithms });
+          return;
+        } catch {}
+      }
+      refuse("bad_signature", "no matching key among several with this kid");
+    }
     const code = (error as { code?: string }).code ?? "";
-    // jose's JWKS errors (timeout, fetch failure, invalid set) are the issuer's keys being unavailable;
-    // no matching key and a failed signature are the token's fault.
-    if (code === "ERR_JWKS_TIMEOUT" || code === "ERR_JWKS_INVALID") refuse("jwks_unavailable", code);
-    refuse("bad_signature", code || (error as Error).message);
+    if (SIGNATURE_CODES.has(code)) refuse("bad_signature", code);
+    // Anything else (a JWKS that didn't load, a network error, a timeout) is the issuer's keys
+    // being unavailable, not a forged token: the audit log must say so.
+    refuse("jwks_unavailable", code || (error as Error).name);
   }
+}
+
+/**
+ * Parse, check the time claims, then `iss`, signature and `aud`, in that order. `client_id`
+ * continuity and `jti` single use need the request and the database, so the receiver checks them
+ * after this returns.
+ */
+export async function verifyIdJag(token: string, key: IdJagKey, expected: VerifyExpectations): Promise<ParsedIdJag> {
+  const skew = skewOption(expected.clockSkewSeconds);
+  const now = expected.now ?? Math.floor(Date.now() / 1000);
+  if (!Number.isInteger(now) || now < 0) throw new Error(`id-jag: now must be a non-negative integer, got ${now}`);
+  const parsed = parseIdJag(token, expected.maxLifetimeSeconds === undefined ? {} : { maxLifetimeSeconds: expected.maxLifetimeSeconds });
+  // Caller-checkable: before anything that depends on whom we trust (S8).
+  checkTimes(parsed.claims, now, skew);
+  // Before the signature: no key is fetched for an issuer the caller didn't resolve.
+  if (parsed.claims.iss !== expected.issuer) refuse("untrusted_issuer", parsed.claims.iss);
+  // Draft §9.3: an IdP must not accept an ID-JAG it issued to itself.
+  if (expected.issuer === expected.audience || parsed.claims.iss === parsed.audience) refuse("self_issued", parsed.claims.iss);
+  const algorithms = [...(expected.algorithms ?? ALLOWED_ALGORITHMS)];
+  // Narrowed to what this trusted issuer publishes: not public, or it would reveal the trust (S8).
+  if (!algorithms.includes(parsed.header.alg)) refuse("bad_signature", `alg ${parsed.header.alg} not published by the issuer`);
+  await verifySignature(token, key, algorithms);
   if (parsed.audience !== expected.audience) refuse("wrong_audience", parsed.audience);
-  checkTimes(parsed.claims, expected.now ?? Math.floor(Date.now() / 1000), expected.clockSkewSeconds ?? DEFAULT_CLOCK_SKEW_SECONDS);
   return parsed;
 }
 
@@ -163,9 +219,10 @@ export function newJti(): string {
  * receiver applies, so this side can't mint what a receiver of this package would refuse.
  */
 export async function buildIdJag(claims: IdJagClaims, sign: IdJagSigner, o: { maxLifetimeSeconds?: number } = {}): Promise<string> {
+  const max = lifetimeOption(o.maxLifetimeSeconds);
+  for (const name of UNSUPPORTED_CLAIMS) if ((claims as Record<string, unknown>)[name] !== undefined) throw new Error(`buildIdJag: ${name} is not supported`);
   const parsed = idJagClaimsSchema.safeParse(claims);
   if (!parsed.success) throw new Error(`buildIdJag: invalid claims (${parsed.error.issues.map((i) => i.path.join(".")).join(",")})`);
-  const max = o.maxLifetimeSeconds ?? MAX_LIFETIME_SECONDS;
   if (claims.exp <= claims.iat || claims.exp - claims.iat > max) throw new Error(`buildIdJag: lifetime must be within (0, ${max}] seconds`);
   // No `undefined` members: they'd be dropped by JSON anyway, and JWT payload types refuse them.
   const payload = Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined));

@@ -91,3 +91,65 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
 the parser, and 10 concurrent jti records across two auth instances on one database. **Each guard broken once**
 (`test/mutations/core.json`, `scripts/mutate.py`): 18 mutations, 16 caught at first; the parse-time `alg` check and
 log-safe refusal details survived, a test was added for each, and both are now caught.
+
+## D-007: Review of the core, and its fixes (2026-10-05)
+
+An independent adversarial review (a separate agent, read-only, reproducing each finding against a bundle of
+`src/core`) found 14 issues and weak tests. The committed tree also failed `pnpm typecheck` (a test typing under
+`exactOptionalPropertyTypes`, so CI was red on 39fe6eb). Every finding is fixed except where noted:
+
+- **High: `authorization_details` and `act` were passed through unchecked.** The draft says a receiver MUST process
+  `authorization_details` (RFC 9396), and ignoring it or `act` could grant more than the IdP authorised. Both are now
+  refused at parse (`unsupported_claim`, public), and `buildIdJag` won't mint them. `sub_id` is typed as an RFC 9493
+  object and is informational only (draft §8: never a source of trust).
+- **NaN/Infinity options switched checks off.** `clockSkewSeconds` must be an integer in [0, 300], `maxLifetimeSeconds`
+  in [1, 900], `now` a non-negative integer. Anything else is a configuration error.
+- **Self-issued ID-JAGs (draft §9.3)** are refused (`self_issued`).
+- **S8 oracles.**
+  - The time checks now run before trust, so `expired` can't confirm that an issuer is trusted. **This amends D-006's
+    order:** parse, time, `iss`, signature, `aud`.
+  - An algorithm the trusted issuer doesn't publish is now `bad_signature` (non-public), not the public
+    `disallowed_alg`.
+  - The set of public reasons is pinned by a test, so changing it is a deliberate edit.
+  - **For Track A:** compute the scope intersection before subject resolution, so `no_scope` doesn't distinguish known
+    users.
+  - **Not fixed:** a JWKS fetch adds timing for trusted issuers. That's inherent; the cache narrows it.
+- **Audit retention was never enforced.** Added `sweepAudit`. Both plugins must run it with `sweepJtis`.
+- **A handler could delay or alter the audit row.** The row is now written before the handler runs.
+- **Log safety.**
+  - Every string field of an event is made log-safe, not only `detail` and the user agent.
+  - `IdJagRefusal` caps and cleans its detail and message.
+  - `logSafe` also strips U+2028, U+2029 and U+061C.
+- **Storing refusals keyed on `clientId`** is replaced by an explicit `authenticated: true`, set only after
+  `authenticateClient` succeeds.
+- **Replay key.**
+  - It's a hash of `JSON.stringify(["id-jag", side, iss, jti])`. The NUL-joined form could collide.
+  - Control characters are refused in `iss`, `jti` and other identifiers.
+  - `recordJti` now computes `expiresAt` itself as `exp + skew + 300 s margin`, so slightly fast clocks can't sweep a
+    row early.
+- **JWKS errors.** A fetch failure, a non-200 response or bad JSON is now `jwks_unavailable`, not `bad_signature`.
+  Several keys with one `kid` (rotation) are tried in turn.
+- **401 `invalid_client`** carries a `WWW-Authenticate: Basic` challenge. `Ed25519` (RFC 9864) is added to the allowed
+  algorithms.
+- **Found by the improved property test:** a header value whose `toString` throws (`{"typ":{"toString":"x"}}`) made
+  `parseIdJag` throw a `TypeError` instead of refusing. Fixed, with a regression test.
+- **Tests.**
+  - The clock is injected, so time tests don't flake at a second boundary.
+  - The property test now changes one field of a valid token, so its deep checks run in about 95 of every 1,000 runs
+    (0.25 before).
+  - The length cap is tested exactly at the limit and one character over.
+  - Boundary tests cover `exp` + skew, `nbf`, `iat`, exactly 900 s and a zero lifetime.
+
+**Open, for the maintainer:**
+- **Re-presentation (finding 5).** Draft §4.4.3 lets a client re-submit an unexpired ID-JAG once its access token
+  expires. Our receiver enforces strict single use (S3). The agent's choice is to keep strict single use and document
+  it: the client gets a new ID-JAG from the IdP, which keeps revocation at the IdP.
+- **Adapters that don't enforce UNIQUE (finding 12):** Better Auth's memory adapter, or a MongoDB without the named
+  index. On those, replays are accepted silently. To be documented in the guide (Phase 4). A startup self-test was
+  considered but not added, because it would write at boot.
+
+**Evidence.** 120 tests (60 per runtime). **Each guard broken once** (`test/mutations/core.json`): 42 mutations, all
+caught. Of the 43 in the first run, two survived:
+- `no_scope` made public: a test now pins the public reasons.
+- The handler receiving the original object: harmless once the row is written first, so the defensive copy was
+  removed, along with that mutation.

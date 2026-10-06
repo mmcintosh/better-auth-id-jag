@@ -22,11 +22,14 @@ export const ISSUER_METADATA_FIELD = "identity_chaining_requested_token_types_su
 /** Receiver metadata: the grant profiles it accepts. */
 export const RECEIVER_METADATA_FIELD = "authorization_grant_profiles_supported";
 
-/** Signature algorithms accepted on an ID-JAG (S4). No HS*, no `none`. */
-export const ALLOWED_ALGORITHMS = ["RS256", "ES256", "EdDSA"] as const;
+/** Signature algorithms accepted on an ID-JAG (S4). No HS*, no `none`. `Ed25519` is RFC 9864's name for EdDSA on Ed25519. */
+export const ALLOWED_ALGORITHMS = ["RS256", "ES256", "EdDSA", "Ed25519"] as const;
 export type IdJagAlgorithm = (typeof ALLOWED_ALGORITHMS)[number];
 
 /** Lifetime: the draft's examples use five minutes; we refuse more than fifteen (S7). */
 export const DEFAULT_LIFETIME_SECONDS = 300;
 export const MAX_LIFETIME_SECONDS = 900;
 export const DEFAULT_CLOCK_SKEW_SECONDS = 60;
+export const MAX_CLOCK_SKEW_SECONDS = 300;
+/** Extra life for a jti row beyond `exp + skew`, for clocks that differ between instances. */
+export const JTI_RETENTION_MARGIN_SECONDS = 300;

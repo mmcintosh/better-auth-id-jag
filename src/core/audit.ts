@@ -3,11 +3,14 @@
 // - handlers are observers, never gates: they run through Better Auth's `runInBackground`
 //   (`waitUntil` on Workers), a throw is logged and changes nothing;
 // - refusals of an unauthenticated caller reach the handler but not the table, so the table can't
-//   grow at an attacker's pace;
+//   grow at an attacker's pace (the event says `authenticated: true` explicitly, set only after
+//   client authentication succeeded);
+// - the row is written before the handler runs: a handler can neither delay nor alter it;
+// - every string a caller could have sent is made log-safe;
 // - queryable fields are columns, the whole event is JSON in `details`, rows expire.
-import type { BetterAuthPluginDBSchema, GenericEndpointContext } from "better-auth";
+import type { BetterAuthPluginDBSchema, DBAdapter, GenericEndpointContext } from "better-auth";
 import { getIPFromHeader } from "@better-auth/core/utils/ip";
-import type { ReasonCode } from "./errors";
+import { logSafe, type ReasonCode } from "./errors";
 
 export const AUDIT_MODEL = "idJagAudit";
 
@@ -51,7 +54,9 @@ export interface RefusedEvent extends EventBase {
   type: "id-jag.refused";
   side: "issuer" | "receiver";
   reason: ReasonCode;
-  /** Absent when the caller never authenticated as a client: such refusals aren't stored. */
+  /** True only once client authentication succeeded; only such refusals are stored. */
+  authenticated: boolean;
+  /** The authenticated client, or (when `authenticated` is false) the id the caller claimed. */
   clientId?: string | undefined;
   userId?: string | undefined;
   iss?: string | undefined;
@@ -115,13 +120,6 @@ export function auditSchema() {
   } satisfies BetterAuthPluginDBSchema;
 }
 
-/** Strips control and bidi characters and caps the length, for anything a caller sent. */
-export function logSafe(s: string, max = 300): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point.
-  const clean = s.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁠-⁩﻿]/g, "");
-  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
-}
-
 function clientIp(ctx: GenericEndpointContext): string | undefined {
   const opts = ctx.context.options as { advanced?: { ipAddress?: { disableIpTracking?: boolean; ipAddressHeaders?: string[]; ipv6Subnet?: number; trustedProxies?: string[] } } };
   const ip = opts.advanced?.ipAddress;
@@ -142,27 +140,27 @@ type Sink = {
   runInBackground(p: Promise<unknown>): void;
 };
 
+/** Every string (top level and in arrays) made log-safe; dates and numbers kept. */
+function safeEvent<T extends Record<string, unknown>>(e: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(e)) out[k] = typeof v === "string" ? logSafe(v) : Array.isArray(v) ? v.map((x) => (typeof x === "string" ? logSafe(x) : x)) : v;
+  return out as T;
+}
+
 /** Hand the event to its handler and the audit table, in the background. Never throws. */
 export function emit(ctx: GenericEndpointContext, options: AuditOptions, event: EventInput): void {
   const userAgent = (ctx.request?.headers ?? ctx.headers)?.get("user-agent");
-  const full = { ...event, at: new Date(), ipAddress: clientIp(ctx), userAgent: userAgent ? logSafe(userAgent) : undefined } as IdJagEvent;
-  if (full.type === "id-jag.refused" && full.detail) full.detail = logSafe(full.detail);
+  const full = safeEvent({ ...event, at: new Date(), ipAddress: clientIp(ctx), userAgent: userAgent ?? undefined }) as IdJagEvent;
   deliver(ctx.context as unknown as Sink, options, full);
 }
 
 function deliver(sink: Sink, options: AuditOptions, full: IdJagEvent): void {
   const name = HANDLER[full.type];
   const handler = options.events?.[name] as ((e: IdJagEvent) => unknown) | undefined;
-  const audit = options.auditLog && !(full.type === "id-jag.refused" && !full.clientId);
+  const audit = options.auditLog && !(full.type === "id-jag.refused" && full.authenticated !== true);
   if (!handler && !audit) return;
   const run = async () => {
-    if (handler) {
-      try {
-        await handler(full);
-      } catch (e) {
-        sink.logger.error(`[id-jag] events.${name} threw`, e);
-      }
-    }
+    // The row first: a handler that never settles (or mutates its event) can't touch it.
     if (audit && options.auditLog) {
       try {
         await sink.adapter.create({ model: AUDIT_MODEL, data: auditRow(full, options.auditLog.retentionDays) });
@@ -170,8 +168,20 @@ function deliver(sink: Sink, options: AuditOptions, full: IdJagEvent): void {
         sink.logger.error(`[id-jag] could not write the audit log (${full.type})`, e);
       }
     }
+    if (handler) {
+      try {
+        await handler(full);
+      } catch (e) {
+        sink.logger.error(`[id-jag] events.${name} threw`, e);
+      }
+    }
   };
   sink.runInBackground(run());
+}
+
+/** Deletes audit rows past their retention. Run it from the same scheduled job as `sweepJtis`. */
+export async function sweepAudit(adapter: Pick<DBAdapter, "deleteMany">, now = new Date()): Promise<void> {
+  await adapter.deleteMany({ model: AUDIT_MODEL, where: [{ field: "expiresAt", value: now, operator: "lt" }] });
 }
 
 /** The table row: indexed columns for querying, the rest of the event as JSON. */

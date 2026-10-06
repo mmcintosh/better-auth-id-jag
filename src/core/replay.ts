@@ -1,12 +1,13 @@
 // One `jti` record per ID-JAG, shared by both sides: the issuer records what it minted (audit, and
 // revocation within the token's lifetime), the receiver what it accepted (single use, S3).
 //
-// The same design as better-auth-saml-idp's seen-request key (its D-011, D-033): the row id is a
+// The same design as better-auth-saml-idp's seen-request key (its D-011, D-033): the unique key is a
 // hash of (side, iss, jti), the INSERT is the check, and a unique-key violation is a replay. A read
 // after a failed insert only classifies the failure, so no adapter's error codes are parsed. The
 // uniqueness is declared at field level (SQL migrators) and as a named table-level index (Better
 // Auth 1.7's MongoDB adapter creates only those).
 import type { BetterAuthPluginDBSchema, DBAdapter } from "better-auth";
+import { JTI_RETENTION_MARGIN_SECONDS } from "./urns";
 
 export const JTI_MODEL = "idJagJti";
 
@@ -41,8 +42,18 @@ export interface JtiRecord {
   aud: string;
   sub: string;
   clientId: string;
-  /** The token's `exp` plus the clock skew: the row must outlive every moment the token is accepted. */
-  expiresAt: Date;
+  /** The token's `exp` claim (seconds). The row's expiry is computed from it, not passed in. */
+  exp: number;
+  /** The skew the token was accepted with. */
+  clockSkewSeconds: number;
+}
+
+/**
+ * When a row may be swept: after every instance, even one whose clock runs ahead, has stopped
+ * accepting the token. `exp + skew + margin`.
+ */
+export function jtiExpiresAt(exp: number, clockSkewSeconds: number): Date {
+  return new Date((exp + clockSkewSeconds + JTI_RETENTION_MARGIN_SECONDS) * 1000);
 }
 
 async function sha256b64url(input: string): Promise<string> {
@@ -52,19 +63,22 @@ async function sha256b64url(input: string): Promise<string> {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** The unique key: NUL-separated, so no (iss, jti) pair can collide with another. */
+/** The unique key: a hash of the JSON array, so no (iss, jti) pair can collide with another. */
 export function jtiKey(side: JtiSide, iss: string, jti: string): Promise<string> {
-  return sha256b64url(`id-jag:${side}\u0000${iss}\u0000${jti}`);
+  return sha256b64url(JSON.stringify(["id-jag", side, iss, jti]));
 }
 
 /**
  * Records a jti. Returns true the first time, false if (side, iss, jti) was already recorded.
- * Requires a database that enforces UNIQUE (every real one; not Better Auth's memory adapter).
+ * Requires a database that enforces UNIQUE: every real one does, with the migrations Better Auth
+ * generates; Better Auth's memory adapter does not, and a MongoDB without the named index built
+ * would not either. Then replays are accepted silently (documented in SECURITY.md and the guide).
  */
 export async function recordJti(adapter: JtiAdapter, r: JtiRecord, now = new Date()): Promise<boolean> {
   const key = await jtiKey(r.side, r.iss, r.jti);
+  const { exp, clockSkewSeconds, ...fields } = r;
   try {
-    await adapter.create({ model: JTI_MODEL, data: { key, ...r, createdAt: now } });
+    await adapter.create({ model: JTI_MODEL, data: { key, ...fields, expiresAt: jtiExpiresAt(exp, clockSkewSeconds), createdAt: now } });
     return true;
   } catch (error) {
     if (await adapter.findOne({ model: JTI_MODEL, where: [{ field: "key", value: key }] })) return false;
