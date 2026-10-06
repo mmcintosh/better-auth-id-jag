@@ -77,7 +77,7 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
   if (!parsed.success) return bad(`claims: ${parsed.error.issues.map((i) => i.path.join(".")).join(",")}`);
   const claims = parsed.data;
   // Expired is expired: no grace (plan §3.3 step 3).
-  if (claims.exp <= expected.now) refuse("expired", "subject token");
+  if (claims.exp <= expected.now) refuse("subject_token_expired");
   if (claims.iat !== undefined && claims.iat - IAT_SKEW_SECONDS > expected.now) bad("iat in the future");
   // S6: ours, and only ours. Before any key is looked up.
   if (claims.iss !== expected.issuer) bad("issuer");

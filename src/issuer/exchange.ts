@@ -22,6 +22,8 @@ import {
   IdJagRefusal,
   type IdJagSigner,
   newJti,
+  providerErrorCode,
+  providerRefusalReason,
   recordJti,
   refuse,
   sweepAudit,
@@ -228,7 +230,22 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     };
     return response as unknown as OAuthTokenResponse;
   } catch (e) {
-    if (!(e instanceof IdJagRefusal)) throw e;
+    if (!(e instanceof IdJagRefusal)) {
+      // The provider's own refusals: audited, then passed on unchanged.
+      const reason = providerRefusalReason(e);
+      if (reason)
+        emit(ctx, options, {
+          type: "id-jag.refused",
+          side: "issuer",
+          reason,
+          authenticated: seen.authenticated,
+          clientId: seen.clientId,
+          userId: seen.userId,
+          audience: seen.audience,
+          detail: providerErrorCode(e),
+        });
+      throw e;
+    }
     emit(ctx, options, {
       type: "id-jag.refused",
       side: "issuer",

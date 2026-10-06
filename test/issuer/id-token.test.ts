@@ -56,7 +56,7 @@ describe("verifyOwnIdToken", () => {
 
   it("time: expired at exp (no grace); iat more than 60 s ahead refused", async () => {
     const k = await ours();
-    expect(await outcome(await k.sign({ exp: NOW }), k.jwtOptions)).toBe("expired:subject token");
+    expect(await outcome(await k.sign({ exp: NOW }), k.jwtOptions)).toBe("subject_token_expired:");
     expect(await outcome(await k.sign({ exp: NOW + 1 }), k.jwtOptions)).toBe("ok:user-1");
     expect(await outcome(await k.sign({ iat: NOW + 61 }), k.jwtOptions)).toBe("invalid_subject_token:iat in the future");
     expect(await outcome(await k.sign({ iat: NOW + 60 }), k.jwtOptions)).toBe("ok:user-1");

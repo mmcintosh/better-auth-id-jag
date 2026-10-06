@@ -6,7 +6,7 @@
 // issuer". So each reason has a public description that is either specific (the request itself
 // was malformed: nothing to learn about our users or policies) or the generic one for its error
 // code. The reason code itself goes to the audit event, never to the caller.
-import { APIError } from "better-auth/api";
+import { APIError, isAPIError } from "better-auth/api";
 
 export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target";
 
@@ -29,6 +29,10 @@ export const REASONS = {
   missing_parameter: { error: "invalid_request", public: true, description: "A required parameter is missing." },
   unsupported_parameter: { error: "invalid_request", public: true, description: "A parameter is not supported." },
   public_client: { error: "invalid_client", public: false },
+  // The provider's own refusals, recorded for the audit log; the provider's response goes out unchanged.
+  client_authentication_failed: { error: "invalid_client", public: false },
+  client_not_allowed_grant: { error: "unauthorized_client", public: false },
+  provider_refused: { error: "invalid_request", public: false },
   // Shared: the ID-JAG itself (parse step: the caller sent it, so naming the defect is safe).
   malformed_token: { error: "invalid_grant", public: true, description: "The assertion is not a well-formed JWT." },
   wrong_typ: { error: "invalid_grant", public: true, description: "The assertion is not an ID-JAG (typ)." },
@@ -59,6 +63,7 @@ export const REASONS = {
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },
   invalid_subject_token: { error: "invalid_grant", public: false },
+  subject_token_expired: { error: "invalid_grant", public: true, description: "The subject token has expired." },
   policy_denied: { error: "invalid_grant", public: false },
   no_policy: { error: "invalid_grant", public: false },
 } as const satisfies Record<string, { error: OAuthErrorCode; public: boolean; description?: string }>;
@@ -101,6 +106,25 @@ export function toApiError(refusal: IdJagRefusal): APIError {
   // 401 with a challenge for client authentication (RFC 6749 §5.2), 400 for the rest.
   if (refusal.error === "invalid_client") return new APIError("UNAUTHORIZED", body, { "WWW-Authenticate": 'Basic realm="token"' });
   return new APIError("BAD_REQUEST", body);
+}
+
+/**
+ * The audit reason for an error the provider itself threw (an APIError whose body has an OAuth
+ * `error`), or undefined for anything else. The caller emits it and rethrows the original.
+ */
+export function providerRefusalReason(e: unknown): ReasonCode | undefined {
+  // isAPIError, not instanceof: the provider throws APIErrors from more than one module copy.
+  if (!isAPIError(e)) return undefined;
+  const code = (e.body as { error?: unknown } | undefined)?.error;
+  if (code === "invalid_client") return "client_authentication_failed";
+  if (code === "unauthorized_client") return "client_not_allowed_grant";
+  return typeof code === "string" ? "provider_refused" : undefined;
+}
+
+/** The OAuth error code a provider APIError carried, for the audit detail. */
+export function providerErrorCode(e: unknown): string | undefined {
+  const code = isAPIError(e) ? (e.body as { error?: unknown } | undefined)?.error : undefined;
+  return typeof code === "string" ? code : undefined;
 }
 
 /** Throw a refusal (inside core: callers catch it, audit it, and turn it into an APIError). */

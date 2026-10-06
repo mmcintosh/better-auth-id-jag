@@ -13,7 +13,7 @@
 // Every refusal is an IdJagRefusal, audited, then turned into the standard JSON error.
 import type { CompactVerifyGetKey } from "jose";
 import { getIssuer, type OAuthExtensionGrantHandlerInput, type OAuthTokenResponse } from "@better-auth/oauth-provider";
-import { checkTimes, emit, IdJagRefusal, type ParsedIdJag, parseIdJag, recordJti, refuse, sweepAudit, sweepJtis, toApiError, verifyIdJag } from "../core";
+import { checkTimes, emit, IdJagRefusal, providerErrorCode, providerRefusalReason, type ParsedIdJag, parseIdJag, recordJti, refuse, sweepAudit, sweepJtis, toApiError, verifyIdJag } from "../core";
 import type { ResolvedReceiverOptions, TrustEntry } from "./options";
 import { resolveSubject } from "./resolve";
 import { findTrustedIssuer } from "./trust";
@@ -91,6 +91,21 @@ interface Progress {
  * The grant handler as a plain function, for hosts (or a future core) that compose grants
  * themselves. `idJagGrant()` registers exactly this under the jwt-bearer grant type.
  */
+/** The client_id the caller named (form body or Basic auth), before authentication: audit only. */
+function claimedClientId(ctx: { body?: unknown; request?: Request | undefined; headers?: Headers | undefined }): string | undefined {
+  const fromBody = (ctx.body as Record<string, unknown> | undefined)?.client_id;
+  if (typeof fromBody === "string") return fromBody;
+  const auth = (ctx.request?.headers ?? ctx.headers)?.get("authorization");
+  if (auth?.toLowerCase().startsWith("basic ")) {
+    try {
+      return decodeURIComponent(atob(auth.slice(6).trim()).split(":")[0] ?? "");
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o: ResolvedReceiverOptions): Promise<OAuthTokenResponse> {
   const { ctx, opts, provider } = input;
   maybeSweep(input, o);
@@ -179,7 +194,25 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     });
     return response;
   } catch (error) {
-    if (!(error instanceof IdJagRefusal)) throw error;
+    if (!(error instanceof IdJagRefusal)) {
+      // The provider's own refusals (a wrong secret, a client not registered for the grant, a
+      // client not linked to the resource): audited, then passed on unchanged.
+      const reason = providerRefusalReason(error);
+      if (reason)
+        emit(ctx, o.audit, {
+          type: "id-jag.refused",
+          side: "receiver",
+          reason,
+          authenticated: progress.authenticated,
+          clientId: progress.clientId ?? claimedClientId(ctx),
+          userId: progress.userId,
+          iss: progress.parsed?.claims.iss,
+          audience: progress.parsed?.audience,
+          jti: progress.parsed?.claims.jti,
+          detail: providerErrorCode(error),
+        });
+      throw error;
+    }
     emit(ctx, o.audit, {
       type: "id-jag.refused",
       side: "receiver",

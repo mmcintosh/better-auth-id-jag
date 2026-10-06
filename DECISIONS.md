@@ -164,3 +164,41 @@ declaration imports for NodeNext consumers (it only handled top-level files); `.
 `test/merge/both-plugins.test.ts` proves both plugins on one host share one jti table and one audit table. Evidence,
 the agents' decisions to review, the open questions and the core change requests: `docs/phase-1.md`. Phase 2 does not
 start without the maintainer's go.
+
+## D-009: Phase 2 begins — the maintainer's decisions on the Phase 1 questions (2026-10-06)
+
+Decided by the maintainer, on the Phase 1 review's recommendations (`docs/phase-1.md` numbering):
+
+1. Strict single use of an ID-JAG stays. The client gets a fresh one, which keeps revocation at the IdP.
+2. Adapters that don't enforce UNIQUE are documented, plus a startup warning on the memory adapter (no write).
+3. sso trust stays opt-in (D-A01).
+4. The `resource` claim isn't required yet: a `requireResourceClaim` option, default off, revisited after Phase 2.
+5. JIT provisioning adds the user to the trust entry's organization.
+6. No access-token lifetime cap in 0.1: the provider's hour, documented. Per-issuance expiry is raised upstream later.
+7. No admin API for `idJagTrustedIssuer` before 0.1.
+8. Both policy sources must allow; the narrower grant wins (D-B04).
+9. No pairwise subjects (D-B02).
+10. The ambiguous host-versus-organization resource server stays refused.
+11. No wildcard client ids.
+12. "Revoke" becomes real: a block keyed on (user, client, audience) that the policy step checks.
+13. `email` only when verified.
+
+Also decided for Phase 2:
+- **Refresh-token subject tokens** move from Phase 3 into Phase 2.
+- **The mutation lists** are re-run on main, then weekly in CI.
+- **Two Workers on the demo account** (an example IdP and an example MCP server) stay up through Phase 2. The receiver
+  is publicly reachable for Okta and xaa.dev.
+- **Keycloak and Authelia** run in Docker; node-oauth2-server runs in a Node test.
+- **The agent worktrees** are removed.
+
+**Audit gap closed** (the review's finding 1, both tracks' core change request 1):
+- **What's added:** the provider's own refusals (a wrong secret, a client not registered for the grant, any other
+  provider `APIError`) are now emitted as `id-jag.refused` with `client_authentication_failed`,
+  `client_not_allowed_grant` or `provider_refused`, `authenticated: false`, the client id the caller named, and the
+  provider's error code. The response itself is unchanged.
+- **Storage:** these reach handlers, which is the brute-force signal a SIEM wants, but not the table (D-007: only
+  refusals after authentication are stored).
+- **Found by the new tests:** `instanceof APIError` missed some of the provider's errors, because it throws APIErrors
+  from more than one module copy. Detection now uses Better Auth's `isAPIError`.
+- **Issuer:** an expired ID token now has its own public reason, `subject_token_expired`.
+- **Each guard broken once:** three new mutations, all caught.

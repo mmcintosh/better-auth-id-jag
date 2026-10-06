@@ -262,6 +262,9 @@ describe("receiver: client authentication (S5)", () => {
     expect(none.body.error).toBe("invalid_client");
     const wrong = await redeem(s.h, { client_id: s.client.client_id, secret: "nope" } as unknown as Client, token);
     expect(wrong.body.error).toBe("invalid_client");
+    // The provider's refusal goes out unchanged, and is audited with the client id the caller named.
+    await s.rec.settle();
+    expect(s.rec.refused.at(-1)).toMatchObject({ reason: "client_authentication_failed", authenticated: false, clientId: s.client.client_id, detail: "invalid_client" });
     const pub = await createClient(s.h, { authMethod: "none" });
     const asPublic = await redeem(s.h, null, await s.valid({ client_id: pub.client_id }), { client_id: pub.client_id });
     expect(asPublic.body.error, asPublic.text).toBe("invalid_client");
@@ -276,6 +279,8 @@ describe("receiver: client authentication (S5)", () => {
     const other = await createClient(s.h, { grantTypes: ["authorization_code"] });
     const r = await redeem(s.h, other, await s.valid({ client_id: other.client_id }));
     expect(r.body.error).toBe("unauthorized_client");
+    await s.rec.settle();
+    expect(s.rec.refused.at(-1)).toMatchObject({ reason: "client_not_allowed_grant", authenticated: false, clientId: other.client_id });
   });
 
   it("allowPublicClients: a public client is accepted, and the startup warning is logged", async () => {

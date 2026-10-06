@@ -134,13 +134,20 @@ describe("refusals: the client (S5)", () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200);
   });
 
-  it("the provider's own client refusals pass through: a wrong secret, a client not registered for token exchange", async () => {
+  it("the provider's own client refusals pass through unchanged, and are audited (not stored): a wrong secret, a client not registered for token exchange", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken, user, owner } = await setup(host);
-    expect((await exchange(host, { client_id: client.client_id, client_secret: "wrong" }, idToken)).body.error).toBe("invalid_client");
+    await host.settle();
+    takeReasons(host);
+    const wrong = await exchange(host, { client_id: client.client_id, client_secret: "wrong" }, idToken);
+    expect(wrong.body.error).toBe("invalid_client");
+    await host.settle();
+    expect(host.recorded.refused.at(-1)).toMatchObject({ reason: "client_authentication_failed", authenticated: false, detail: "invalid_client" });
     const codeOnly = await createClient(host, owner.browser, { grantTypes: ["authorization_code"] });
     const own = await getIdToken(host, user.browser, codeOnly);
     expect((await exchange(host, codeOnly, own)).body.error).toBe("unauthorized_client");
+    await host.settle();
+    expect(host.recorded.refused.at(-1)).toMatchObject({ reason: "client_not_allowed_grant", authenticated: false });
   });
 });
 
@@ -199,11 +206,11 @@ describe("refusals: the subject token (S6)", () => {
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["audience is not the authenticated client", "unknown kid", "issuer"]);
   });
 
-  it("an expired ID token is refused (no grace): expired", async () => {
+  it("an expired ID token is refused (no grace): subject_token_expired", async () => {
     const host = await createIssuerHost({ provider: { idTokenExpiresIn: 1 }, issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
     await new Promise((r) => setTimeout(r, 2100));
-    await refused(host, await exchange(host, client, idToken), "expired", "invalid_grant");
+    await refused(host, await exchange(host, client, idToken), "subject_token_expired", "invalid_grant");
   });
 
   it("a pairwise client's ID token is refused explicitly (its sub isn't the user id)", async () => {

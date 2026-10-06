@@ -376,5 +376,15 @@
   "paths": [
    "test/core"
   ]
+ },
+ {
+  "name": "errors: instanceof instead of isAPIError",
+  "file": "src/core/errors.ts",
+  "a": "  if (!isAPIError(e)) return undefined;",
+  "b": "  if (!(e instanceof APIError)) return undefined;",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]

@@ -722,5 +722,14 @@
   "paths": [
    "test/issuer/registry.test.ts"
   ]
+ },
+ {
+  "name": "issuer: provider refusals not audited",
+  "file": "src/issuer/exchange.ts",
+  "a": "      if (reason)\n        emit(ctx, options, {",
+  "b": "      if (reason && false)\n        emit(ctx, options, {",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

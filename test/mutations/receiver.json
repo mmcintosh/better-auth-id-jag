@@ -565,5 +565,14 @@
   "paths": [
    "test/receiver"
   ]
+ },
+ {
+  "name": "receiver: provider refusals not audited",
+  "file": "src/receiver/grant.ts",
+  "a": "      if (reason)\n        emit(ctx, o.audit, {",
+  "b": "      if (reason && false)\n        emit(ctx, o.audit, {",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]
