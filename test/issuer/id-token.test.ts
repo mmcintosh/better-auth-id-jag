@@ -96,3 +96,15 @@ describe("verifyOwnIdToken", () => {
     expect(await outcome(await k.sign({}), inGrace)).toBe("ok:user-1");
   });
 });
+
+describe("an ID token with a crit header (D-014 #7)", () => {
+  it("is refused, whether by our own check or by jose's (our guard is defence in depth)", async () => {
+    const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+    const jwk: Jwk = { id: "kid-crit", publicKey: JSON.stringify(await exportJWK(publicKey)), privateKey: "unused", createdAt: new Date(), alg: "ES256" } as Jwk;
+    const jwtOptions = { adapter: { getJwks: async () => [jwk] } } as unknown as JwtOptions;
+    const token = await new SignJWT({ iss: ISS, aud: CLIENT, sub: "user-1", iat: NOW, exp: NOW + 600 })
+      .setProtectedHeader({ alg: "ES256", kid: jwk.id, crit: ["x-ext"], "x-ext": 1 } as never)
+      .sign(privateKey, { crit: { "x-ext": true } });
+    expect(await outcome(token, jwtOptions)).toMatch(/^invalid_subject_token:/);
+  });
+});

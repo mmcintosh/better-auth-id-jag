@@ -189,6 +189,21 @@ describe("registry: policy evaluation", () => {
     expect(takeReasons(h)).toEqual(["policy_denied"]);
   });
 
+  it("email only when every allowing source opts in: the registry does, the hook doesn't → no email; both do → email", async () => {
+    let hookEmail = false;
+    const h = await host({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read"], claims: { email: hookEmail } }) } });
+    const { client, idToken, user } = await setup(h);
+    const { admin, rsId } = await registered(h, client);
+    await api(admin.browser, "/policies/create", { policy: { resourceServerId: rsId, name: "with-email", subjectKind: "users", subjectRef: [user.id], clientIds: [client.client_id], scopes: ["read"], includeEmail: true } });
+    await h.ctx.adapter.update({ model: "user", where: [{ field: "id", value: user.id }], update: { emailVerified: true } });
+    const without = await exchange(h, client, idToken);
+    expect(without.status, JSON.stringify(without.body)).toBe(200);
+    expect(decodeJwt(without.body.access_token as string).email).toBeUndefined();
+    hookEmail = true;
+    const withEmail = await exchange(h, client, idToken);
+    expect(decodeJwt(withEmail.body.access_token as string).email).toBe(user.email);
+  });
+
   it("rows edited by hand into something invalid are reported and never used", async () => {
     const logs: string[] = [];
     const h = await host({ auth: { logger: { level: "warn", log: (_l: string, m: string) => void logs.push(m) } } });

@@ -431,5 +431,16 @@
   "paths": [
    "test/core/jwt.test.ts"
   ]
+ },
+ {
+  "name": "jwt: second half of the self-issued check (iss === aud)",
+  "file": "src/core/jwt.ts",
+  "a": "if (expected.issuer === expected.audience || parsed.claims.iss === parsed.audience) refuse",
+  "b": "if (expected.issuer === expected.audience) refuse",
+  "paths": [
+   "test/core"
+  ],
+  "expect": "survive",
+  "why": "Equivalent: a token with iss === aud that passes the iss check has aud === the trusted issuer, which differs from our audience (the first half refuses equal ones), so it is refused as wrong_audience. Kept as defence in depth."
  }
 ]

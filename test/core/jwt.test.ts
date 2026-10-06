@@ -149,6 +149,12 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
     expect(await reasonOf(verifyIdJag(await sign(k, expired), k.jwks, at()))).toBe("expired");
   });
 
+  it("a token whose iss equals its aud, from a trusted issuer that isn't us, is refused (D-014 #7)", async () => {
+    const k = await keyPair("ES256");
+    // iss === aud === the trusted issuer, but our audience differs: refused (self_issued or wrong_audience).
+    expect(["self_issued", "wrong_audience"]).toContain(await reasonOf(verifyIdJag(await sign(k, claims({ aud: ISS })), k.jwks, at())));
+  });
+
   it("an ID-JAG issued to itself (draft §9.3)", async () => {
     const k = await keyPair("ES256");
     expect(await reasonOf(verifyIdJag(await sign(k, claims({ iss: AUD })), k.jwks, { issuer: AUD, audience: AUD, now: T }))).toBe("self_issued");

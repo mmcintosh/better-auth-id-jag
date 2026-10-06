@@ -1354,5 +1354,25 @@
   "paths": [
    "test/issuer/blocks.test.ts"
   ]
+ },
+ {
+  "name": "D-014 #5: email when some (not every) allowing source opts in",
+  "file": "src/issuer/policy.ts",
+  "a": "allows.every((a) => a.email)",
+  "b": "allows.some((a) => a.email)",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "issuer: crit on an ID-token subject not refused by us",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (header.crit !== undefined) bad(\"crit\");",
+  "b": "  void header.crit;",
+  "paths": [
+   "test/issuer"
+  ],
+  "expect": "survive",
+  "why": "Equivalent: jose's signature verification refuses any unrecognised crit header parameter, so the token is still refused (invalid_subject_token) one step later. Kept as defence in depth."
  }
 ]
