@@ -6,7 +6,7 @@ import { decodeJwt } from "jose";
 import { beforeEach, describe, expect, it } from "vitest";
 import { publicDescription } from "../../src/core";
 import { type IdJagIssuerOptions, POLICY_MODEL, RESOURCE_SERVER_MODEL } from "../../src/issuer";
-import { type Browser, createIssuerHost, database, exchange as exchangeAt, ISSUER, type IssuerHost, RESOURCE, setup, signUp, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
+import { type Browser, createIssuerHost, database, exchange as exchangeAt, ISSUER, type IssuerHost, RESOURCE, setup, setupRefresh, signUp, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
 
 // A fresh audience per test: in workerd every host in this file shares one D1, and audiences are unique.
 let AUDIENCE = "";
@@ -232,9 +232,12 @@ describe("registry: policy evaluation", () => {
     const a = await host({ database: db });
     const short = await host({ database: db, registry: { cacheSeconds: 1 } });
     const { client, idToken } = await setup(a);
+    const missAt = Date.now();
     expect((await exchange(short, client, idToken)).status).toBe(400); // the miss is cached
     await registered(a, client);
-    expect((await exchange(short, client, idToken)).status).toBe(400);
+    // Still the cached miss, unless a loaded machine took the second already (the 60 s test above covers misses).
+    const second = (await exchange(short, client, idToken)).status;
+    if (Date.now() - missAt < 900) expect(second).toBe(400);
     await new Promise((r) => setTimeout(r, 1100));
     expect((await exchange(short, client, idToken)).status).toBe(200);
   });
@@ -334,14 +337,27 @@ describe("registry API: records", () => {
     expect((await api(admin.browser, "/resource-servers/update", { id: other.id, resourceServer: rsConfig({ audience }) })).status).toBe(409);
   });
 
-  it("revoke an issued jti: recorded as id-jag.admin; an unknown jti is 404", async () => {
+  it("there is no /issued/revoke any more (it didn't revoke): blocks replace it (blocks.test.ts)", async () => {
     const h = await host();
-    const { client, idToken } = await setup(h);
-    const { admin } = await registered(h, client);
-    const jti = decodeJwt((await exchange(h, client, idToken)).body.access_token as string).jti as string;
-    expect((await api(admin.browser, "/issued/revoke", { jti })).body).toEqual({ jti, revoked: true });
-    expect(h.recorded.admin.at(-1)).toMatchObject({ action: "revoke", target: "jti", targetId: jti, actorUserId: admin.id });
-    expect((await api(admin.browser, "/issued/revoke", { jti: "nope" })).status).toBe(404);
+    const admin = await signUp(h, { role: "admin" });
+    expect((await api(admin.browser, "/issued/revoke", { jti: "x" })).status).toBe(404);
+  });
+
+  it("a registry policy applies identically to a refresh-token subject: same scopes, client id, resource, lifetime", async () => {
+    const h = await host();
+    const { client, refreshToken, idToken } = await setupRefresh(h);
+    await registered(h, client, { rs: { clientIdsAtResource: { [client.client_id]: "agent-at-rs" } }, policy: { lifetimeSeconds: 90 } });
+    const a = await exchange(h, client, idToken, { scope: "write admin", resource: RESOURCE });
+    const b = await exchange(h, client, refreshToken, { scope: "write admin", resource: RESOURCE, subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token" });
+    expect(b.status, JSON.stringify(b.body)).toBe(200);
+    expect({ ...b.body, access_token: 0 }).toEqual({ ...a.body, access_token: 0 });
+    const ca = decodeJwt(a.body.access_token as string);
+    const cb = decodeJwt(b.body.access_token as string);
+    for (const k of ["sub", "aud", "client_id", "scope", "resource", "auth_time"]) expect(cb[k], k).toEqual(ca[k]);
+    expect(cb.client_id).toBe("agent-at-rs");
+    // No policy for another audience: the same generic refusal for both.
+    const c = await exchange(h, client, refreshToken, { audience: `${AUDIENCE}/x`, subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token" });
+    expect(c.body).toEqual({ error: "invalid_grant", error_description: publicDescription("no_policy") });
   });
 
   it("the audit log: issued, refused and admin events, newest first (with auditLog)", async () => {
@@ -419,10 +435,10 @@ describe("registry API: who may manage it", () => {
     expect((await api(admin.browser, "/resource-servers/create", { resourceServer: rsConfig() })).status).toBe(200);
   });
 
-  it("the registry's tables are in the schema only when it is enabled; the audit table only with auditLog", async () => {
+  it("the registry's tables are in the schema only when it is enabled; the audit table only with auditLog; the jti and block tables always", async () => {
     const { issuerSchema } = await import("../../src/issuer");
-    expect(Object.keys(issuerSchema({ registry: false, auditLog: false }))).toEqual(["idJagJti"]);
-    expect(Object.keys(issuerSchema({ registry: true, auditLog: true })).sort()).toEqual(["idJagAudit", "idJagJti", "idJagPolicy", "idJagResourceServer"]);
+    expect(Object.keys(issuerSchema({ registry: false, auditLog: false })).sort()).toEqual(["idJagBlock", "idJagJti"]);
+    expect(Object.keys(issuerSchema({ registry: true, auditLog: true })).sort()).toEqual(["idJagAudit", "idJagBlock", "idJagJti", "idJagPolicy", "idJagResourceServer"]);
     // A named table-level unique index for MongoDB (better-auth-saml-idp D-033).
     expect(issuerSchema({ registry: true, auditLog: false }).idJagResourceServer?.indexes).toEqual([{ fields: ["lookupKey"], unique: true, name: "id_jag_resource_server_lookup_key_unique" }]);
   });

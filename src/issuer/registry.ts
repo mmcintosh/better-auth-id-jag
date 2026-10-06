@@ -1,5 +1,6 @@
-// The registry's management API (better-auth-saml-idp D-027's pattern). Mounted only when
-// `registry.canManage` is configured. Every route:
+// The registry's management API (better-auth-saml-idp D-027's pattern), and the blocks and audit
+// API. Mounted only when `registry.canManage` is configured (the registry routes only when the
+// registry is enabled too). Every route:
 // - needs an authoritative session (`sensitiveSessionMiddleware` reads it from the database, so a
 //   demoted administrator loses access at once, cookie cache or not);
 // - refuses impersonated sessions, and banned users;
@@ -10,7 +11,8 @@
 import type { GenericEndpointContext, User } from "better-auth";
 import { APIError, createAuthEndpoint, sensitiveSessionMiddleware } from "better-auth/api";
 import { z } from "zod";
-import { AUDIT_MODEL, type AdminChangedEvent, emit, hasJti } from "../core";
+import { AUDIT_MODEL, type AdminChangedEvent, emit, JTI_MODEL, jtiKey } from "../core";
+import { type BlockConfig, blockColumns, blockInput, readBlock } from "./blocks";
 import { type IssuerState, issuerOf } from "./exchange";
 import {
   issuesOf,
@@ -24,7 +26,7 @@ import {
   resourceServerColumns,
   resourceServerInput,
 } from "./records";
-import { POLICY_MODEL, RESOURCE_SERVER_MODEL } from "./schema";
+import { BLOCK_MODEL, POLICY_MODEL, RESOURCE_SERVER_MODEL } from "./schema";
 
 const MAX_LIST = 1000;
 const MAX_AUDIT = 500;
@@ -248,15 +250,107 @@ export function registryEndpoints(state: IssuerState) {
       changed(ctx, who.id, "delete", "policy", String(row.id), `deleted policy ${String(row.id)}`);
       return ctx.json({ deleted: String(row.id) });
     }),
+  };
+}
 
-    // Revoking an ID-JAG we issued: the resource authorization server can't see this (there is no
-    // ID-JAG revocation protocol), so it's a record in the audit trail; banning the user is what
-    // stops the next exchange. The jti must be one this issuer recorded.
-    idJagRevokeIssued: createAuthEndpoint("/id-jag/issued/revoke", { method: "POST", use, body: z.object({ jti: z.string().min(1).max(256) }) }, async (ctx) => {
+/** The core's AdminChangedEvent has no "block" target yet (a core change request); the event carries it as is. */
+const BLOCK_TARGET = "block" as unknown as AdminChangedEvent["target"];
+const JTI_FIELDS = ["userId", "clientId", "audience"] as const;
+
+/**
+ * Blocks (D-B16) and the audit log: mounted with `registry.canManage`, whether the registry is
+ * enabled or not (a code-policy host can block too). Same access control as the registry routes.
+ */
+export function adminEndpoints(state: IssuerState) {
+  const allowLoopbackHttp = state.options.allowLoopbackHttpAudiences;
+  const input = blockInput({ allowLoopbackHttp, now: () => Date.now() });
+  const use = [sensitiveSessionMiddleware];
+  const changed = (ctx: GenericEndpointContext, actorId: string, action: "create" | "delete", blockId: string, what: string) => {
+    ctx.context.logger.info(`[id-jag] blocks: user ${actorId} ${what}`);
+    emit(ctx, state.options, { type: "id-jag.admin", actorUserId: actorId, action, target: BLOCK_TARGET, targetId: blockId });
+  };
+  const create = async (ctx: GenericEndpointContext, who: { id: string }, config: BlockConfig) => {
+    const data = { ...blockColumns(config), createdBy: who.id, createdAt: new Date() };
+    const created = await ctx.context.adapter.create<Record<string, unknown>>({ model: BLOCK_MODEL, data });
+    const id = String(created.id);
+    const what = JTI_FIELDS.filter((k) => config[k] !== undefined)
+      .map((k) => `${k} ${config[k]}`)
+      .join(", ");
+    changed(ctx, who.id, "create", id, `blocked ${what}${config.expiresAt ? ` until ${config.expiresAt.toISOString()}` : ""}`);
+    return readBlock({ ...data, id });
+  };
+  const parse = (value: unknown) => {
+    if (tooBig(value)) throw fail("BAD_REQUEST", "INVALID", { issues: [`larger than ${MAX_BODY_BYTES} bytes`] });
+    const r = input.safeParse(value);
+    if (!r.success) throw fail("BAD_REQUEST", "INVALID", { issues: issuesOf(r.error) });
+    return r.data;
+  };
+
+  return {
+    // Newest first. Filters match exactly; expired blocks are listed (active: false) until swept.
+    idJagListBlocks: createAuthEndpoint(
+      "/id-jag/blocks",
+      { method: "GET", use, query: z.object({ userId: idSchema.optional(), clientId: idSchema.optional(), audience: z.string().min(1).max(2048).optional() }).optional() },
+      async (ctx) => {
+        await actor(ctx, state);
+        const filters = JTI_FIELDS.flatMap((k) => (ctx.query?.[k] !== undefined ? [{ field: k, value: ctx.query[k] as string }] : []));
+        const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({ model: BLOCK_MODEL, ...(filters.length ? { where: filters } : {}), limit: MAX_LIST, sortBy: { field: "createdAt", direction: "desc" } });
+        const blocks = rows.filter((r) => filters.every((f) => r[f.field] === f.value)).map((r) => readBlock(r));
+        return ctx.json({ blocks });
+      },
+    ),
+
+    idJagGetBlock: createAuthEndpoint("/id-jag/blocks/get", { method: "GET", use, query: z.object({ id: idSchema }) }, async (ctx) => {
+      await actor(ctx, state);
+      const row = await findById(ctx, BLOCK_MODEL, ctx.query.id);
+      if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
+      return ctx.json({ block: readBlock(row) });
+    }),
+
+    // { block: { userId?, clientId?, audience?, reason, expiresAt? } }: at least one of the three.
+    idJagCreateBlock: createAuthEndpoint("/id-jag/blocks/create", { method: "POST", use, body: z.object({ block: record }) }, async (ctx) => {
       const who = await actor(ctx, state);
-      if (!(await hasJti(ctx.context.adapter, "issued", issuerOf(ctx), ctx.body.jti))) throw fail("NOT_FOUND", "NOT_FOUND");
-      changed(ctx, who.id, "revoke", "jti", ctx.body.jti, `revoked issued ID-JAG ${ctx.body.jti}`);
-      return ctx.json({ jti: ctx.body.jti, revoked: true });
+      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });
+    }),
+
+    // A convenience: block the user, client and/or audience of an ID-JAG this issuer recorded (a
+    // jti alone means nothing to a receiver). `fields` picks which (default all three).
+    idJagCreateBlockFromJti: createAuthEndpoint(
+      "/id-jag/blocks/create-from-jti",
+      {
+        method: "POST",
+        use,
+        body: z.object({
+          jti: z.string().min(1).max(256),
+          fields: z.array(z.enum(JTI_FIELDS)).min(1).max(3).optional(),
+          reason: z.string(),
+          expiresAt: z.string().optional(),
+        }),
+      },
+      async (ctx) => {
+        const who = await actor(ctx, state);
+        const key = await jtiKey("issued", issuerOf(ctx), ctx.body.jti);
+        const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: JTI_MODEL, where: [{ field: "key", value: key }] });
+        if (!row || row.key !== key) throw fail("NOT_FOUND", "NOT_FOUND");
+        const fields = new Set(ctx.body.fields ?? JTI_FIELDS);
+        const config = parse({
+          ...(fields.has("userId") ? { userId: row.sub } : {}),
+          ...(fields.has("clientId") ? { clientId: row.clientId } : {}),
+          ...(fields.has("audience") ? { audience: row.aud } : {}),
+          reason: ctx.body.reason,
+          ...(ctx.body.expiresAt !== undefined ? { expiresAt: ctx.body.expiresAt } : {}),
+        });
+        return ctx.json({ block: await create(ctx, who, config) });
+      },
+    ),
+
+    idJagDeleteBlock: createAuthEndpoint("/id-jag/blocks/delete", { method: "POST", use, body: z.object({ id: idSchema }) }, async (ctx) => {
+      const who = await actor(ctx, state);
+      const row = await findById(ctx, BLOCK_MODEL, ctx.body.id);
+      if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
+      await ctx.context.adapter.delete({ model: BLOCK_MODEL, where: [{ field: "id", value: String(row.id) }] });
+      changed(ctx, who.id, "delete", String(row.id), `deleted block ${String(row.id)}`);
+      return ctx.json({ deleted: String(row.id) });
     }),
 
     // The audit log (core audit table), newest first. Only with `auditLog`.

@@ -4,7 +4,9 @@
 //   requested_token_type=urn:ietf:params:oauth:token-type:id-jag;
 // - metadata: identity_chaining_requested_token_types_supported (grant_types_supported lists the
 //   grant automatically: docs/phase-0.md);
-// and, with `registry.enabled`, its tables, plus the admin API when `registry.canManage` is set.
+// the jti and block tables; with `registry.enabled`, the registry's tables; and with
+// `registry.canManage`, the admin API (blocks and audit always, the registry's routes when enabled).
+// Subject tokens: ID tokens and refresh tokens this provider issued (no metadata field for them).
 import type { AuthContext, BetterAuthPlugin } from "better-auth";
 import type { JwtOptions } from "better-auth/plugins";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
@@ -12,7 +14,7 @@ import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXC
 import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
-import { ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
+import { adminEndpoints, ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
 import { issuerSchema } from "./schema";
 
 export const ISSUER_PLUGIN_ID = "id-jag-issuer";
@@ -65,7 +67,12 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
     metadata: () => ({ [ISSUER_METADATA_FIELD]: [ID_JAG_TOKEN_TYPE] }),
   };
   // Typed as mounted so the client plugin can infer the routes; empty at runtime without canManage.
-  const endpoints = (resolved.registryEnabled && resolved.registry?.canManage ? registryEndpoints(state) : {}) as ReturnType<typeof registryEndpoints>;
+  // Blocks and audit with canManage; the registry's routes only when it is enabled too.
+  const canManage = resolved.registry?.canManage !== undefined;
+  const endpoints = {
+    ...(canManage && resolved.registryEnabled ? registryEndpoints(state) : {}),
+    ...(canManage ? adminEndpoints(state) : {}),
+  } as ReturnType<typeof registryEndpoints> & ReturnType<typeof adminEndpoints>;
   return {
     id: ISSUER_PLUGIN_ID,
     init(ctx: AuthContext) {

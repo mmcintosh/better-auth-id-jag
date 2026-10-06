@@ -218,7 +218,7 @@
  {
   "name": "S6 expired accepted",
   "file": "src/issuer/subject/id-token.ts",
-  "a": "  if (claims.exp <= expected.now) refuse(\"expired\", \"subject token\");\n",
+  "a": "  if (claims.exp <= expected.now) refuse(\"subject_token_expired\");\n",
   "b": "",
   "paths": [
    "test/issuer/refusals.test.ts",
@@ -486,7 +486,7 @@
  {
   "name": "Req subject_token_type not checked",
   "file": "src/issuer/exchange.ts",
-  "a": "    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE) refuse(\"unsupported_subject_token_type\", subjectTokenType);\n",
+  "a": "    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE && subjectTokenType !== REFRESH_TOKEN_TOKEN_TYPE) refuse(\"unsupported_subject_token_type\", subjectTokenType);\n",
   "b": "",
   "paths": [
    "test/issuer/refusals.test.ts"
@@ -579,10 +579,11 @@
  {
   "name": "S10 outbound fetch",
   "file": "src/issuer/exchange.ts",
-  "a": "    // 3. Subject token: an ID token this IdP issued to this client (S6).",
-  "b": "    try { await fetch(\"https://example.invalid/\"); } catch {}\n    // 3. Subject token: an ID token this IdP issued to this client (S6).",
+  "a": "    // 3. Subject token: an ID token or a refresh token this IdP issued to this client (S6).",
+  "b": "    try { await fetch(\"https://example.invalid/\"); } catch {}\n    // 3. Subject token: an ID token or a refresh token this IdP issued to this client (S6).",
   "paths": [
-   "test/issuer/exchange.test.ts"
+   "test/issuer/exchange.test.ts",
+   "test/issuer/refresh-token.test.ts"
   ]
  },
  {
@@ -696,15 +697,6 @@
   ]
  },
  {
-  "name": "API unknown jti revoked",
-  "file": "src/issuer/registry.ts",
-  "a": "      if (!(await hasJti(ctx.context.adapter, \"issued\", issuerOf(ctx), ctx.body.jti))) throw fail(\"NOT_FOUND\", \"NOT_FOUND\");\n",
-  "b": "",
-  "paths": [
-   "test/issuer/registry.test.ts"
-  ]
- },
- {
   "name": "API change not emitted",
   "file": "src/issuer/registry.ts",
   "a": "    emit(ctx, state.options, { type: \"id-jag.admin\", actorUserId: actorId, action, target, targetId });",
@@ -776,6 +768,348 @@
   ],
   "paths": [
    "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S6r refresh_token subject type refused (not served)",
+  "file": "src/issuer/exchange.ts",
+  "a": " && subjectTokenType !== REFRESH_TOKEN_TOKEN_TYPE) refuse(",
+  "b": ") refuse(",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r refresh token verified as an ID token",
+  "file": "src/issuer/exchange.ts",
+  "a": "  if (type === REFRESH_TOKEN_TOKEN_TYPE) {",
+  "b": "  if (false) {",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r length cap dropped",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (token.length > MAX_TOKEN_LENGTH) bad(\"length\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r stored hash not matched exactly (collation)",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (!row || row.token !== hash) return bad(",
+  "b": "  if (!row) return bad(",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r another client's refresh token accepted",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (row.clientId !== expected.clientId) bad(\"refresh token: issued to another client\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r revoked or rotated refresh token accepted",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (row.revoked !== null && row.revoked !== undefined) bad(",
+  "b": "  if (false) bad(",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r sender-constrained refresh token accepted",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (row.confirmation !== null && row.confirmation !== undefined && row.confirmation !== \"\") bad(",
+  "b": "  if (false) bad(",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r openid not required",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (!scopes.includes(\"openid\")) bad(\"refresh token: not granted openid\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r expired refresh token accepted",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  if (expiresAt <= expected.now) refuse(\"subject_token_expired\", \"refresh token\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r prefix not required",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "    if (!value.startsWith(prefix)) return bad(\"refresh token: prefix missing\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r prefix not stripped",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "    value = value.slice(prefix.length);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S8r expiry answered before the client and revocation checks (multi-edit)",
+  "edits": [
+   {
+    "file": "src/issuer/subject/refresh-token.ts",
+    "a": "  if (expiresAt <= expected.now) refuse(\"subject_token_expired\", \"refresh token\");\n",
+    "b": ""
+   },
+   {
+    "file": "src/issuer/subject/refresh-token.ts",
+    "a": "  if (row.clientId !== expected.clientId)",
+    "b": "  if ((seconds(row.expiresAt) ?? 0) <= expected.now) refuse(\"subject_token_expired\", \"refresh token\");\n  if (row.clientId !== expected.clientId)"
+   }
+  ],
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r the exchange rotates (revokes) the refresh token",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  const authTime = seconds(row.authTime);\n",
+  "b": "  await ctx.context.adapter.update({ model: REFRESH_TOKEN_MODEL, where: [{ field: \"id\", value: String(row.id) }], update: { revoked: new Date(), rotatedAt: new Date() } });\n  const authTime = seconds(row.authTime);\n",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r the exchange extends the refresh token",
+  "file": "src/issuer/subject/refresh-token.ts",
+  "a": "  const authTime = seconds(row.authTime);\n",
+  "b": "  await ctx.context.adapter.update({ model: REFRESH_TOKEN_MODEL, where: [{ field: \"id\", value: String(row.id) }], update: { expiresAt: new Date((expected.now + 86400) * 1000) } });\n  const authTime = seconds(row.authTime);\n",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r auth_time not carried",
+  "file": "src/issuer/exchange.ts",
+  "a": "      auth_time: rt.authTime,\n",
+  "b": "      auth_time: undefined,\n",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r subject is the client, not the token's user",
+  "file": "src/issuer/exchange.ts",
+  "a": "      sub: rt.userId,\n",
+  "b": "      sub: e.clientId,\n",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6r pairwise client's refresh token accepted (pairwise guard skipped for refresh tokens)",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (client.subjectType === \"pairwise\" && opts.pairwiseSecret)",
+  "b": "    if (client.subjectType === \"pairwise\" && opts.pairwiseSecret && subjectTokenType !== REFRESH_TOKEN_TOKEN_TYPE)",
+  "paths": [
+   "test/issuer/refresh-token.test.ts"
+  ]
+ },
+ {
+  "name": "B block check dropped",
+  "file": "src/issuer/policy.ts",
+  "a": "  await checkBlocks(r.ctx, { userId: r.user.id, clientId: r.client.clientId, audience: r.audience });\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B block checked after the policy sources (registry no_policy first)",
+  "edits": [
+   {
+    "file": "src/issuer/policy.ts",
+    "a": "  await checkBlocks(r.ctx, { userId: r.user.id, clientId: r.client.clientId, audience: r.audience });\n",
+    "b": ""
+   },
+   {
+    "file": "src/issuer/policy.ts",
+    "a": "  // Resource: the one the client asked for",
+    "b": "  await checkBlocks(r.ctx, { userId: r.user.id, clientId: r.client.clientId, audience: r.audience });\n  // Resource: the one the client asked for"
+   }
+  ],
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B block expiry ignored",
+  "file": "src/issuer/blocks.ts",
+  "a": "  const active = !expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() > now;",
+  "b": "  const active = true;",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B inactive blocks still match",
+  "file": "src/issuer/blocks.ts",
+  "a": "  if (!b.active) return false;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B match ignores userId (collation)",
+  "file": "src/issuer/blocks.ts",
+  "a": "(b.userId === null || b.userId === r.userId)",
+  "b": "true",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B match ignores clientId",
+  "file": "src/issuer/blocks.ts",
+  "a": "(b.clientId === null || b.clientId === r.clientId)",
+  "b": "true",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B match ignores audience",
+  "file": "src/issuer/blocks.ts",
+  "a": "(b.audience === null || b.audience === r.audience)",
+  "b": "true",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B any-user client blocks not looked up",
+  "file": "src/issuer/blocks.ts",
+  "a": "    [\n      { field: \"userId\", value: null },\n      { field: \"clientId\", value: r.clientId },\n    ],\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B any-user any-client audience blocks not looked up",
+  "file": "src/issuer/blocks.ts",
+  "a": "    [\n      { field: \"userId\", value: null },\n      { field: \"clientId\", value: null },\n      { field: \"audience\", value: r.audience },\n    ],\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B too many blocks: fail open",
+  "file": "src/issuer/blocks.ts",
+  "a": "    if (rows.length >= MAX_BLOCK_ROWS) refuse(\"policy_denied\", \"too many blocks to evaluate\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B a block with no field set accepted at write",
+  "file": "src/issuer/blocks.ts",
+  "a": "    .refine((b) => b.userId !== undefined || b.clientId !== undefined || b.audience !== undefined, \"name at least one of userId, clientId, audience\");",
+  "b": "    ;",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B block audience not normalised at write",
+  "file": "src/issuer/blocks.ts",
+  "a": "      return n.audience;\n        })",
+  "b": "      return v;\n        })",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B past expiry accepted at write",
+  "file": "src/issuer/blocks.ts",
+  "a": "        .refine((d) => d.getTime() > o.now(), \"must be in the future\")\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B unknown jti blocked (create-from-jti)",
+  "file": "src/issuer/registry.ts",
+  "a": "        if (!row || row.key !== key) throw fail(\"NOT_FOUND\", \"NOT_FOUND\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B create-from-jti ignores fields",
+  "file": "src/issuer/registry.ts",
+  "a": "        const fields = new Set(ctx.body.fields ?? JTI_FIELDS);",
+  "b": "        const fields = new Set(JTI_FIELDS);",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B change not emitted",
+  "file": "src/issuer/registry.ts",
+  "a": "    emit(ctx, state.options, { type: \"id-jag.admin\", actorUserId: actorId, action, target: BLOCK_TARGET, targetId: blockId });",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B API without access control (actor not checked on create)",
+  "file": "src/issuer/registry.ts",
+  "a": "      const who = await actor(ctx, state);\n      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });",
+  "b": "      const who = { id: \"anyone\" };\n      return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B API not mounted without the registry",
+  "file": "src/issuer/plugin.ts",
+  "a": "    ...(canManage ? adminEndpoints(state) : {}),",
+  "b": "    ...(canManage && resolved.registryEnabled ? adminEndpoints(state) : {}),",
+  "paths": [
+   "test/issuer/blocks.test.ts"
+  ]
+ },
+ {
+  "name": "B expired blocks never swept",
+  "file": "src/issuer/exchange.ts",
+  "a": "        await sweepBlocks(ctx);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/blocks.test.ts"
   ]
  }
 ]

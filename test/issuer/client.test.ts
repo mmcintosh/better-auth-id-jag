@@ -30,5 +30,17 @@ describe("idJagIssuerClient", () => {
     expect(listed.data?.resourceServers.map((r) => r.id)).toContain(id);
     const got = await client.idJag.resourceServers.get({ query: { id } });
     expect(got.data?.resourceServer.config?.audience).toBe(audience);
+
+    // Blocks: create, list, get, delete; create-from-jti answers 404 for an unknown jti.
+    const userId = `user-${crypto.randomUUID()}`;
+    const block = await client.idJag.blocks.create({ block: { userId, reason: "lost laptop" } });
+    expect(block.error).toBeNull();
+    const blockId = block.data?.block.id as string;
+    expect(block.data?.block).toMatchObject({ userId, clientId: null, audience: null, active: true });
+    expect((await client.idJag.blocks({ query: { userId } })).data?.blocks.map((b) => b.id)).toEqual([blockId]);
+    expect((await client.idJag.blocks.get({ query: { id: blockId } })).data?.block.reason).toBe("lost laptop");
+    expect((await client.idJag.blocks.createFromJti({ jti: "unknown", reason: "r" })).error?.status).toBe(404);
+    expect((await client.idJag.blocks.delete({ id: blockId })).data).toEqual({ deleted: blockId });
+    expect((await client.idJag.blocks.get({ query: { id: blockId } })).error?.status).toBe(404);
   });
 });

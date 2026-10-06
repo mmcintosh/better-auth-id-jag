@@ -12,11 +12,13 @@ defines in code, in a database registry, or both. Built on the shared core (`src
 | `plugin.ts` | `idJagIssuer(options)`, `createIssuerState`, `checkIssuerHost` (startup checks) |
 | `exchange.ts` | `handleTokenExchange(input, state)`: the grant handler, as a plain function too |
 | `subject/id-token.ts` | `verifyOwnIdToken`: an ID token this IdP issued, verified with this host's own keys |
-| `policy.ts` | `decide`: code hook + registry, deny by default, narrowing |
+| `subject/refresh-token.ts` | `verifyOwnRefreshToken`: a refresh token this provider issued to the client, looked up by the provider's own hash, never changed (D-B14) |
+| `blocks.ts` | blocks (D-B16): input schema, matching, `checkBlocks` (the policy step's first check), sweep |
+| `policy.ts` | `decide`: blocks, then code hook + registry, deny by default, narrowing |
 | `directory.ts` | registry lookups by audience, re-validated rows, per-isolate cache |
 | `records.ts` | registry input schemas (zod), stored-row re-validation, lookup keys |
-| `registry.ts` | the admin API (mounted only with `registry.canManage`) |
-| `schema.ts` | `idJagResourceServer`, `idJagPolicy` (+ the core's `idJagJti`, `idJagAudit`) |
+| `registry.ts` | the admin API (mounted only with `registry.canManage`): registry routes, blocks, audit |
+| `schema.ts` | `idJagBlock` (always), `idJagResourceServer`, `idJagPolicy` (+ the core's `idJagJti`, `idJagAudit`) |
 | `options.ts` | options, their types and their validation (zod, at startup) |
 | `url.ts` | audience normalisation, resource URIs |
 | `client.ts` | `idJagIssuerClient()`, the typed client plugin for the admin API |
@@ -42,12 +44,28 @@ idJagIssuer({
 ```
 
 Also exported: `handleTokenExchange`, `createIssuerState`, `checkIssuerHost`, `decide`, `verifyOwnIdToken`,
-`normalizeAudience`, `issuerSchema`/`registrySchema`, the model names, `ID_JAG_REGISTRY_ERROR_CODES`, and the types.
-Client: `idJagIssuerClient()` (`authClient.idJag.resourceServers.create(…)`, `.policies.create(…)`, `.issued.revoke(…)`).
+`verifyOwnRefreshToken`, `REFRESH_TOKEN_TOKEN_TYPE`, `checkBlocks`, `normalizeAudience`,
+`issuerSchema`/`registrySchema`/`blockSchema`, the model names (`BLOCK_MODEL` = `idJagBlock`),
+`ID_JAG_REGISTRY_ERROR_CODES`, and the types (`BlockConfig`, `BlockRecord`, `RefreshTokenSubject`).
+`SubjectTokenClaims` (the `authorize` hook's `subjectToken`) gained `tokenType`: the id_token or refresh_token URN.
 
-Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations):
-`/id-jag/resource-servers[/get|/create|/update|/delete]`, `/id-jag/policies[/get|/create|/update|/delete]`,
-`/id-jag/issued/revoke`, `/id-jag/audit` (404 without `auditLog`).
+Client: `idJagIssuerClient()`:
+- `authClient.idJag.resourceServers.create(…)`, `.policies.create(…)` (as before);
+- `authClient.idJag.blocks({ query: { userId?, clientId?, audience? } })`, `.blocks.get({ query: { id } })`;
+- `.blocks.create({ block: { userId?, clientId?, audience?, reason, expiresAt? } })`;
+- `.blocks.createFromJti({ jti, fields?: ("userId" | "clientId" | "audience")[], reason, expiresAt? })`;
+- `.blocks.delete({ id })`.
+
+`.issued.revoke(…)` is gone (D-B21).
+
+Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations; mounted with `registry.canManage`):
+- registry, only when `registry.enabled`: `/id-jag/resource-servers[/get|/create|/update|/delete]`,
+  `/id-jag/policies[/get|/create|/update|/delete]`;
+- always: `/id-jag/blocks[/get|/create|/create-from-jti|/delete]`, `/id-jag/audit` (404 without `auditLog`).
+
+Subject tokens: `subject_token_type` `urn:ietf:params:oauth:token-type:id_token` or
+`urn:ietf:params:oauth:token-type:refresh_token`. Nothing new is advertised: draft -04 defines no metadata for
+subject token types, only `identity_chaining_requested_token_types_supported`.
 
 ## How each plan §3.3 step is implemented
 
@@ -60,7 +78,8 @@ Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations):
    schema keeps one value; it merges only repeated `resource`), or from the parsed body for server-side calls.
    `requested_token_type` must be the ID-JAG URN (absent or anything else → `unsupported_requested_token_type`);
    `actor_token`/`actor_token_type` → `actor_token_unsupported`; `subject_token`, `subject_token_type`, `audience`
-   required (`missing_parameter`); `subject_token_type` must be the id_token URN (`unsupported_subject_token_type`);
+   required (`missing_parameter`); `subject_token_type` must be the id_token or refresh_token URN
+(`unsupported_subject_token_type`);
    `audience` normalised (below), several audiences or our own issuer → `invalid_audience`; at most one `resource`
    (the provider already refused non-URIs with its own error); `scope` ≤ 4096 chars; any single-valued parameter
    repeated → `unsupported_parameter`.
@@ -71,7 +90,16 @@ Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations):
    as its JWKS route publishes them; the key's alg must be the header's; `compactVerify`; `aud` contains the
    authenticated client (several audiences need `azp` = the client). Then the user by `sub` (`unknown_subject`), not
    banned (`banned_user`, ban expiry honoured). No outbound request at all (S10, tested with a `fetch` that throws).
-4. **Policy** (`policy.ts`). Sources: `authorize` and/or the registry; none configured → `no_policy` (and a startup
+
+   **Or a refresh token** (`subject/refresh-token.ts`, D-B14, D-B15). Decoded as the provider's refresh_token grant
+   decodes it: `prefix.refreshToken` stripped (refused when configured and missing), `formatRefreshToken.decrypt`
+   when configured, then `provider.hashToken(value, "refresh_token")` and an exact match on `oauthRefreshToken.token`.
+   In order: length; found; `clientId` = the authenticated client; not `revoked` (rotation sets it too); no
+   `confirmation` (sender-constrained); `openid` among its scopes; then `expiresAt > now` (`subject_token_expired`).
+   Then the same user, ban and pairwise steps as for ID tokens. `auth_time` comes from the row's `authTime`. Nothing
+   is written to the row.
+4. **Policy** (`policy.ts`). First the blocks (D-B16): an active block matching (user, client, audience) refuses
+   with `policy_denied`, detail `blocked: <id>`. Then the sources: `authorize` and/or the registry; none configured → `no_policy` (and a startup
    warning). Each configured source must allow. Registry: the enabled, valid resource servers for the audience that
    apply to the user (no organization, or one the user is a member of) → their enabled, valid policies matching the
    client and the subject (everyone / users / role / organization) → `no_policy` / `policy_denied`; two resource
@@ -131,15 +159,113 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   receiver must map to one audience-restricted token. v1 takes one (`unsupported_parameter` for more).
 - **D-B10: email.** Only when the policy opts in and `emailVerified` is true; an unverified address is silently left
   out (receivers may use `email` to link accounts).
-- **D-B11: revoke.** `/id-jag/issued/revoke` checks the jti was issued here and records an `id-jag.admin` "revoke"
-  event. There is no ID-JAG revocation protocol, so the receiver can't see it; banning the user is what stops the next
-  exchange. Documented as an audit action, not an enforcement.
+- **D-B11: revoke (superseded by D-B16 and D-B21).** `/id-jag/issued/revoke` checked the jti was issued here and
+  recorded an `id-jag.admin` "revoke" event, nothing more. The maintainer's D-009 #12 replaced it with blocks.
 - **D-B12: requested_token_type absent = unsupported.** RFC 8693 lets the AS choose a default; we only serve id-jag
   and must not shadow a future generic token-exchange grant (plan Question 7).
 - **D-B13: the plugin's endpoints are typed as mounted** (`ReturnType<typeof registryEndpoints>`) so the client plugin
   infers them, but are `{}` at runtime without `registry.canManage`.
 
+### Phase 2 (the maintainer's D-009: refresh-token subjects, blocks)
+
+- **D-B14: refresh tokens as subject tokens, in the provider's own representation.** The draft's MAY ("a Refresh
+  Token previously issued by the IdP Authorization Server for that resource owner"), needed for the MCP extension's
+  SAML path and for conformance tools that exchange one. Only a refresh token **this provider** issued **to the
+  authenticated client** is accepted. It is looked up exactly as the provider's own refresh_token grant looks it up
+  (prefix, `formatRefreshToken`, `provider.hashToken`), so `storeTokens: { hash }` hosts work unchanged. The row is
+  only read: not rotated, consumed or extended. The client keeps using the token at the token endpoint, which is
+  tested by refreshing with the same token after two exchanges.
+  - **Why it's safe.** The token is a 32-character random secret the client already holds. Only its hash is stored,
+    and we compare hashes exactly. Its client binding is checked against the authenticated client, the S6 rule for
+    refresh tokens. A revoked or rotated token is refused, so the provider's revocation endpoint and its
+    refresh-token-reuse handling both stop exchanges at once. The user is re-read and the ban checked, as for ID
+    tokens. Nothing in the token can widen the grant: the ID-JAG's scopes come from the policy, not the token's.
+  - **What's carried.** `sub` is the row's `userId`. `auth_time` is the row's `authTime`. There's no `acr` or `amr`,
+    because the provider doesn't store them. `email` and `tenant` come from the current user and policy. The draft
+    asks for "current subject attributes and policy", and that is what both subject token types already do.
+  - **What's ignored.** The token's own scopes (`openid profile offline_access`, the IdP's scopes) aren't
+    intersected with the ID-JAG's: they are about this IdP's APIs, not the resource's. Its RFC 8707 `resources` are
+    ignored for the same reason.
+  - **Pairwise clients are refused** for refresh tokens too. The ID-JAG's `sub` is the real user id, which the client
+    can read, and that defeats pairwise.
+  - **Sessions.** No session is required. The provider keeps `offline_access` refresh tokens after sign-out by
+    design, and we follow it. Revoking the token, or banning the user, stops the exchange.
+  - **The policy sees it.** `subjectToken.tokenType` is the URN that was exchanged. `subjectToken.raw` is
+    `{ token_type, client_id, scope, iat, exp }`, never the token or its hash. Both policy sources and the narrowing
+    apply identically: tested with the hook and with the registry, comparing both token types' responses and claims.
+  - **Advertised:** nothing new. Draft -04 has no metadata for subject token types.
+- **D-B15: refresh-token refusals.**
+  - **One body for most refusals.** Unknown, another client's, revoked, rotated (even within the provider's
+    `refreshTokenReuseInterval`), sender-constrained, without `openid`, a missing prefix or an undecodable format are
+    all `invalid_subject_token` (not public). The audit detail names the step.
+  - **Expiry is public, but checked late.** `subject_token_expired` comes after the client and revocation checks.
+    So it only tells the client that its own, unrevoked token has expired, which the client could have recorded
+    itself. Another client presenting the same expired token gets the generic refusal (tested). An ID token's expiry
+    is public before the issuer check because it can be read from the token. A refresh token's can't, hence the
+    later position.
+  - **Sender-constrained tokens are refused.** A refresh token with a `confirmation` (e.g. DPoP `jkt`) is refused,
+    because we can't check its proof of possession yet. Accepting it would strip the sender constraint.
+  - **`openid` is required.** An ID-JAG is an identity assertion. The ID-token path implies `openid`, so a refresh
+    token that was never granted it doesn't yield one.
+- **D-B16: blocks (D-009 #12).** Table `idJagBlock`: `userId`, `clientId`, `audience`, each a value (matched
+  exactly) or null for "any", at least one set, plus `reason`, `createdBy`, `createdAt` and an optional `expiresAt`.
+  - **What it can cover.** (user), (user, client), (user, client, audience), (client), (client, audience) and
+    (audience) are all expressible. "Block everything" isn't one: an empty block is refused at write.
+  - **How it's checked.** The policy step checks blocks first, before any source, on every exchange and for both
+    subject token types. It uses three indexed reads: the user's blocks, any-user blocks of this client, and any-user
+    any-client blocks of this audience.
+  - **The refusal.** A match is `policy_denied` with detail `blocked: <id>`, the same body as every other deny (S8).
+  - **What a block stops.** **A block stops new ID-JAGs immediately, on every instance (no cache). ID-JAGs already
+    issued remain valid at their receivers until they expire (default 5 minutes, at most 15), because there is no
+    ID-JAG revocation protocol and receivers can't see the block.** To also cut the access tokens a receiver already
+    issued from them, act at the receiver.
+  - **Expiry and the audience.** An expired block no longer matches, and the opportunistic sweep deletes it. The
+    audience is normalised at write, as the exchange normalises it.
+- **D-B17: the block's refusal reason and audit target use what core has.** Until core gains them (core change
+  requests 5 and 6 below):
+  - the refusal is `policy_denied`, with the block in the detail;
+  - the `id-jag.admin` event's `target` is `"block"`, cast onto the core's union (the core's type doesn't list it).
+- **D-B18: where blocks live.** The `idJagBlock` table is always in the schema, like `idJagJti`: blocking is the
+  enforcement half of revocation, and a host with only a code policy needs it too. The blocks and audit routes are
+  mounted whenever `registry.canManage` is set, even with `registry.enabled: false` (then only they are mounted).
+  They use the registry's access control: `sensitiveSessionMiddleware`, impersonation and bans refused, `canManage`
+  exactly `true`, the origin check kept. Every create and delete is an `id-jag.admin` event with the actor.
+- **D-B19: no existence checks at block creation.** Blocking a user id or client id that doesn't exist (yet) is
+  harmless and useful (e.g. a client id metadata document URL before that client shows up), so neither is looked up.
+- **D-B20: blocks fail closed.** Each of the three reads takes at most 1,000 rows. Reaching the limit refuses
+  (`policy_denied`, "too many blocks to evaluate") rather than risking a missed block. Rows are compared again in
+  memory, exactly, so a case-folding collation can't widen a block (tested with a folding adapter wrapper).
+- **D-B21: no endpoint is called "revoke".** `/id-jag/issued/revoke` and `authClient.idJag.issued.revoke` are
+  removed, not renamed: they never revoked anything. The useful part, starting from an ID-JAG you saw in the audit
+  log, is `/id-jag/blocks/create-from-jti`. It blocks that jti's user, client and/or audience (`fields`, default all
+  three), from the jti row this issuer recorded (404 when unknown or swept). A jti alone means nothing to a receiver.
+
 ## Evidence
+
+### Phase 2 (refresh-token subjects, blocks), 2026-10-06
+
+- **Tests.** `pnpm test`: 542 passed, 0 failed, 271 per runtime (Node with node:sqlite, workerd with D1). Issuer:
+  116 per runtime (89 before). New are `refresh-token.test.ts` (14) and `blocks.test.ts` (12). `registry.test.ts`
+  lost the revoke test and gained two: that `/issued/revoke` is gone, and a registry policy applied identically to a
+  refresh-token subject. `client.test.ts` now also covers the blocks calls. `pnpm typecheck` and `pnpm lint` are
+  clean.
+- **Refresh tokens are real.** Every refresh token in the tests comes from authorization_code with `offline_access`,
+  through `/oauth2/authorize`. Revocation goes through the provider's `/oauth2/revoke`. Non-rotation is proven three
+  ways: the row is unchanged after two exchanges, the same token then refreshes at `/oauth2/token`, and after that
+  rotation the old token is refused while the new one works.
+- **Fixed on the way.** `cache: an entry expires after cacheSeconds` failed once under full-suite load. Its middle
+  assertion assumed under 1 s between two exchanges, so it is now only checked when that held. The expiry assertion
+  that the cache mutation needs is unchanged.
+- **Each guard broken once.** `python3 scripts/mutate.py test/mutations/issuer.json` ran the whole list: **117
+  mutations, 112 caught, 5 expected survivors (the five above, unchanged), 0 problems, exit 0.**
+  - **Added:** 36 mutations to the 82 already there (79 from Phase 1, 3 from D-009). 17 are on refresh-token
+    subjects (S6r, plus the two-edit S8r "expiry before the client check"), and 19 are on blocks (B, one of them a
+    two-edit pair).
+  - **Updated:** 3 stale patterns (`S6 expired accepted`, stale since D-009's `subject_token_expired`;
+    `Req subject_token_type not checked`; `S10 outbound fetch`).
+  - **Removed:** `API unknown jti revoked`, replaced by `B unknown jti blocked (create-from-jti)`.
+  - **One new survivor, now caught.** On the first run of the new mutations, "pairwise guard skipped for refresh
+    tokens" survived. A pairwise refresh-token test was added, and it is caught.
 
 **Tests.** `pnpm test` (2026-10-06): 298 passed, 0 failed, both projects. Issuer: 89 per runtime (178 in total) in
 `test/issuer/` (exchange 16, refusals 26, registry 27, id-token 6, startup 8, fuzz 3, client 1, rs256 1,
@@ -299,6 +425,37 @@ S-items covered by at least one caught mutation:
 3. Optional: `repeated_parameter` (`invalid_request`, public, "A parameter appears more than once.") instead of
    reusing `unsupported_parameter` for repeats.
 
+(1 and 2 were made in D-009.) Phase 2:
+
+4. **The refresh-token URN** (D-B14). Defined in `src/issuer/subject/refresh-token.ts` until then. Diff in
+   `src/core/urns.ts`:
+   ```diff
+    /** The subject token type v1 accepts at the issuer: an ID token this IdP issued. */
+    export const ID_TOKEN_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+   +/** The other subject token type the issuer accepts: a refresh token this provider issued to the client. */
+   +export const REFRESH_TOKEN_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
+   ```
+   Then `src/issuer/subject/refresh-token.ts` re-exports the core's constant instead of defining it.
+5. **A `blocked` reason** (D-B16, D-B17). Not public, so it shares `invalid_grant`'s generic body with every other
+   deny (S8). Diff in `src/core/errors.ts`:
+   ```diff
+      policy_denied: { error: "invalid_grant", public: false },
+      no_policy: { error: "invalid_grant", public: false },
+   +  blocked: { error: "invalid_grant", public: false },
+   ```
+   The pinned public-reason test is unchanged. Then `checkBlocks` refuses with `blocked` (detail: the block id), and
+   the tests' `policy_denied` + `blocked: ` detail assertions become `blocked`.
+6. **The admin event's target and action** (D-B17, D-B21). Diff in `src/core/audit.ts`:
+   ```diff
+   -  action: "create" | "update" | "delete" | "revoke";
+   -  target: "resource-server" | "policy" | "trusted-issuer" | "jti";
+   +  action: "create" | "update" | "delete";
+   +  target: "resource-server" | "policy" | "trusted-issuer" | "block";
+   ```
+   Nothing emits `"revoke"` or `"jti"` any more (the receiver doesn't either: checked with grep). Then the
+   `BLOCK_TARGET` cast in `src/issuer/registry.ts` goes. A host whose handler switches on `target` sees `"block"`
+   today already.
+
 ## Open questions for the maintainer
 
 - D-B04 (both sources must allow) vs "either allows": the safer one is implemented; the consumer's user-status gate fits
@@ -307,4 +464,15 @@ S-items covered by at least one caught mutation:
 - Several resource servers allowing one audience (a host's and an organization's): refused as ambiguous now; prefer the
   organization's instead?
 - Should `idJagPolicy.clientIds` allow a wildcard for CIMD clients (URL client ids not known in advance)?
-- Revoke (D-B11): keep as an audit record, or also deny further exchanges for that (user, client, audience) for a while?
+- ~~Revoke (D-B11)~~: decided in D-009 #12, implemented as blocks (D-B16).
+
+Phase 2:
+
+- **D-B15, sender-constrained refresh tokens:** they are refused today. When DPoP lands (v2), should the exchange
+  require the DPoP proof and carry `cnf` into the ID-JAG?
+- **D-B15, `openid`:** a refresh token must have been granted `openid`. Is that too strict for the SAML path, where
+  the refresh token comes from an assertion grant? Nothing in this repository issues one today, so it's untested.
+- **D-B18, blocks API mounting:** the blocks API is under `registry.canManage` even with the registry off. Should it
+  have its own option (e.g. `blocks: { canManage }`)?
+- **D-B16, blocks and sessions:** should a block also revoke the user's refresh tokens for that client at the provider?
+  Today it only stops ID-JAGs: the client can still refresh its access tokens here.
