@@ -31,7 +31,8 @@
     "build": "node scripts/build.mjs",
     "test:node": "vitest run --project node",
     "test:workerd": "vitest run --project workerd",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "pack:check": "pnpm build && tsc -p tsconfig.strict-host.json && node node_modules/typescript-5/bin/tsc -p tsconfig.strict-host.json && publint --strict && attw --pack . --profile esm-only"
   },
   "peerDependencies": {
     "@better-auth/core": ">=1.7.5 <1.8.0",
@@ -44,6 +45,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
     "@better-auth/cimd": "1.7.6",
     "@better-auth/core": "1.7.6",
     "@better-auth/mcp": "1.7.6",
@@ -56,7 +58,9 @@
     "better-auth": "1.7.6",
     "esbuild": "0.28.2",
     "fast-check": "4.10.2",
-    "typescript": "5.9.3",
+    "publint": "0.3.24",
+    "typescript": "7.0.2",
+    "typescript-5": "npm:typescript@5.9.3",
     "vitest": "4.1.11",
     "wrangler": "4.147.0"
   },

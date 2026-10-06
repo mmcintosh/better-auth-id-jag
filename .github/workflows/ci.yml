@@ -28,7 +28,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test # Node (node:sqlite) and workerd (D1)
-      - run: pnpm build
+      - run: pnpm pack:check # dist build, a strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
 
   secrets:
     runs-on: ubuntu-24.04

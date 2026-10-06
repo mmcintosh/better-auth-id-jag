@@ -396,3 +396,17 @@ better-auth-saml-idp (the maintainer), a Phase 3 review, and the Phase 3 note.
 
 **This session's process change** (the maintainer's instruction, 2026-10-06): no subagents unless asked. Two agents
 had stayed registered after their work was merged; both were stopped.
+
+## D-018: package checks (Phase 4 groundwork) (2026-10-06) — agent's choice, as the siblings
+
+- **TypeScript 7.0.2 is the compiler**, with **5.9.3 kept as `typescript-5`**. The whole repository typechecks
+  clean under 7.
+- **`pnpm pack:check`** runs in CI and in the release job: the dist build, then `test/types/strict-host.ts` (a host
+  with `exactOptionalPropertyTypes`, compiled against `dist/` under TypeScript 7 **and** 5.9), then
+  `publint --strict` and Are the Types Wrong (`--profile esm-only`).
+- **The strict-host test found a real consumer defect on its first run.** The receiver's option types (`StaticTrustedIssuer`
+  and the rest of `src/receiver/options.ts`) didn't accept `undefined` for optional fields, so a host passing its own
+  optional value (for example `organizationId: maybeOrg`) failed to compile. Every optional option field now
+  accepts `undefined`, as the issuer's already did.
+- **The results:** publint "All good"; Are the Types Wrong green for ESM and bundlers on `.` and `./client`.
+- Dependabot's TypeScript 7 PR is superseded by this. Closing it on GitHub is the maintainer's action.

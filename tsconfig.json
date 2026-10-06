@@ -14,6 +14,6 @@
     "paths": { "better-auth-id-jag": ["./src/index.ts"] }
   },
   "include": ["src", "test"],
-  "exclude": ["test/worker"],
+  "exclude": ["test/worker", "test/types"],
   "files": ["test/support/env.d.ts"]
 }

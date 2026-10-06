@@ -12,35 +12,35 @@ export interface StaticTrustedIssuer {
   /** The exact `iss` of its ID-JAGs. */
   issuer: string;
   /** Its JWKS (https). One of `jwksUri` or `discoveryUri` is required. */
-  jwksUri?: string;
+  jwksUri?: string | undefined;
   /** Its OpenID / RFC 8414 metadata document (https); its `issuer` must equal `issuer` exactly. */
-  discoveryUri?: string;
+  discoveryUri?: string | undefined;
   /**
    * Recorded on the accepted event and passed to `resolveSubject`. With JIT provisioning and the
    * organization plugin, a user JIT creates becomes a member of it (with `jitRole`).
    */
-  organizationId?: string;
+  organizationId?: string | undefined;
   /** If set, only these clients (their id here) may present this issuer's ID-JAGs. */
-  allowedClientIds?: string[];
+  allowedClientIds?: string[] | undefined;
   /** If set, the ID-JAG's `tenant` claim must equal it (multi-tenant IdPs). */
-  tenant?: string;
+  tenant?: string | undefined;
   /** `providerId` of the accounts that link a local user to this issuer's `sub`. Default `id-jag:<issuer>`. */
-  accountProviderId?: string;
+  accountProviderId?: string | undefined;
   /** Match an unlinked subject by its `email` claim, only for these domains (exact, lowercase). Off when absent. */
-  emailFallback?: { domains: string[] };
+  emailFallback?: { domains: string[] } | undefined;
   /** Create a user for an unknown subject. Off by default. */
-  jitProvisioning?: boolean | { trustEmailVerified?: boolean };
+  jitProvisioning?: boolean | { trustEmailVerified?: boolean } | undefined;
   /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
-  jitRole?: string;
+  jitRole?: string | undefined;
   /**
    * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -04 §3.2) instead of `sub`, for these
    * SAML namespaces only (§9.5: the association is this trust entry's local configuration;
    * `sub_id.issuer` never establishes trust). Accounts are linked as { providerId: accountProviderId,
    * accountId: nameid }, which is what `@better-auth/sso` creates at SAML sign-in. Unset: `sub_id` is ignored.
    */
-  samlSubjects?: SamlSubjectMappingInput[];
+  samlSubjects?: SamlSubjectMappingInput[] | undefined;
   /** Refuse an ID-JAG without a SAML NameID `sub_id` (needs `samlSubjects`). Default false. */
-  requireSubId?: boolean;
+  requireSubId?: boolean | undefined;
 }
 
 /** One SAML namespace whose NameIDs a trust entry resolves users by. */
@@ -48,11 +48,11 @@ export interface SamlSubjectMappingInput {
   /** The SAML IdP's entity ID, compared exactly with `sub_id.issuer`. */
   issuer: string;
   /** Compared exactly with `sub_id.sp_name_qualifier`; absent (or null): the `sub_id` must not carry one. */
-  spNameQualifier?: string | null;
+  spNameQualifier?: string | null | undefined;
   /** Compared exactly with `sub_id.name_qualifier`; absent (or null): the `sub_id` must not carry one. */
-  nameQualifier?: string | null;
+  nameQualifier?: string | null | undefined;
   /** If set, `sub_id.nameid_format` must be present and one of these. Transient NameIDs are always refused. */
-  nameIdFormats?: string[];
+  nameIdFormats?: string[] | undefined;
   /** `providerId` of the accounts that link these NameIDs, e.g. the `@better-auth/sso` SAML providerId. */
   accountProviderId: string;
 }
@@ -72,11 +72,11 @@ export const TRANSIENT_NAMEID_FORMAT = "urn:oasis:names:tc:SAML:2.0:nameid-forma
 /** Trust the OIDC providers registered in `@better-auth/sso` (opt-in). */
 export interface SsoTrustOptions {
   /** Only these sso `providerId`s. Default: every OIDC provider. */
-  providerIds?: string[];
+  providerIds?: string[] | undefined;
   /** Email fallback for providers whose domain is verified (`domainVerified`). Default false. */
-  emailFallback?: boolean;
-  jitProvisioning?: boolean | { trustEmailVerified?: boolean };
-  allowedClientIds?: string[];
+  emailFallback?: boolean | undefined;
+  jitProvisioning?: boolean | { trustEmailVerified?: boolean } | undefined;
+  allowedClientIds?: string[] | undefined;
 }
 
 export type SubjectResolution = { action: "link"; userId: string } | { action: "continue" } | { action: "reject" };
@@ -103,31 +103,31 @@ export interface TrustedIssuerView {
 }
 
 export interface IdJagGrantOptions extends AuditOptions {
-  trustedIssuers?: StaticTrustedIssuer[];
+  trustedIssuers?: StaticTrustedIssuer[] | undefined;
   /** `true` or settings: trust `@better-auth/sso` OIDC providers too. Default off. */
-  sso?: boolean | SsoTrustOptions;
+  sso?: boolean | SsoTrustOptions | undefined;
   /** Also read trusted issuers from the `idJagTrustedIssuer` table (adds the table). Default false. */
-  trustedIssuerTable?: boolean;
-  resolveSubject?: (input: ResolveSubjectInput) => SubjectResolution | Promise<SubjectResolution>;
+  trustedIssuerTable?: boolean | undefined;
+  resolveSubject?: ((input: ResolveSubjectInput) => SubjectResolution | Promise<SubjectResolution>) | undefined;
   /** The resource used when neither the ID-JAG nor the request names one. Must be a registered resource. */
-  defaultResource?: string;
+  defaultResource?: string | undefined;
   /** Accept public clients (the draft: SHOULD be confidential only). Default false; logs a warning when set. */
-  allowPublicClients?: boolean;
+  allowPublicClients?: boolean | undefined;
   /** Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. Default false. */
-  allowEmptyScope?: boolean;
+  allowEmptyScope?: boolean | undefined;
   /** Refuse an ID-JAG without a `resource` claim (public `missing_claim`). Default false (D-A06). */
-  requireResourceClaim?: boolean;
-  clockSkewSeconds?: number;
-  maxLifetimeSeconds?: number;
+  requireResourceClaim?: boolean | undefined;
+  clockSkewSeconds?: number | undefined;
+  maxLifetimeSeconds?: number | undefined;
   /** The only fetch the receiver uses (JWKS and discovery of trusted issuers). Default: global fetch. */
-  fetch?: FetchLike;
+  fetch?: FetchLike | undefined;
   /**
    * JWKS fetching and caching. `maxStaleSeconds` (default 3600): while the issuer's JWKS can't be
    * fetched, cached keys are used for at most this long past `cacheTtlSeconds`; then refused.
    */
-  jwks?: { timeoutMs?: number; maxBytes?: number; cacheTtlSeconds?: number; minRefetchIntervalSeconds?: number; maxStaleSeconds?: number };
+  jwks?: { timeoutMs?: number; maxBytes?: number; cacheTtlSeconds?: number; minRefetchIntervalSeconds?: number; maxStaleSeconds?: number } | undefined;
   /** The receiver's clock. For tests. */
-  clock?: () => Date;
+  clock?: (() => Date) | undefined;
 }
 
 const fn = z.custom<(...args: never[]) => unknown>((v) => typeof v === "function", "must be a function");
@@ -241,7 +241,7 @@ export interface ResolvedReceiverOptions {
   allowEmptyScope: boolean;
   requireResourceClaim: boolean;
   defaultResource?: string | undefined;
-  resolveSubject?: IdJagGrantOptions["resolveSubject"];
+  resolveSubject?: IdJagGrantOptions["resolveSubject"] | undefined;
   audit: AuditOptions;
   jwks: JwksCache;
   clock: () => Date;
