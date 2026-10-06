@@ -1,0 +1,57 @@
+name: Interop report
+description: Another ID-JAG implementation works, or doesn't, with this package.
+labels: [interop]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Both kinds of report help: "works with X" becomes a row in docs/interop.md, "doesn't" becomes a fix.
+        Use throwaway users and replace any personal data. Never paste private keys, client secrets or signed tokens.
+  - type: input
+    id: other
+    attributes:
+      label: The other implementation, and its version
+      placeholder: "e.g. Okta Cross App Access, Keycloak 26.8, an MCP client"
+    validations: { required: true }
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Direction
+      options:
+        - "Its ID-JAGs → our receiver (idJagGrant)"
+        - "Our ID-JAGs (idJagIssuer) → its authorization server"
+        - "A client running the flow against our issuer and/or receiver"
+    validations: { required: true }
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options: [Works, Works with a workaround, Doesn't work]
+    validations: { required: true }
+  - type: checkboxes
+    id: features
+    attributes:
+      label: What you tried
+      options:
+        - label: ID token as the subject token
+        - label: Refresh token as the subject token
+        - label: "A `resource` (RFC 8707)"
+        - label: Narrowed scopes
+        - label: "An `act` claim (an agent acting for the user)"
+        - label: JIT provisioning or email fallback at the receiver
+  - type: input
+    id: alg
+    attributes:
+      label: Signing algorithm
+      placeholder: "RS256, ES256, EdDSA"
+  - type: textarea
+    id: config
+    attributes:
+      label: The configuration you used
+      description: Your idJagIssuer or idJagGrant options (secrets removed), and the settings on the other side (issuer and audience strings exactly as entered).
+      render: ts
+  - type: textarea
+    id: detail
+    attributes:
+      label: What happened
+      description: For failures, the error on each side and the reason from our onRefused event or audit table, and the decoded ID-JAG header and claims (not the signed token).

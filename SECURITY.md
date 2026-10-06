@@ -24,7 +24,7 @@ What happens next:
 
 ## Supported versions
 
-Until 1.0, only the latest release gets security fixes. The package implements an IETF draft
+Until 1.0, only the latest release gets security fixes. See [Versioning](docs/versioning.md) for what a release may change. The package implements an IETF draft
 (`draft-ietf-oauth-identity-assertion-authz-grant`, currently -04). A security issue in the draft itself is still
 worth reporting here: we'll take it to the OAuth working group with you.
 
@@ -45,8 +45,8 @@ Out of scope, but still worth telling us about:
 
 ## What the package already defends against
 
-The [README](README.md) describes the controls on each side: what the receiver checks and in what order, the policy
-and blocks at the issuer, and refusals that don't tell the caller why. [DECISIONS.md](DECISIONS.md) records the
+The [threat model](docs/security.md) lists each attack, the control that answers it, what your app must configure,
+and the known limitations. [DECISIONS.md](DECISIONS.md) records the
 evidence for each: tests, mutation checks and review findings. Reading these first helps tell a new issue from a known
 limitation.
 

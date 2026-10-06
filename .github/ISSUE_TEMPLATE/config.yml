@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/mmcintosh/better-auth-id-jag/security/advisories/new
+    about: Privately, please. Never in a public issue (see SECURITY.md).
+  - name: Read the README
+    url: https://github.com/mmcintosh/better-auth-id-jag#readme
+    about: Options for both sides, tables, audit events, error reasons and interop notes.
