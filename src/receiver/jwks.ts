@@ -78,7 +78,7 @@ export class JwksCache {
     const fresh = entry.keys !== null && now - entry.fetchedAt < this.settings.cacheTtlMs;
     const hasKid = entry.keys?.some((k) => k.kid === kid) ?? false;
     if (!(fresh && hasKid)) {
-      if (entry.inflight) await entry.inflight;
+      if (entry.inflight !== null) await entry.inflight;
       else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs) await this.refresh(entry, source);
       // else: refetched too recently; use what we have (an unknown kid then fails as a bad signature).
     }

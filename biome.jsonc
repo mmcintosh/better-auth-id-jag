@@ -20,10 +20,19 @@
 				// RSA private-key body and an AWS-style key). gitleaks (CI) covers the rest.
 				"noSecrets": { "level": "error", "options": { "entropyThreshold": 60 } }
 			},
-			"suspicious": { "noExplicitAny": "off" }
+			"suspicious": { "noExplicitAny": "off" },
+			// From Better Auth's own biome.json (D-013): unawaited or misused promises hide bugs in the
+			// JWKS cache and the audit path; Buffer isn't on Workers without nodejs_compat.
+			"nursery": { "noFloatingPromises": "error", "noMisusedPromises": "error" },
+			"style": { "useNodejsImportProtocol": "error" }
 		}
 	},
 	"overrides": [
+		{
+			// The published code runs on every runtime; Node-only test helpers may use Buffer.
+			"includes": ["src/**"],
+			"linter": { "rules": { "style": { "noRestrictedGlobals": { "level": "error", "options": { "deniedGlobals": { "Buffer": "Use Uint8Array instead (Buffer isn't available on every runtime)." } } } } } }
+		},
 		{
 			// Tests assert first, then dereference; `!` after an expect() is the idiom.
 			"includes": ["test/**"],

@@ -264,3 +264,26 @@ Two gaps, found by reviewing an external reference note on ID-JAG for Better Aut
   Authelia's library) enforces single use too. The README must state this position and link #130.
 - **The #8023 comment is on hold.** The draft needs work, and as written it would commit us to building things. It is
   not to be posted, or reworked into a commitment, without the maintainer.
+
+## D-013: Better Auth's substantive lint rules adopted; its formatting not (2026-10-06) — the maintainer agreed
+
+Checked against Better Auth's own `biome.json`.
+- **Adopted** in `biome.jsonc`:
+  - `noFloatingPromises` and `noMisusedPromises`: unawaited or misused promises hide bugs in the JWKS cache and the
+    audit path.
+  - `useNodejsImportProtocol`.
+  - `Buffer` refused under `src/**` (`noRestrictedGlobals`): Workers don't have it without `nodejs_compat`. Node-only
+    test helpers may use it, as Better Auth scopes the rule to package source.
+
+  Our code already met them: there was one finding, `if (entry.inflight)` on a promise-or-null in
+  `src/receiver/jwks.ts`, now `!== null`. Both rules were shown to fire on a probe file.
+- **Not adopted:** tabs, `import * as z from "zod"`, separated `import type` lines. They would churn every file, and the
+  siblings (whose conventions this repository follows, per the handoff) use 2-space indentation and `import { z }`.
+  They only matter for code going upstream, which would be written in Better Auth's repository through its own
+  formatter.
+- **No Lefthook.** CI already enforces lint, typecheck, tests and the secret scan on every push.
+- **If an upstream PR ever happens** (the maintainer's call; none planned):
+  - Conventional Commits, with a lowercase subject and `!` for breaking changes;
+  - a changeset for anything under `packages/**`;
+  - `main` for non-breaking changes, `next` for features and breaking changes;
+  - Better Auth's AI policy: whoever submits must understand the change well enough to discuss it.
