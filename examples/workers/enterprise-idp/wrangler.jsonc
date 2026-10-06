@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "id-jag-example-idp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  // The package from this repository's source (an installed app imports it from npm).
+  "alias": { "better-auth-id-jag": "../../../src/index.ts" },
+  "d1_databases": [{ "binding": "DB", "database_name": "id-jag-example-idp", "database_id": "REPLACE_WITH_YOUR_DATABASE_ID", "migrations_dir": "migrations" }],
+  "vars": {
+    "MCP_AS_ISSUER": "https://id-jag-example-mcp.REPLACE.workers.dev/api/auth",
+    "MCP_RESOURCE": "https://id-jag-example-mcp.REPLACE.workers.dev/mcp"
+  }
+  // Secrets: BETTER_AUTH_SECRET, SETUP_KEY (`wrangler secret put`).
+}

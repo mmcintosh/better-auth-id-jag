@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "id-jag-example-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "alias": { "better-auth-id-jag": "../../../src/index.ts" },
+  "d1_databases": [{ "binding": "DB", "database_name": "id-jag-example-mcp", "database_id": "REPLACE_WITH_YOUR_DATABASE_ID", "migrations_dir": "migrations" }],
+  // The enterprise IdP, for its JWKS (a Worker can't fetch another Worker on the same account by URL).
+  "services": [{ "binding": "IDP", "service": "id-jag-example-idp" }],
+  "vars": {
+    "IDP_ISSUER": "https://id-jag-example-idp.REPLACE.workers.dev/api/auth"
+    // Optional, for Okta Cross App Access: "OKTA_ISSUER", "OKTA_JWKS_URI".
+  }
+  // Secrets: BETTER_AUTH_SECRET, SETUP_KEY.
+}
