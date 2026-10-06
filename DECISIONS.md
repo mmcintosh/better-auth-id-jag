@@ -375,3 +375,24 @@ Also confirmed:
 - **The `better-auth-saml-idp` side** (the SP opt-in, the record at issuance, `verifyIssuedAssertion` and its 1.2.0
   minor release) is built by the maintainer's own SAML agent in that repository, from the brief at
   `private/saml-idp-exchange-brief.md`. This repository builds against the interface frozen in that brief.
+
+## D-017: SAML, verified end to end across the two repositories (2026-10-06)
+
+`test/interop/saml-idp-e2e` (its own project, one Better Auth via pnpm overrides) ran a real SAML sign-in at
+better-auth-saml-idp `feat/assertion-exchange` (`2d54cb4`, the D-071 assertion exchange, unreleased) with this
+repository's main. **17/17 passed:**
+- **Path (b):** the Assertion → a refresh token (`issued_token_type` refresh_token, `token_type` N_A, 30-day
+  `expires_in`) → an ID-JAG (verified against the IdP's JWKS; `sub` = the SAML user; `client_id` = the agent's id at
+  the MCP AS) → an access token audience-bound to the resource, with no refresh token.
+- **Path (a):** the Assertion → an ID-JAG directly → an access token.
+- **Replays:** refused on both paths.
+- **Tampering:** a tampered Assertion is refused and doesn't burn the real one (consumed only after the signature).
+- **Another client** presenting the agent's Assertion is refused and doesn't consume it.
+
+**The refusals seen** were only the non-public `replay` and `invalid_subject_token`, one generic body.
+
+**Remaining for Phase 3:** the live xaa.dev SAML run and the Okta SAML run (the maintainer), the 1.2.0 release of
+better-auth-saml-idp (the maintainer), a Phase 3 review, and the Phase 3 note.
+
+**This session's process change** (the maintainer's instruction, 2026-10-06): no subagents unless asked. Two agents
+had stayed registered after their work was merged; both were stopped.
