@@ -6,13 +6,24 @@
 //
 //   OKTA_ORG=https://<org>.okta.com OKTA_CLIENT_ID=<agent's Okta client id> \
 //   OKTA_SECRET_FILE=<file> MCP_CREDENTIALS_FILE=<json {client_id, client_secret}> \
-//   node examples/workers/okta-agent.mjs https://<mcp-origin>
+//   node examples/workers/okta-agent.mjs https://<mcp-origin> [--subject=id|refresh] [--negative]
+//
+// --subject=refresh exchanges Okta's refresh token instead of the ID token (Okta's SAML-requester
+// and xaa.dev path). --negative then also checks, with real Okta tokens: the same ID-JAG redeemed
+// twice (our single use), a scope outside the connection, and an audience that isn't ours (Okta's
+// policy). Each refusal's reason is in the MCP server's audit table.
 //
 // Add http://localhost:8765/callback as a sign-in redirect URI of the agent in Okta first.
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const mcp = process.argv[2];
+const subjectMode = (process.argv.find((a) => a.startsWith("--subject=")) ?? "--subject=id").split("=")[1];
+const negative = process.argv.includes("--negative");
+// --refresh-file=<path>: save Okta's refresh token there after signing in; with --reuse, skip the
+// sign-in and exchange the saved one (e.g. after deactivating the user in Okta: it must be refused).
+const refreshFile = process.argv.find((a) => a.startsWith("--refresh-file="))?.split("=")[1];
+const reuse = process.argv.includes("--reuse");
 const org = process.env.OKTA_ORG;
 const oktaClient = { client_id: process.env.OKTA_CLIENT_ID, client_secret: readFileSync(process.env.OKTA_SECRET_FILE, "utf8").trim() };
 const mcpClient = JSON.parse(readFileSync(process.env.MCP_CREDENTIALS_FILE, "utf8"));
@@ -40,6 +51,12 @@ const asIssuer = prm.authorization_servers[0];
 const asMeta = await (await fetch(`${new URL(asIssuer).origin}/.well-known/oauth-authorization-server${new URL(asIssuer).pathname}`)).json();
 step(0, "MCP server", { resource: prm.resource, issuer: asIssuer, grant_profiles: asMeta.authorization_grant_profiles_supported });
 
+let tokens;
+if (reuse) {
+  if (!refreshFile || !existsSync(refreshFile)) throw new Error("--reuse needs an existing --refresh-file");
+  tokens = { status: 200, json: { refresh_token: readFileSync(refreshFile, "utf8").trim() } };
+  step(1, "Reusing the saved Okta refresh token (no sign-in)", { file: refreshFile });
+} else {
 // 1. Sign in at Okta.
 const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
 const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
@@ -56,9 +73,11 @@ const code = await new Promise((resolve, reject) => {
     resolve(u.searchParams.get("code"));
   }).listen(8765, "127.0.0.1", () => console.log(`\nOpen this in your browser and sign in:\n\n${authorize}\n`));
 });
-const tokens = await post(`${org}/oauth2/v1/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier }, basic(oktaClient));
+tokens = await post(`${org}/oauth2/v1/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier }, basic(oktaClient));
 if (!tokens.json.id_token) throw new Error(`Okta token: ${tokens.status} ${JSON.stringify(tokens.json)}`);
 step(1, "Okta ID token (claims)", decode(tokens.json.id_token)[1]);
+if (refreshFile && tokens.json.refresh_token) writeFileSync(refreshFile, tokens.json.refresh_token, { mode: 0o600 });
+}
 
 // 2. Token exchange at Okta: ID token → ID-JAG for our MCP server's authorization server.
 const exchange = (subject, type) =>
@@ -67,12 +86,19 @@ const exchange = (subject, type) =>
     { grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", audience: asIssuer, resource: prm.resource, scope: "read", subject_token: subject, subject_token_type: type },
     basic(oktaClient),
   );
-let jag = await exchange(tokens.json.id_token, "urn:ietf:params:oauth:token-type:id_token");
-if (jag.status !== 200 && tokens.json.refresh_token) {
+let jag =
+  subjectMode === "refresh" || reuse
+    ? await exchange(tokens.json.refresh_token, "urn:ietf:params:oauth:token-type:refresh_token")
+    : await exchange(tokens.json.id_token, "urn:ietf:params:oauth:token-type:id_token");
+if (subjectMode === "refresh" && !tokens.json.refresh_token) throw new Error("no refresh token from Okta: grant offline_access / Refresh Token to the agent");
+if (subjectMode !== "refresh" && jag.status !== 200 && tokens.json.refresh_token) {
   step("2a", "Exchange of the ID token refused; trying the refresh token", jag.json);
   jag = await exchange(tokens.json.refresh_token, "urn:ietf:params:oauth:token-type:refresh_token");
 }
-if (jag.status !== 200) throw new Error(`Okta token exchange: ${jag.status} ${JSON.stringify(jag.json)}`);
+if (jag.status !== 200) {
+  step(2, `Okta token exchange refused → ${jag.status}`, jag.json);
+  process.exit(reuse ? 0 : 1); // after deprovisioning, a refusal here is the expected result
+}
 const [h, c] = decode(jag.json.access_token);
 step(2, "Okta ID-JAG (header and claims)", { response: { ...jag.json, access_token: "…" }, header: h, claims: c });
 
@@ -84,3 +110,13 @@ if (granted.status !== 200) process.exit(1);
 // 4. The tool.
 const call = await fetch(prm.resource, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${granted.json.access_token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "whoami", arguments: {} } }) });
 step(4, `MCP tools/call whoami → ${call.status}`, await call.json());
+
+if (negative) {
+  const subject = subjectMode === "refresh" ? [tokens.json.refresh_token, "urn:ietf:params:oauth:token-type:refresh_token"] : [tokens.json.id_token, "urn:ietf:params:oauth:token-type:id_token"];
+  const replay = await post(asMeta.token_endpoint, { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jag.json.access_token }, basic(mcpClient));
+  step("N1", `the same Okta ID-JAG again at our receiver → ${replay.status} (expect 400 invalid_grant; audit reason: replay)`, replay.json);
+  const wideScope = await post(`${org}/oauth2/v1/token`, { grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", audience: asIssuer, resource: prm.resource, scope: "read admin", subject_token: subject[0], subject_token_type: subject[1] }, basic(oktaClient));
+  step("N2", `a scope outside the connection, at Okta → ${wideScope.status} (expect Okta to refuse, or to grant only read)`, wideScope.status === 200 ? { scope: wideScope.json.scope } : wideScope.json);
+  const otherAud = await post(`${org}/oauth2/v1/token`, { grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", audience: "https://not-connected.example/api/auth", scope: "read", subject_token: subject[0], subject_token_type: subject[1] }, basic(oktaClient));
+  step("N3", `an audience with no connection, at Okta → ${otherAud.status} (expect Okta to refuse)`, otherAud.json);
+}

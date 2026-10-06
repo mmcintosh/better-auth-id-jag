@@ -18,6 +18,8 @@ export interface Env {
   IDP: Fetcher;
   /** Optional: an Okta authorization server issuer, for Cross App Access. */
   OKTA_ISSUER?: string;
+  /** Optional: Okta's xaa.dev playground IdP (https://idp.xaa.dev), for its conformance testers. */
+  XAA_ISSUER?: string;
   OKTA_JWKS_URI?: string;
 }
 
@@ -25,6 +27,7 @@ export function createAuth(env: Env, origin: string) {
   const idpHost = new URL(env.IDP_ISSUER).host;
   const trustedIssuers: StaticTrustedIssuer[] = [{ issuer: env.IDP_ISSUER, jwksUri: `${env.IDP_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } }];
   if (env.OKTA_ISSUER && env.OKTA_JWKS_URI) trustedIssuers.push({ issuer: env.OKTA_ISSUER, jwksUri: env.OKTA_JWKS_URI, jitProvisioning: { trustEmailVerified: true } });
+  if (env.XAA_ISSUER) trustedIssuers.push({ issuer: env.XAA_ISSUER, jwksUri: `${env.XAA_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } });
   return betterAuth({
     baseURL: origin,
     secret: env.BETTER_AUTH_SECRET,
