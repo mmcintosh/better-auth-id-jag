@@ -444,3 +444,15 @@ provenance).
 - **The cross-repository test** (`test/interop/saml-idp-e2e`) now installs 1.2.0 from npm. Every check passes
   against it.
 - `pnpm pack:check` is still clean with the new peers.
+
+## D-021: audit overrides (2026-10-06)
+
+The Dependencies workflow's runtime audit failed on `96d138d`. Declaring `better-auth-saml-idp` as an (optional) peer
+(D-020) let pnpm install it with Better Auth's own optional peers (Prisma, mysql2), which brought `deepmerge-ts` <8
+(GHSA-ggr8-5vv4-36mx, high) and `mysql2` <3.23.1 (two advisories) into what `pnpm audit --prod` counts. None of them is
+shipped by this package.
+
+The fix is the same pnpm overrides as better-auth-scim-provisioning: `deepmerge-ts@<8.0.0 → ^8.0.0`,
+`mysql2@<3.23.1 → ^3.24.5`, and, for development, `sharp@<0.35.5 → ^0.35.5` (librsvg advisory, through Miniflare).
+`pnpm audit` is now clean at every level, and the tests pass on both runtimes. These overrides should be revisited
+when Better Auth or Miniflare move to patched versions (the siblings' upstream-watch does this; ours has none yet).
