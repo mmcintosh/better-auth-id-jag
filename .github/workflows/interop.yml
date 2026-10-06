@@ -1,0 +1,58 @@
+# Interop against other ID-JAG implementations (docs/interop.md). Not on every push: these pull
+# containers and code from outside the lockfile. Manual, and weekly so a moved upstream shows up.
+# Our issuer → our receiver runs in ci.yml on every push (test/interop/self.test.ts).
+# Images are pinned by digest and actions by SHA (as ci.yml); bump both deliberately.
+name: Interop
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+# Least privilege: jobs only read the repository.
+permissions: { contents: read }
+jobs:
+  keycloak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      # Keycloak 26.8.0 (2026-10-01). Its identity-assertion-jwt feature is experimental.
+      KEYCLOAK_IMAGE: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Host networking, not a service container: Keycloak must reach our IdP on 127.0.0.1, and
+      # service containers can't take the start-dev arguments.
+      - name: Start Keycloak
+        run: |
+          docker run -d --name keycloak --network host \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            "$KEYCLOAK_IMAGE" start-dev --http-port=18080 --features=identity-assertion-jwt
+          for i in $(seq 1 90); do curl -sf http://localhost:18080/realms/master >/dev/null && exit 0; sleep 2; done
+          docker logs keycloak; exit 1
+      - run: pnpm vitest run --project node test/interop/keycloak.test.ts
+        env: { INTEROP_KEYCLOAK: "1", INTEROP_KEYCLOAK_URL: "http://localhost:18080" }
+      - if: failure()
+        run: docker logs keycloak
+
+  node-oauth2-server:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # node-oauth/node-oauth2-server#462 (open, unreleased): the PR's head commit, pinned, as a tarball (no git, no ssh).
+      NODE_OAUTH2_SERVER: https://codeload.github.com/manmohan-shaw-okta/node-oauth2-server/tar.gz/0b7844f83f552d3acf50e13aca27f03c214fd825
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Outside the repository and its lockfile, with no install scripts.
+      - name: Install node-oauth2-server at the PR's head
+        run: |
+          mkdir -p "$RUNNER_TEMP/noas" && cd "$RUNNER_TEMP/noas"
+          echo '{"name":"noas-interop","private":true}' > package.json
+          npm install --ignore-scripts --no-audit --no-fund "$NODE_OAUTH2_SERVER"
+      - run: pnpm vitest run --project node test/interop/node-oauth2-server.test.ts
+        env: { INTEROP_NODE_OAUTH2: "1", INTEROP_NODE_OAUTH2_DIR: "${{ runner.temp }}/noas" }
