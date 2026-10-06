@@ -24,6 +24,8 @@ What happens next:
 
 ## Supported versions
 
+**This is pre-1.0 software implementing an IETF draft.** It is reviewed, mutation-tested and verified against other implementations, but it hasn't yet been run in production by many people, and the draft may still change. Review it against your own threat model before you put it in front of production traffic, and pin an exact version.
+
 Until 1.0, only the latest release gets security fixes. See [Versioning](docs/versioning.md) for what a release may change. The package implements an IETF draft
 (`draft-ietf-oauth-identity-assertion-authz-grant`, currently -04). A security issue in the draft itself is still
 worth reporting here: we'll take it to the OAuth working group with you.
@@ -58,7 +60,7 @@ turn on `main`, and the run fails if no test notices.
 - **Actions:** every GitHub Action is pinned to a commit SHA, with least-privilege tokens.
 - **Automated checks:**
   - Runtime dependencies are audited on every push and PR, and daily; a vulnerability blocks the build.
-  - Dependency review on every PR blocks a vulnerable or wrongly licensed runtime dependency.
-  - OSV-Scanner scans the whole lockfile, development tools included, daily.
+  - Dependency review on every PR blocks a vulnerable or wrongly licensed runtime dependency (once the repository is public: GitHub requires Advanced Security for it on private repositories).
+  - OSV-Scanner scans the whole lockfile, development tools included, daily (likewise once public).
 - **Releases:** they will be published from CI with **npm provenance**, and each GitHub release carries a CycloneDX **SBOM** of the installed dependency tree.
 - **Other:** gitleaks scans the full history on every push.

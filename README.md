@@ -13,7 +13,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
                   └──────────── idJagIssuer() ────────────┘                    └────── idJagGrant() ──────┘
 ```
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **pre-release**, not yet on npm. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/); a later draft may rename a claim or URN before 0.1. Verified live against **Okta Cross App Access**, and against **Keycloak 26.8** and node-oauth2-server in an interop suite you can run with Docker ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **pre-release**, not yet on npm. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`); while the draft moves, a 0.x minor release may rename a claim or URN with it. [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access**, against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
 If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
 
@@ -21,9 +21,9 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 
 - 🔁 **Both roles in one package**: `idJagIssuer()` turns a Better Auth IdP (on `@better-auth/oauth-provider`) into an ID-JAG issuer over RFC 8693 token exchange; `idJagGrant()` lets an MCP server's authorization server (on `mcp()` or `oauthProvider()`) redeem them over the RFC 7523 jwt-bearer grant. Use either alone with any other implementation of the draft.
 - 🚦 **Policy you control**: a code hook (`authorize`), a database registry of resource servers and policies with an admin API, or both, where **both must allow** and the narrower outcome wins: fewer scopes, shorter lifetime.
-- 🎫 **Two kinds of subject token**: an ID token this IdP issued, or a refresh token it issued (the draft's MAY, which Okta's conformance tooling and long-running agents use).
+- 🎫 **Three kinds of subject token**: an ID token this IdP issued, a refresh token it issued (the draft's MAY, which Okta's conformance tooling and long-running agents use), or, experimentally, a SAML assertion from [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp), directly or through a refresh token as the draft's §4.5 and MCP describe.
 - 🛑 **Blocks**: stop a user, a client, an audience or any combination from getting ID-JAGs, now or until a date, through the API; or block from a `jti` seen in the audit log.
-- 🔐 **Strict at the receiver**: `typ` must be `oauth-id-jag+jwt`; RS256, ES256 and EdDSA only (no `HS*`, no `none`); `aud` compared exactly with the issuer identifier; the ID-JAG's `client_id` must be the authenticated client; lifetime capped at 900 s; **single use** enforced by a database unique key.
+- 🔐 **Strict at the receiver**: `typ` must be `oauth-id-jag+jwt`; RS256, ES256 and EdDSA (`EdDSA` or `Ed25519`) only, no `HS*`, no `none`; `aud` compared exactly with the issuer identifier; the ID-JAG's `client_id` must be the authenticated client; lifetime capped at 900 s; **single use** enforced by a database unique key.
 - 🤐 **Refusals that don't leak**: the caller can't tell an unknown user from a denied policy from an untrusted issuer. Only defects in what they sent themselves (a missing claim, a malformed JWT) are named; the real reason goes to the audit log.
 - 🏛️ **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
 - 👤 **Subject resolution you can reason about**: linked accounts first, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
@@ -34,7 +34,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 
 ## 📚 Contents
 
-[Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
+[Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [Conformance](#-conformance) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
 
 ## 📦 Install
 
@@ -44,7 +44,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 npm install better-auth-id-jag
 ```
 
-Requires Better Auth `>=1.7.5 <1.8.0`, `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin.
+Requires Better Auth `>=1.7.5 <1.8.0`, `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp` and `@better-auth/sso` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
 
 ## ⚡ Quick start
 
@@ -84,7 +84,7 @@ export const auth = betterAuth({
   // …
   plugins: [
     jwt(),
-    mcp({ loginPage: "/login", resource: "https://mcp.example.com/mcp", scopes: ["read"] }),
+    mcp({ loginPage: "/login", consentPage: "/consent", resource: "https://mcp.example.com/mcp", scopes: ["read"] }),
     idJagGrant({
       trustedIssuers: [
         { issuer: "https://idp.example.com/api/auth", jwksUri: "https://idp.example.com/api/auth/jwks" },
@@ -171,7 +171,7 @@ A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a 
 
 ### SAML subject tokens
 
-> **Experimental.** This needs [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp) **≥ 1.2.0**, which hasn't been released yet, with token exchange turned on for the SP. It is tested against a stub of that package's interface, not against the package itself.
+> **Experimental.** This needs [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp) **≥ 1.2.0**, with token exchange turned on for the SP. It is unit-tested against a stub of that package's interface and verified end to end against the released 1.2.0 ([test/interop/saml-idp-e2e](test/interop/saml-idp-e2e/README.md)): both paths, replays, a tampered assertion and another client's attempt.
 
 When people sign in to an agent through SAML, using your Better Auth server as the SAML IdP, the agent holds an Assertion. It can exchange that Assertion at your token endpoint (RFC 8693, `subject_token_type=urn:ietf:params:oauth:token-type:saml2`, the Assertion as base64url or padded base64). The SAML IdP does the verification:
 - the Assertion carries its own signature;
@@ -230,10 +230,10 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 | `requireResourceClaim` | `false` | Refuse an ID-JAG without a `resource` claim. |
 | `allowEmptyScope` | `false` | Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. |
 | `allowPublicClients` | `false` | Logs a warning at startup when set. |
-| `clockSkewSeconds` | | Allowed skew on `iat`, `nbf` and `exp`. |
+| `clockSkewSeconds` | `60` | Allowed skew on `iat`, `nbf` and `exp`, 0 to 300. |
 | `maxLifetimeSeconds` | `900` | The longest `exp − iat` accepted. |
 | `fetch` | the global `fetch` | The only fetch the receiver uses (JWKS and discovery). |
-| `jwks` | | `{ timeoutMs: 5000, maxBytes: 65536, cacheTtlSeconds: 600, minRefetchIntervalSeconds: 60 }`. An unknown `kid` refetches, at most once per interval. |
+| `jwks` | | `{ timeoutMs: 5000, maxBytes: 65536, cacheTtlSeconds: 600, minRefetchIntervalSeconds: 60, maxStaleSeconds: 3600 }`. An unknown `kid` refetches, at most once per interval. While the issuer's JWKS can't be fetched, cached keys keep working for at most `maxStaleSeconds` past their TTL, then every request is refused until a fetch succeeds. |
 | `events`, `auditLog` | | As for the issuer. |
 
 ### Trusted issuers
@@ -322,6 +322,51 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 
 Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`). The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Trust, binding, subject and policy failures all get the generic description for their code, so an agent can't probe which users exist or what a policy allows. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
 
+## ✅ Conformance
+
+Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice · ❌ not implemented (refused by name, never silently ignored).
+
+**Issuer** (`idJagIssuer()`, experimental)
+
+| | Draft | |
+|---|---|---|
+| ✅ | §4.3 Token exchange, `requested_token_type` id-jag | Any other requested type is refused (`invalid_request`), so a future generic token exchange isn't shadowed. |
+| ✅ | §4.3.3 Subject token: an ID token | Only one this IdP issued, for the authenticated client (`aud`), unexpired and at most `maxIdTokenAgeSeconds` old. |
+| ✅ | §4.3.3 Subject token: a refresh token (MAY) | Only one this IdP issued to the authenticated client, unrevoked; the exchange doesn't consume or rotate it. |
+| ✅ | §4.3, §4.5 Subject token: a SAML 2.0 assertion | Experimental; with better-auth-saml-idp ≥ 1.2.0. Directly to an ID-JAG, or to a refresh token (§4.5, MCP's SAML path). |
+| ✅ | §4.3 `audience`, `resource`, `scope` | One audience and at most one resource per request; scopes only narrow. |
+| ❌ | §4.3 `actor_token` | Refused (`invalid_request`). |
+| ✅ | §3.1 Claims: `iss`, `sub`, `aud`, `client_id`, `jti`, `exp`, `iat`, `resource`, `scope`, `auth_time`, `acr`, `amr`, `tenant` | `iss` is exactly the metadata's `issuer`; `client_id` is the client's id **at the resource** (policy-mapped). |
+| ✅ | §3.1 `email` | Only when the policy opts in and the email is verified. |
+| ❌ | §3.1 `aud_sub`, `sub_id` (minting), `act` (minting), `authorization_details` | Not minted. (`sub_id` minting is deferred until a resource server needs it.) |
+| ✅ | §4.3.4 Response: `issued_token_type`, `token_type: N_A`, `expires_in`, `scope` | |
+| ✅ | §7 Metadata `identity_chaining_requested_token_types_supported` | |
+| ⚠️ | §9.1 Confidential clients only (SHOULD) | Default; `allowPublicClients` turns it off, with a startup warning. |
+| ✅ | Short lifetimes (§3.1's examples use 5 minutes) | 300 s by default, 900 s at most. |
+| ❌ | §9.2 Step-up (`insufficient_user_authentication`) | Not implemented; the `authorize` hook can deny on `acr`/`auth_time` instead. |
+| ❌ | §9.8 DPoP / `cnf` sender-constrained ID-JAGs | Not minted. |
+
+**Receiver** (`idJagGrant()`)
+
+| | Draft | |
+|---|---|---|
+| ✅ | §4.4 jwt-bearer grant (RFC 7523) for `typ: oauth-id-jag+jwt` | Other assertions are refused; a future plain RFC 7523 grant isn't shadowed. |
+| ✅ | §4.4.1 `typ`, signature, `iss` trusted, `aud` = our issuer exactly (a single-element array allowed), `client_id` = the authenticated client, `exp`/`iat`/`nbf` | In the order shown under [Receiver](#-receiver-idjaggrant); refusals that depend on trust are indistinguishable to the caller. |
+| ⚠️ | §4.4.3 Re-presenting an ID-JAG | **Refused: single use** ([#130](https://github.com/oauth-wg/oauth-identity-assertion-authz-grant/issues/130)). Get a fresh ID-JAG from the IdP. |
+| ✅ | §4.4.3 No refresh token | Never issued (`offline_access` is stripped), and no ID token. |
+| ✅ | `resource`, `scope` | The resource must be one of ours (`invalid_target`); scopes intersect the ID-JAG's, the client's and the resource's. |
+| ✅ | MCP: the access token is audience-restricted to the MCP server | `aud` = the resource. |
+| ✅ | §3.1 `act` | Accepted (shape-checked, at most 4 nested actors) and carried into the access token. |
+| ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.5). |
+| ⚠️ | §3.1 `email` | Used only with `emailFallback` for listed domains (a verified local user) or JIT; never by default. |
+| ✅ | §3.1 `tenant` | A trust entry can pin it. |
+| ❌ | §3.1 `aud_tenant`, `aud_sub` | Ignored. |
+| ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
+| ❌ | §9.8 DPoP / `cnf`, `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`), as §9.8.1.2 requires without a DPoP proof. |
+| ✅ | §9.3 Not self-issued | An ID-JAG whose `iss` is this server is refused. |
+| ⚠️ | §9.1 Confidential clients only (SHOULD) | Default; a CIMD client counts as confidential only with `private_key_jwt`. |
+| ✅ | §7 Metadata `authorization_grant_profiles_supported`, jwt-bearer in `grant_types_supported` | |
+
 ## 🤝 Interoperability
 
 | Our side | Other side | Status |
@@ -330,6 +375,7 @@ Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `i
 | Issuer | Keycloak 26.8.0 (`identity-assertion-jwt`, experimental) | ✅ Verified; ES256, RS256 and EdDSA. Keycloak ignores `scope` and `resource` |
 | Issuer | node-oauth2-server ([PR #462](https://github.com/node-oauth/node-oauth2-server/pull/462), unreleased) | ✅ Verified; ES256 and RS256 (no EdDSA there) |
 | **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token |
+| better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG |
 | Receiver | Keycloak as issuer | ⏳ Not possible: Keycloak doesn't issue ID-JAGs |
 
@@ -343,15 +389,14 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## 🧩 Runtimes and databases
 
-The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1. CI runs it on Node 24 with Better Auth 1.7.5 and the latest 1.7.x, and on Node 22 with 1.7.5. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (SQLite, D1, PostgreSQL, MySQL; not Better Auth's memory adapter in production).
+The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1. CI runs it on Node 24 with Better Auth 1.7.5 and the latest 1.7.x, and on Node 22 with 1.7.5. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, and concurrent first use. The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
 
 ## 🧭 Not yet
 
-- **npm release** (0.1.0), with provenance and an SBOM; then the guide.
 - **A later draft:** -04 expires on 2026-11-22. When -05 appears, [src/core/urns.ts](src/core/urns.ts) and this README will say which draft is implemented.
-- `authorization_details` (RFC 9396) and `cnf` (sender-constrained ID-JAGs) are refused, by name, until the draft settles them.
+- The rows marked ❌ in [Conformance](#-conformance). Each one is refused by name, not silently ignored.
 - No admin API for trusted issuers yet: configure them in code, through `@better-auth/sso`, or in the table directly.
-- No pairwise subject identifiers.
+- SCIM provisioning as a way to resolve subjects (planned: users provisioned with [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning) found by their SCIM `externalId`).
 
 ## 🔒 Security
 
@@ -371,6 +416,8 @@ pnpm test:workerd
 pnpm typecheck
 pnpm lint            # Biome
 pnpm build           # dist + type declarations
+pnpm pack:check      # the built package: strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
+ADAPTER_DB=postgres ADAPTER_URL=postgres://… pnpm vitest run --project node test/adapters   # the adapter matrix
 scripts/use-better-auth.sh latest-1.7   # run the suite against another Better Auth version
 INTEROP_KEYCLOAK=1 pnpm vitest run test/interop/keycloak.test.ts   # needs Keycloak in Docker, see docs/interop.md
 ```
