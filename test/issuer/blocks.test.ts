@@ -62,7 +62,7 @@ describe("blocks: enforcement", () => {
     takeReasons(h);
     const r = await exchange(h, w.a.client, w.a.idToken);
     expect([r.status, r.body]).toEqual([400, GENERIC_GRANT]);
-    expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: `blocked: ${created.body.block.id}`, userId: w.a.user.id });
+    expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "blocked", detail: created.body.block.id, userId: w.a.user.id });
     expect(await w.status("a")).toEqual([400, 400]);
     expect(await w.status("a", OTHER_AUDIENCE)).toEqual([200, 200]);
     expect(await w.status("a@other")).toEqual([200, 200]);
@@ -185,7 +185,7 @@ describe("blocks: enforcement", () => {
     takeReasons(h);
     await exchange(h, w.a.client, w.a.idToken);
     // Not no_policy (the registry has nothing): the block decided.
-    expect(h.recorded.refused.at(-1)?.detail).toMatch(/^blocked: /);
+    expect(h.recorded.refused.at(-1)?.reason).toBe("blocked");
   });
 });
 

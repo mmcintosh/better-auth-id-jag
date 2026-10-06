@@ -34,7 +34,7 @@ describe("refusals (S8)", () => {
 
   it("the reasons that depend on trust, keys or users all share invalid_grant's generic body", () => {
     // A caller must not tell these apart by error code either: a different code is a different answer.
-    const trustDependent: ReasonCode[] = ["untrusted_issuer", "self_issued", "bad_signature", "jwks_unavailable", "wrong_audience", "client_mismatch", "replay", "unknown_subject", "subject_rejected", "banned_user", "invalid_subject_token", "policy_denied", "no_policy"];
+    const trustDependent: ReasonCode[] = ["untrusted_issuer", "self_issued", "bad_signature", "jwks_unavailable", "wrong_audience", "client_mismatch", "replay", "unknown_subject", "subject_rejected", "banned_user", "invalid_subject_token", "policy_denied", "blocked", "no_policy"];
     const bodies = new Set(trustDependent.map((r) => JSON.stringify(toApiError(new IdJagRefusal(r)).body)));
     expect([...bodies]).toEqual([JSON.stringify({ error: "invalid_grant", error_description: "The grant is invalid." })]);
   });

@@ -65,6 +65,7 @@ export const REASONS = {
   invalid_subject_token: { error: "invalid_grant", public: false },
   subject_token_expired: { error: "invalid_grant", public: true, description: "The subject token has expired." },
   policy_denied: { error: "invalid_grant", public: false },
+  blocked: { error: "invalid_grant", public: false },
   no_policy: { error: "invalid_grant", public: false },
 } as const satisfies Record<string, { error: OAuthErrorCode; public: boolean; description?: string }>;
 

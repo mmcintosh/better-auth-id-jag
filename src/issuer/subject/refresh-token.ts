@@ -22,7 +22,7 @@ import type { OAuthOptions, OAuthProviderApi, Scope } from "@better-auth/oauth-p
 import { MAX_TOKEN_LENGTH, refuse } from "../../core";
 
 /** The subject token type for a refresh token (RFC 8693 §3). Not in the core's URNs yet: a core change request. */
-export const REFRESH_TOKEN_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
+export { REFRESH_TOKEN_TOKEN_TYPE } from "../../core";
 
 export const REFRESH_TOKEN_MODEL = "oauthRefreshToken";
 

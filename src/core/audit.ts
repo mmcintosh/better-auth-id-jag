@@ -70,8 +70,8 @@ export interface RefusedEvent extends EventBase {
 export interface AdminChangedEvent extends EventBase {
   type: "id-jag.admin";
   actorUserId: string;
-  action: "create" | "update" | "delete" | "revoke";
-  target: "resource-server" | "policy" | "trusted-issuer" | "jti";
+  action: "create" | "update" | "delete";
+  target: "resource-server" | "policy" | "trusted-issuer" | "block";
   targetId: string;
 }
 

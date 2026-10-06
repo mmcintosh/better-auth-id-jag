@@ -254,7 +254,7 @@ export function registryEndpoints(state: IssuerState) {
 }
 
 /** The core's AdminChangedEvent has no "block" target yet (a core change request); the event carries it as is. */
-const BLOCK_TARGET = "block" as unknown as AdminChangedEvent["target"];
+const BLOCK_TARGET: AdminChangedEvent["target"] = "block";
 const JTI_FIELDS = ["userId", "clientId", "audience"] as const;
 
 /**

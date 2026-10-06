@@ -97,7 +97,7 @@ export function blockMatches(b: BlockRecord, r: { userId: string; clientId: stri
 }
 
 /**
- * Refuses (`policy_denied`, detail "blocked: <id>") when an active block matches. Three indexed
+ * Refuses (`blocked`, detail the block's id) when an active block matches. Three indexed
  * reads cover every combination: the user's blocks; any-user blocks of this client; any-user,
  * any-client blocks of this audience.
  */
@@ -119,7 +119,7 @@ export async function checkBlocks(ctx: GenericEndpointContext, r: { userId: stri
     const rows = await adapter.findMany<Record<string, unknown>>({ model: BLOCK_MODEL, where, limit: MAX_BLOCK_ROWS });
     if (rows.length >= MAX_BLOCK_ROWS) refuse("policy_denied", "too many blocks to evaluate");
     const hit = rows.map((row) => readBlock(row, now)).find((b) => blockMatches(b, r));
-    if (hit) refuse("policy_denied", `blocked: ${hit.id}`);
+    if (hit) refuse("blocked", hit.id);
   }
 }
 
