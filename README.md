@@ -116,6 +116,8 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 |---|---|---|
 | `authorize` | | Code policy: `(input) => { decision: "allow", scopes, … } \| { decision: "deny", reason? }`. See [Policy](#policy). |
 | `registry` | | Database policy: `{ enabled, canManage?, cacheSeconds? }`. See [Registry and admin API](#registry-and-admin-api). |
+| `blocks` | | `{ canManage? }`: who may manage [blocks](#blocks) over the API. Blocks are enforced either way. |
+| `maxIdTokenAgeSeconds` | `3600` | The oldest ID token (by `iat`) accepted as a subject token, even when it hasn't expired. 60 to 86400. An older one is refused as `subject_token_expired`; exchange the refresh token instead. |
 | `allowPublicClients` | `false` | The draft: "SHOULD only be supported for confidential clients". Turning it on logs a warning at startup. |
 | `signingAlgorithm` | the `jwt()` plugin's | `"RS256"`, `"ES256"` or `"EdDSA"`; must be the jwt plugin's `keyPairConfig.alg` or one of its `keyPairConfigs`. |
 | `defaultLifetimeSeconds` | `300` | When no policy sets a lifetime. At most 900. |
@@ -144,7 +146,7 @@ A deny's `reason` goes to the audit log only, never to the caller.
 
 ### Registry and admin API
 
-With `registry: { enabled: true, canManage }`, resource servers (`idJagResourceServer`) and policies (`idJagPolicy`) live in the database, and the admin API is mounted under `/id-jag/*` for users `canManage` returns exactly `true` for (a throw denies). Every change emits `onAdminChanged` with the acting user.
+With `registry: { enabled: true, canManage }`, resource servers (`idJagResourceServer`) and policies (`idJagPolicy`) live in the database, and their admin API is mounted under `/id-jag/*` for users `canManage` returns exactly `true` for (a throw denies). Blocks have their own `blocks: { canManage }`, so they can be managed without the registry and by different people. The audit route (`/id-jag/audit`, with `auditLog`) is mounted with either and open to either. Every change emits `onAdminChanged` with the acting user.
 
 ```ts
 import { createAuthClient } from "better-auth/client";
@@ -158,11 +160,13 @@ await authClient.idJag.blocks.create({ block: { userId, clientId, audience, reas
 await authClient.idJag.blocks.createFromJti({ jti, reason });
 ```
 
-With both `authorize` and `registry`, both must allow. Without `canManage` the API isn't mounted, but the tables are still read; with `registry.enabled: false`, only the blocks and audit routes are mounted.
+With both `authorize` and `registry`, both must allow. Without a `canManage` its routes aren't mounted, but the tables are still read: blocks are checked on every exchange whether or not `blocks.canManage` is set.
 
 ### Blocks
 
-A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an issued ID-JAG's audit record. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
+A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an ID-JAG this issuer minted: from its `jti` row while that lasts (until a few minutes after the token expires), then from its `id-jag.issued` audit row, so blocking from a `jti` seen in the audit log needs `auditLog`. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
+
+**What stops an exchange:** a ban, a block, an ID token older than `maxIdTokenAgeSeconds` (an hour by default), an ID token whose session has ended (only for clients whose ID tokens carry `sid`: those with `enable_end_session` or a back-channel logout URI), and revoking the refresh token at `/oauth2/revoke`. Signing out alone doesn't stop an ID token without `sid` (it works until the age cap), nor an `offline_access` refresh token (revoke it, or block the user).
 
 ## 🔑 Receiver: `idJagGrant()`
 

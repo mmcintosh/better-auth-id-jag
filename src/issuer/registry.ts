@@ -1,6 +1,7 @@
-// The registry's management API (better-auth-saml-idp D-027's pattern), and the blocks and audit
-// API. Mounted only when `registry.canManage` is configured (the registry routes only when the
-// registry is enabled too). Every route:
+// The registry's management API (better-auth-saml-idp D-027's pattern), the blocks API and the
+// audit API. Each has its own access decision (D-B24): the registry's routes are mounted with
+// `registry.canManage` (and `registry.enabled`), the blocks routes with `blocks.canManage`, the
+// audit route with either, and allowed by either. Every route:
 // - needs an authoritative session (`sensitiveSessionMiddleware` reads it from the database, so a
 //   demoted administrator loses access at once, cookie cache or not);
 // - refuses impersonated sessions, and banned users;
@@ -14,6 +15,7 @@ import { z } from "zod";
 import { AUDIT_MODEL, type AdminChangedEvent, emit, JTI_MODEL, jtiKey } from "../core";
 import { type BlockConfig, blockColumns, blockInput, readBlock } from "./blocks";
 import { type IssuerState, issuerOf } from "./exchange";
+import type { CanManage } from "./options";
 import {
   issuesOf,
   lookupKeyOf,
@@ -52,20 +54,37 @@ const isBanned = (user: Record<string, unknown>) => {
   return Number.isNaN(t) || t > Date.now();
 };
 
+/** Which access decision a route asks: the registry's, the blocks', or (the audit log) either. */
+type Area = "registry" | "blocks" | "audit";
+
+/** The configured `canManage` decisions for an area: any one answering exactly `true` allows. */
+function deciders(state: IssuerState, area: Area): { name: string; canManage: CanManage }[] {
+  const registry = state.options.registry?.canManage;
+  const blocks = state.options.blocks?.canManage;
+  const all = [
+    ...(registry && area !== "blocks" ? [{ name: "registry.canManage", canManage: registry }] : []),
+    ...(blocks && area !== "registry" ? [{ name: "blocks.canManage", canManage: blocks }] : []),
+  ];
+  return all;
+}
+
 /** The acting administrator, or a 403. */
-async function actor(ctx: GenericEndpointContext, state: IssuerState): Promise<{ id: string }> {
-  const canManage = state.options.registry?.canManage;
+async function actor(ctx: GenericEndpointContext, state: IssuerState, area: Area): Promise<{ id: string }> {
+  const asked = deciders(state, area);
   const s = (ctx.context as { session?: { user: { id: string }; session: Record<string, unknown> } | null }).session;
-  if (!s || !canManage) throw fail("FORBIDDEN", "NOT_ALLOWED");
+  if (!s || asked.length === 0) throw fail("FORBIDDEN", "NOT_ALLOWED");
   // An administrator acting as another user must not manage policies under that identity.
   if (s.session.impersonatedBy) throw fail("FORBIDDEN", "NOT_ALLOWED");
   const user = (await ctx.context.internalAdapter.findUserById(s.user.id)) as (User & Record<string, unknown>) | null;
   if (!user || isBanned(user)) throw fail("FORBIDDEN", "NOT_ALLOWED");
   let allowed = false;
-  try {
-    allowed = (await canManage({ user, session: s.session })) === true;
-  } catch (e) {
-    ctx.context.logger.error("[id-jag] registry.canManage threw; denied", e);
+  for (const d of asked) {
+    try {
+      allowed = (await d.canManage({ user, session: s.session })) === true;
+    } catch (e) {
+      ctx.context.logger.error(`[id-jag] ${d.name} threw; denied`, e);
+    }
+    if (allowed) break;
   }
   if (!allowed) throw fail("FORBIDDEN", "NOT_ALLOWED");
   return { id: user.id };
@@ -114,13 +133,13 @@ export function registryEndpoints(state: IssuerState) {
 
   return {
     idJagListResourceServers: createAuthEndpoint("/id-jag/resource-servers", { method: "GET", use }, async (ctx) => {
-      await actor(ctx, state);
+      await actor(ctx, state, "registry");
       const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, limit: MAX_LIST, sortBy: { field: "createdAt", direction: "asc" } });
       return ctx.json({ resourceServers: await Promise.all(rows.map(rsView)) });
     }),
 
     idJagGetResourceServer: createAuthEndpoint("/id-jag/resource-servers/get", { method: "GET", use, query: z.object({ id: idSchema }) }, async (ctx) => {
-      await actor(ctx, state);
+      await actor(ctx, state, "registry");
       const row = await findById(ctx, RESOURCE_SERVER_MODEL, ctx.query.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       return ctx.json({ resourceServer: await rsView(row) });
@@ -130,7 +149,7 @@ export function registryEndpoints(state: IssuerState) {
       "/id-jag/resource-servers/create",
       { method: "POST", use, body: z.object({ resourceServer: record, enabled: z.boolean().optional() }) },
       async (ctx) => {
-        const who = await actor(ctx, state);
+        const who = await actor(ctx, state, "registry");
         const config = parseRs(ctx.body.resourceServer);
         const now = new Date();
         const lookupKey = await lookupKeyOf(config.organizationId, config.audience);
@@ -154,7 +173,7 @@ export function registryEndpoints(state: IssuerState) {
       "/id-jag/resource-servers/update",
       { method: "POST", use, body: z.object({ id: idSchema, resourceServer: record.optional(), enabled: z.boolean().optional() }) },
       async (ctx) => {
-        const who = await actor(ctx, state);
+        const who = await actor(ctx, state, "registry");
         const row = await findById(ctx, RESOURCE_SERVER_MODEL, ctx.body.id);
         if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
         if (ctx.body.resourceServer === undefined && ctx.body.enabled === undefined) throw fail("BAD_REQUEST", "INVALID", { issues: ["send resourceServer, enabled, or both"] });
@@ -181,7 +200,7 @@ export function registryEndpoints(state: IssuerState) {
     ),
 
     idJagDeleteResourceServer: createAuthEndpoint("/id-jag/resource-servers/delete", { method: "POST", use, body: z.object({ id: idSchema }) }, async (ctx) => {
-      const who = await actor(ctx, state);
+      const who = await actor(ctx, state, "registry");
       const row = await findById(ctx, RESOURCE_SERVER_MODEL, ctx.body.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       const policies = await ctx.context.adapter.findMany({ model: POLICY_MODEL, where: [{ field: "resourceServerId", value: String(row.id) }], limit: 1 });
@@ -192,7 +211,7 @@ export function registryEndpoints(state: IssuerState) {
     }),
 
     idJagListPolicies: createAuthEndpoint("/id-jag/policies", { method: "GET", use, query: z.object({ resourceServerId: idSchema.optional() }).optional() }, async (ctx) => {
-      await actor(ctx, state);
+      await actor(ctx, state, "registry");
       const rsId = ctx.query?.resourceServerId;
       const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({
         model: POLICY_MODEL,
@@ -204,14 +223,14 @@ export function registryEndpoints(state: IssuerState) {
     }),
 
     idJagGetPolicy: createAuthEndpoint("/id-jag/policies/get", { method: "GET", use, query: z.object({ id: idSchema }) }, async (ctx) => {
-      await actor(ctx, state);
+      await actor(ctx, state, "registry");
       const row = await findById(ctx, POLICY_MODEL, ctx.query.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       return ctx.json({ policy: policyView(row) });
     }),
 
     idJagCreatePolicy: createAuthEndpoint("/id-jag/policies/create", { method: "POST", use, body: z.object({ policy: record, enabled: z.boolean().optional() }) }, async (ctx) => {
-      const who = await actor(ctx, state);
+      const who = await actor(ctx, state, "registry");
       const config = await parsePolicy(ctx, ctx.body.policy);
       const now = new Date();
       const data = { ...policyColumns(config), enabled: ctx.body.enabled ?? true, createdBy: who.id, updatedBy: who.id, createdAt: now, updatedAt: now };
@@ -225,7 +244,7 @@ export function registryEndpoints(state: IssuerState) {
       "/id-jag/policies/update",
       { method: "POST", use, body: z.object({ id: idSchema, policy: record.optional(), enabled: z.boolean().optional() }) },
       async (ctx) => {
-        const who = await actor(ctx, state);
+        const who = await actor(ctx, state, "registry");
         const row = await findById(ctx, POLICY_MODEL, ctx.body.id);
         if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
         if (ctx.body.policy === undefined && ctx.body.enabled === undefined) throw fail("BAD_REQUEST", "INVALID", { issues: ["send policy, enabled, or both"] });
@@ -243,7 +262,7 @@ export function registryEndpoints(state: IssuerState) {
     ),
 
     idJagDeletePolicy: createAuthEndpoint("/id-jag/policies/delete", { method: "POST", use, body: z.object({ id: idSchema }) }, async (ctx) => {
-      const who = await actor(ctx, state);
+      const who = await actor(ctx, state, "registry");
       const row = await findById(ctx, POLICY_MODEL, ctx.body.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       await ctx.context.adapter.delete({ model: POLICY_MODEL, where: [{ field: "id", value: String(row.id) }] });
@@ -257,11 +276,51 @@ export function registryEndpoints(state: IssuerState) {
 const BLOCK_TARGET: AdminChangedEvent["target"] = "block";
 const JTI_FIELDS = ["userId", "clientId", "audience"] as const;
 
+interface IssuedRecord {
+  userId: string;
+  clientId: string;
+  audience: string;
+}
+
+/** All three, or nothing: a missing field must not turn into "any" and widen the block. */
+const issuedOf = (userId: unknown, clientId: unknown, audience: unknown): IssuedRecord | null =>
+  typeof userId === "string" && userId !== "" && typeof clientId === "string" && clientId !== "" && typeof audience === "string" && audience !== "" ? { userId, clientId, audience } : null;
+
 /**
- * Blocks (D-B16) and the audit log: mounted with `registry.canManage`, whether the registry is
- * enabled or not (a code-policy host can block too). Same access control as the registry routes.
+ * Who and what an ID-JAG this issuer minted was for, by its jti (D-B25): the jti row while it
+ * lasts (until the token's exp + 5 minutes), then the `id-jag.issued` audit row (with `auditLog`,
+ * for its retention). Only issued rows count: the audit table also holds jtis a receiver on this
+ * host accepted or refused, which name other issuers' tokens. Matched exactly, whatever the collation.
  */
-export function adminEndpoints(state: IssuerState) {
+async function issuedRecord(ctx: GenericEndpointContext, state: IssuerState, jti: string): Promise<IssuedRecord | null> {
+  const key = await jtiKey("issued", issuerOf(ctx), jti);
+  const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: JTI_MODEL, where: [{ field: "key", value: key }] });
+  if (row && row.key === key) return issuedOf(row.sub, row.clientId, row.aud);
+  if (!state.options.auditLog) return null;
+  const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({
+    model: AUDIT_MODEL,
+    where: [
+      { field: "type", value: "id-jag.issued" },
+      { field: "jti", value: jti },
+    ],
+    limit: 10,
+  });
+  const hit = rows.find((r) => r.type === "id-jag.issued" && r.jti === jti);
+  if (!hit) return null;
+  return issuedOf(hit.userId, hit.clientId, hit.audience);
+}
+
+/** Why create-from-jti found nothing (D-B25). */
+const JTI_NOT_FOUND = {
+  withAudit: "No ID-JAG with this jti was issued here, or its audit row is past retention.",
+  withoutAudit: "No ID-JAG with this jti is on record. jti rows expire minutes after the token; enable auditLog to block from older ones.",
+} as const;
+
+/**
+ * Blocks (D-B16): mounted with `blocks.canManage`, registry or not (a code-policy host can block
+ * too), and decided by it alone (D-B24). Same access control as the registry routes otherwise.
+ */
+export function blockEndpoints(state: IssuerState) {
   const allowLoopbackHttp = state.options.allowLoopbackHttpAudiences;
   const input = blockInput({ allowLoopbackHttp, now: () => Date.now() });
   const use = [sensitiveSessionMiddleware];
@@ -292,7 +351,7 @@ export function adminEndpoints(state: IssuerState) {
       "/id-jag/blocks",
       { method: "GET", use, query: z.object({ userId: idSchema.optional(), clientId: idSchema.optional(), audience: z.string().min(1).max(2048).optional() }).optional() },
       async (ctx) => {
-        await actor(ctx, state);
+        await actor(ctx, state, "blocks");
         const filters = JTI_FIELDS.flatMap((k) => (ctx.query?.[k] !== undefined ? [{ field: k, value: ctx.query[k] as string }] : []));
         const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({ model: BLOCK_MODEL, ...(filters.length ? { where: filters } : {}), limit: MAX_LIST, sortBy: { field: "createdAt", direction: "desc" } });
         const blocks = rows.filter((r) => filters.every((f) => r[f.field] === f.value)).map((r) => readBlock(r));
@@ -301,7 +360,7 @@ export function adminEndpoints(state: IssuerState) {
     ),
 
     idJagGetBlock: createAuthEndpoint("/id-jag/blocks/get", { method: "GET", use, query: z.object({ id: idSchema }) }, async (ctx) => {
-      await actor(ctx, state);
+      await actor(ctx, state, "blocks");
       const row = await findById(ctx, BLOCK_MODEL, ctx.query.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       return ctx.json({ block: readBlock(row) });
@@ -309,7 +368,7 @@ export function adminEndpoints(state: IssuerState) {
 
     // { block: { userId?, clientId?, audience?, reason, expiresAt? } }: at least one of the three.
     idJagCreateBlock: createAuthEndpoint("/id-jag/blocks/create", { method: "POST", use, body: z.object({ block: record }) }, async (ctx) => {
-      const who = await actor(ctx, state);
+      const who = await actor(ctx, state, "blocks");
       return ctx.json({ block: await create(ctx, who, parse(ctx.body.block)) });
     }),
 
@@ -328,15 +387,14 @@ export function adminEndpoints(state: IssuerState) {
         }),
       },
       async (ctx) => {
-        const who = await actor(ctx, state);
-        const key = await jtiKey("issued", issuerOf(ctx), ctx.body.jti);
-        const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: JTI_MODEL, where: [{ field: "key", value: key }] });
-        if (!row || row.key !== key) throw fail("NOT_FOUND", "NOT_FOUND");
+        const who = await actor(ctx, state, "blocks");
+        const issued = await issuedRecord(ctx, state, ctx.body.jti);
+        if (!issued) throw fail("NOT_FOUND", "NOT_FOUND", { message: state.options.auditLog ? JTI_NOT_FOUND.withAudit : JTI_NOT_FOUND.withoutAudit });
         const fields = new Set(ctx.body.fields ?? JTI_FIELDS);
         const config = parse({
-          ...(fields.has("userId") ? { userId: row.sub } : {}),
-          ...(fields.has("clientId") ? { clientId: row.clientId } : {}),
-          ...(fields.has("audience") ? { audience: row.aud } : {}),
+          ...(fields.has("userId") ? { userId: issued.userId } : {}),
+          ...(fields.has("clientId") ? { clientId: issued.clientId } : {}),
+          ...(fields.has("audience") ? { audience: issued.audience } : {}),
           reason: ctx.body.reason,
           ...(ctx.body.expiresAt !== undefined ? { expiresAt: ctx.body.expiresAt } : {}),
         });
@@ -345,14 +403,24 @@ export function adminEndpoints(state: IssuerState) {
     ),
 
     idJagDeleteBlock: createAuthEndpoint("/id-jag/blocks/delete", { method: "POST", use, body: z.object({ id: idSchema }) }, async (ctx) => {
-      const who = await actor(ctx, state);
+      const who = await actor(ctx, state, "blocks");
       const row = await findById(ctx, BLOCK_MODEL, ctx.body.id);
       if (!row) throw fail("NOT_FOUND", "NOT_FOUND");
       await ctx.context.adapter.delete({ model: BLOCK_MODEL, where: [{ field: "id", value: String(row.id) }] });
       changed(ctx, who.id, "delete", String(row.id), `deleted block ${String(row.id)}`);
       return ctx.json({ deleted: String(row.id) });
     }),
+  };
+}
 
+/**
+ * The audit log (core audit table): mounted with `registry.canManage` or `blocks.canManage`, and
+ * allowed by either (D-B24): it is where a blocks administrator finds the jti to block from, and
+ * where a registry administrator sees the effect of a policy. 404 without `auditLog`.
+ */
+export function auditEndpoints(state: IssuerState) {
+  const use = [sensitiveSessionMiddleware];
+  return {
     // The audit log (core audit table), newest first. Only with `auditLog`.
     idJagListAudit: createAuthEndpoint(
       "/id-jag/audit",
@@ -362,7 +430,7 @@ export function adminEndpoints(state: IssuerState) {
         query: z.object({ type: z.enum(["id-jag.issued", "id-jag.refused", "id-jag.admin"]).optional(), limit: z.coerce.number().int().min(1).max(MAX_AUDIT).optional(), before: z.iso.datetime().optional() }).optional(),
       },
       async (ctx) => {
-        await actor(ctx, state);
+        await actor(ctx, state, "audit");
         if (!state.options.auditLog) throw fail("NOT_FOUND", "NOT_FOUND");
         const where: { field: string; value: string | Date; operator?: "lt" }[] = [];
         if (ctx.query?.type) where.push({ field: "type", value: ctx.query.type });

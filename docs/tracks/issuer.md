@@ -17,7 +17,7 @@ defines in code, in a database registry, or both. Built on the shared core (`src
 | `policy.ts` | `decide`: blocks, then code hook + registry, deny by default, narrowing |
 | `directory.ts` | registry lookups by audience, re-validated rows, per-isolate cache |
 | `records.ts` | registry input schemas (zod), stored-row re-validation, lookup keys |
-| `registry.ts` | the admin API (mounted only with `registry.canManage`): registry routes, blocks, audit |
+| `registry.ts` | the admin API: registry routes (`registry.canManage`), blocks routes (`blocks.canManage`), audit (either) (D-B24) |
 | `schema.ts` | `idJagBlock` (always), `idJagResourceServer`, `idJagPolicy` (+ the core's `idJagJti`, `idJagAudit`) |
 | `options.ts` | options, their types and their validation (zod, at startup) |
 | `url.ts` | audience normalisation, resource URIs |
@@ -30,6 +30,8 @@ defines in code, in a database registry, or both. Built on the shared core (`src
 idJagIssuer({
   authorize?: (input: AuthorizeInput) => AuthorizeResult | Promise<AuthorizeResult>,
   registry?: { enabled: boolean; canManage?: ({ user, session }) => boolean | Promise<boolean>; cacheSeconds?: number },
+  blocks?: { canManage?: ({ user, session }) => boolean | Promise<boolean> }, // D-B24; blocks are enforced regardless
+  maxIdTokenAgeSeconds?: number,         // D-B22: oldest ID token (by iat) accepted; default 3600, 60…86400
   allowPublicClients?: boolean,          // default false; true logs a startup warning (S5)
   signingAlgorithm?: "RS256" | "ES256" | "EdDSA", // default: the jwt plugin's keyPairConfig.alg
   defaultLifetimeSeconds?: number,       // default 300, max 900 (S7)
@@ -58,10 +60,11 @@ Client: `idJagIssuerClient()`:
 
 `.issued.revoke(…)` is gone (D-B21).
 
-Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations; mounted with `registry.canManage`):
-- registry, only when `registry.enabled`: `/id-jag/resource-servers[/get|/create|/update|/delete]`,
-  `/id-jag/policies[/get|/create|/update|/delete]`;
-- always: `/id-jag/blocks[/get|/create|/create-from-jti|/delete]`, `/id-jag/audit` (404 without `auditLog`).
+Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations; D-B24):
+- with `registry.canManage` and `registry.enabled`, decided by `registry.canManage`:
+  `/id-jag/resource-servers[/get|/create|/update|/delete]`, `/id-jag/policies[/get|/create|/update|/delete]`;
+- with `blocks.canManage`, decided by it: `/id-jag/blocks[/get|/create|/create-from-jti|/delete]`;
+- with either, allowed by either: `/id-jag/audit` (404 without `auditLog`).
 
 Subject tokens: `subject_token_type` `urn:ietf:params:oauth:token-type:id_token` or
 `urn:ietf:params:oauth:token-type:refresh_token`. Nothing new is advertised: draft -04 defines no metadata for
@@ -85,10 +88,12 @@ subject token types, only `identity_chaining_requested_token_types_supported`.
    repeated → `unsupported_parameter`.
 3. **Subject token** (`subject/id-token.ts`). In order: shape; `typ` absent or `JWT` (an access token, ID-JAG or logout
    token is refused); `alg` asymmetric (no HS*, no `none`); `kid`; no `crit`; claims schema; `exp > now`, no grace
-   (`expired`); `iat` at most 60 s ahead; `iss` = `jwt.issuer ?? baseURL` (S6, before any key is touched); the key by
+   (`expired`); `iat` required, at most 60 s ahead and at most `maxIdTokenAgeSeconds` old (`subject_token_expired`,
+   D-B22); `iss` = `jwt.issuer ?? baseURL` (S6, before any key is touched); the key by
    `kid` from this host's jwks table (or the jwt plugin's own `adapter.getJwks`), within the jwt plugin's grace period
    as its JWKS route publishes them; the key's alg must be the header's; `compactVerify`; `aud` contains the
-   authenticated client (several audiences need `azp` = the client). Then the user by `sub` (`unknown_subject`), not
+   authenticated client (several audiences need `azp` = the client); with `sid`, that session exists and is unexpired
+   (D-B23). Then the user by `sub` (`unknown_subject`), not
    banned (`banned_user`, ban expiry honoured). No outbound request at all (S10, tested with a `fetch` that throws).
 
    **Or a refresh token** (`subject/refresh-token.ts`, D-B14, D-B15). Decoded as the provider's refresh_token grant
@@ -225,7 +230,7 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   requests 5 and 6 below):
   - the refusal is `policy_denied`, with the block in the detail;
   - the `id-jag.admin` event's `target` is `"block"`, cast onto the core's union (the core's type doesn't list it).
-- **D-B18: where blocks live.** The `idJagBlock` table is always in the schema, like `idJagJti`: blocking is the
+- **D-B18: where blocks live.** (Mounting superseded by D-B24.) The `idJagBlock` table is always in the schema, like `idJagJti`: blocking is the
   enforcement half of revocation, and a host with only a code policy needs it too. The blocks and audit routes are
   mounted whenever `registry.canManage` is set, even with `registry.enabled: false` (then only they are mounted).
   They use the registry's access control: `sensitiveSessionMiddleware`, impersonation and bans refused, `canManage`
@@ -238,9 +243,86 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
 - **D-B21: no endpoint is called "revoke".** `/id-jag/issued/revoke` and `authClient.idJag.issued.revoke` are
   removed, not renamed: they never revoked anything. The useful part, starting from an ID-JAG you saw in the audit
   log, is `/id-jag/blocks/create-from-jti`. It blocks that jti's user, client and/or audience (`fields`, default all
-  three), from the jti row this issuer recorded (404 when unknown or swept). A jti alone means nothing to a receiver.
+  three), from the jti row this issuer recorded (404 when unknown or swept; since D-B25, the audit row after the sweep).
+  A jti alone means nothing to a receiver.
+
+### After the independent review (2026-10-06)
+
+- **D-B22: an age cap on ID tokens (`maxIdTokenAgeSeconds`, default 3600).** Defect 4 of the review: an ID token
+  lives 10 hours (oauth-provider's `idTokenExpiresIn` default, 36000 s) and, for most clients, names no session, so
+  after sign-out, with every session deleted, it still minted ID-JAGs; only a ban or a block stopped it. (The decision
+  is the orchestrating session's, to be confirmed by the maintainer.)
+  - **The rule.** An ID token whose `iat` is more than `maxIdTokenAgeSeconds` before now is refused as
+    `subject_token_expired`, even if its `exp` is later. `iat` is now required (the provider always sets it; with no
+    `iat` there is no age to cap, so it's `invalid_subject_token`). Exactly the cap is accepted (`now - iat > cap`
+    refuses).
+  - **Public, and early.** It's checked with `exp`, before the issuer and the key: it depends only on the token, and
+    the token is the caller's own, so the specific description tells it nothing it couldn't read from the token. The
+    detail (audit only) is `older than <cap> s`.
+  - **The option.** An integer from 60 to 86400, validated at startup with the others. 3600 matches the provider's
+    access-token lifetime: a client never needs an ID token older than its access token to act on a fresh sign-in.
+  - **The way forward for older sign-ins:** the refresh token as the subject token (D-B14), which revocation and
+    rotation stop. `verifyOwnIdToken`'s new `maxAgeSeconds` expectation defaults to 3600 too, so a host calling it
+    directly gets the cap.
+- **D-B23: an ID token's `sid` must name a live session.** Read from oauth-provider 1.7.6 (`createIdToken` in
+  `dist/introspect-*.mjs`): `sid: emitSid ? sessionId : void 0`, with `emitSid = Boolean(client.enableEndSession ||
+  client.backchannelLogoutUri)`, and `sessionId` is the session row's `id`. So **ID tokens carry `sid` only for clients
+  with `enable_end_session` or a `backchannel_logout_uri`**; other clients' have none (verified: the default test
+  client's ID token has no `sid`, one with `enable_end_session: true` has one). When `sid` is there, the session row
+  with that id (compared exactly) must exist and be unexpired, the same check the provider's own introspection makes for
+  JWT access tokens carrying `sid`. Otherwise `invalid_subject_token`, detail `session ended` (not public: whether a
+  session exists is not the caller's to learn). Checked after the signature and `aud`, so only our own token, for this
+  client, causes a session read. A host keeping sessions only in secondary storage (no session rows) would have every
+  `sid`-bearing ID token refused: fail closed, as the provider's introspection does.
+- **D-B24: blocks get their own option, `blocks: { canManage? }`** (the maintainer accepted Question 7; defect 6).
+  - **Shape.** `{ canManage }` only, no `enabled`. `registry.enabled` switches the registry's tables and policy
+    source on; blocks have nothing to switch on, because enforcement is always on (the `idJagBlock` table is always in
+    the schema and checked on every exchange, D-B18). An `enabled: false` would read as "blocks off", which isn't
+    offered. `canManage` has the registry's contract (exactly `true`; a throw denies; same session, impersonation
+    and ban checks), and its type is exported as `CanManage`.
+  - **Mounting.** The registry's routes need `registry.canManage` (and `enabled`); the blocks routes need
+    `blocks.canManage`; neither implies the other, and each route is decided by its own function. So blocks can be
+    managed without the registry, by other people (e.g. a security team).
+  - **The audit route** is mounted with either and allowed by either (the first configured `canManage` that answers
+    exactly `true`): it's where a blocks administrator finds the jti to block from, and where a registry administrator
+    sees what a policy did.
+  - **Breaking, before 0.1:** a host that relied on `registry.canManage` for the blocks routes must add
+    `blocks: { canManage }`. Updated: the client plugin's test (it now configures both), README (issuer section).
+- **D-B25: create-from-jti falls back to the audit log** (defect 5). The issued jti row is swept at the token's exp +
+  5 minutes (the core's margin), so "block from a jti seen in the audit log" worked for about ten minutes. Now: the jti
+  row while it lasts, then, with `auditLog`, the `id-jag.issued` audit row with that `jti`. Only `id-jag.issued` rows
+  count (in the query and again in memory): the audit table also holds jtis a receiver on the same host accepted or
+  refused, which belong to other issuers' tokens. The jti is compared exactly in memory. A record missing any of user,
+  client or audience is treated as not found, so a missing field can't become "any" and widen the block. When neither
+  has it: 404 `ID_JAG_NOT_FOUND`, with a message saying why: without `auditLog`, "jti rows expire minutes after the
+  token; enable auditLog to block from older ones"; with it, that the jti wasn't issued here or is past retention.
+  The `jti` audit column isn't indexed (the core's schema); the query is filtered by the indexed `type` too, and this is
+  an administrator's occasional action. An index on `jti` would be a core change (not requested).
 
 ## Evidence
+
+### After the independent review (D-B22–D-B25), 2026-10-06
+
+- **Failing tests first.** Each defect was reproduced by a test that failed before the fix:
+  - defect 4: `subject-age.test.ts` ("an ID token older than the default cap … refused as subject_token_expired although
+    unexpired" got 200; "a client with enable_end_session … after sign-out they are refused" got 200), the
+    `id-token.test.ts` age test, and the startup validation of `maxIdTokenAgeSeconds`;
+  - defect 5: `blocks.test.ts` "create-from-jti after the jti row was swept: found in the audit log" (got 404) and
+    "without the audit log, a swept jti is a 404 that says why" (message was "Not found.");
+  - defect 6: `blocks.test.ts` mounting and own-access-decision tests, and `client.test.ts` (404s before
+    `blocks.canManage` existed).
+  The age tests move `Date` only (`vi.useFakeTimers({ toFake: ["Date"] })`), on both runtimes.
+- **Tests.** `pnpm test`: 622 passed, 28 skipped (the interop suites), 311 passed per runtime (Node/node:sqlite and
+  workerd/D1). Issuer: 130 per runtime (12 new per runtime). `pnpm typecheck` and `pnpm lint` clean.
+- **Each guard broken once.** `python3 scripts/mutate.py test/mutations/issuer.json`: **141 mutations, 133 caught,
+  8 expected survivors, 0 problems, exit 0.** 22 added (D-B22: 6, D-B23: 3, D-B25: 7, D-B24: 6), 6 stale patterns
+  updated (`S6 iat in the future accepted`, `API canManage truthy allows`, `API canManage throw allows`,
+  `B unknown jti blocked (create-from-jti)`, `B API without access control …`, `B API not mounted without the registry`).
+  - New expected survivors (3): `D-B23 session id not compared exactly` and `D-B25 fallback jti not compared exactly
+    in memory` (defence in depth: SQLite and D1 compare case-sensitively); `D-B25 fallback type checked in the query
+    only` (half of a pair; both halves together are caught).
+  - One new mutation survived on its first run and is now caught: "fallback takes any event type". The test's two
+    foreign rows shared a jti, so the incomplete `accepted` row hid the `refused` one; each now has its own jti.
 
 ### Phase 2 (refresh-token subjects, blocks), 2026-10-06
 
@@ -472,7 +554,8 @@ Phase 2:
   require the DPoP proof and carry `cnf` into the ID-JAG?
 - **D-B15, `openid`:** a refresh token must have been granted `openid`. Is that too strict for the SAML path, where
   the refresh token comes from an assertion grant? Nothing in this repository issues one today, so it's untested.
-- **D-B18, blocks API mounting:** the blocks API is under `registry.canManage` even with the registry off. Should it
-  have its own option (e.g. `blocks: { canManage }`)?
+- ~~**D-B18, blocks API mounting**~~: decided (Question 7 accepted), `blocks: { canManage }` (D-B24).
+- **D-B22, the ID-token age cap's default (3600):** the orchestrating session's choice, to be confirmed.
+- **D-B24, the audit route under either `canManage`:** or should it have its own (`auditLog: { canRead }`)?
 - **D-B16, blocks and sessions:** should a block also revoke the user's refresh tokens for that client at the provider?
   Today it only stops ID-JAGs: the client can still refresh its access tokens here.

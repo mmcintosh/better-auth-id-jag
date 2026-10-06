@@ -6,7 +6,9 @@ import { BASE, createIssuerHost, signUp } from "../support/issuer-host";
 
 describe("idJagIssuerClient", () => {
   it("creates and lists resource servers and policies with typed calls", async () => {
-    const host = await createIssuerHost({ issuer: { registry: { enabled: true, canManage: ({ user }) => user.role === "admin", cacheSeconds: 0 } } });
+    const isAdmin = ({ user }: { user: Record<string, unknown> }) => user.role === "admin";
+    // Blocks have their own access decision (D-B24): without blocks.canManage their routes aren't mounted.
+    const host = await createIssuerHost({ issuer: { registry: { enabled: true, canManage: isAdmin, cacheSeconds: 0 }, blocks: { canManage: isAdmin } } });
     const admin = await signUp(host, { role: "admin" });
     const client = createAuthClient({
       baseURL: `${BASE}/api/auth`,
@@ -39,7 +41,9 @@ describe("idJagIssuerClient", () => {
     expect(block.data?.block).toMatchObject({ userId, clientId: null, audience: null, active: true });
     expect((await client.idJag.blocks({ query: { userId } })).data?.blocks.map((b) => b.id)).toEqual([blockId]);
     expect((await client.idJag.blocks.get({ query: { id: blockId } })).data?.block.reason).toBe("lost laptop");
-    expect((await client.idJag.blocks.createFromJti({ jti: "unknown", reason: "r" })).error?.status).toBe(404);
+    const unknown = await client.idJag.blocks.createFromJti({ jti: "unknown", reason: "r" });
+    expect(unknown.error?.status).toBe(404);
+    expect(unknown.error?.message).toMatch(/enable auditLog/);
     expect((await client.idJag.blocks.delete({ id: blockId })).data).toEqual({ deleted: blockId });
     expect((await client.idJag.blocks.get({ query: { id: blockId } })).error?.status).toBe(404);
   });

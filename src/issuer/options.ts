@@ -73,23 +73,52 @@ export interface AuthorizeDeny {
 
 export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny;
 
+/** Who may use an admin API: the acting user as the database has it now, and the session. */
+export type CanManage = (input: { user: User & Record<string, unknown>; session: Record<string, unknown> }) => Awaitable<boolean>;
+
 export interface RegistryOptions {
   enabled: boolean;
   /**
-   * Who may manage the registry and the blocks over the API. Without it the API isn't mounted (the
-   * tables are still used). With `enabled: false`, only the blocks and audit routes are mounted.
-   * Must return exactly `true`; a throw denies.
+   * Who may manage the registry over the API. Without it the registry's routes aren't mounted
+   * (the tables are still used). Must return exactly `true`; a throw denies.
    */
-  canManage?: ((input: { user: User & Record<string, unknown>; session: Record<string, unknown> }) => Awaitable<boolean>) | undefined;
+  canManage?: CanManage | undefined;
   /** Per-isolate cache of looked-up audiences (hits and misses). Default 60; 0 turns it off. */
   cacheSeconds?: number | undefined;
 }
+
+/**
+ * Blocks are always enforced (the `idJagBlock` table is always there); this only decides who may
+ * manage them over the API (D-B24).
+ */
+export interface BlocksOptions {
+  /**
+   * Who may list, create and delete blocks. Without it the blocks routes aren't mounted. Must
+   * return exactly `true`; a throw denies.
+   */
+  canManage?: CanManage | undefined;
+}
+
+/** Default and bounds of `maxIdTokenAgeSeconds` (D-B22). */
+export const DEFAULT_MAX_ID_TOKEN_AGE_SECONDS = 3600;
+export const MIN_MAX_ID_TOKEN_AGE_SECONDS = 60;
+export const MAX_MAX_ID_TOKEN_AGE_SECONDS = 86_400;
 
 export interface IdJagIssuerOptions extends AuditOptions {
   /** Code policy. With `registry` too, both must allow and the narrower outcome wins. */
   authorize?: ((input: AuthorizeInput) => Awaitable<AuthorizeResult>) | undefined;
   /** Database policy: resource servers and policies, with an admin API. */
   registry?: RegistryOptions | undefined;
+  /** Who may manage blocks over the API. Blocks are enforced whether or not this is set. */
+  blocks?: BlocksOptions | undefined;
+  /**
+   * The oldest ID token (by its `iat`) accepted as a subject token, in seconds, even when its
+   * `exp` is later: an ID token names no session, so without a cap it would mint ID-JAGs for its
+   * whole lifetime (the provider's default is 10 hours), sign-out or not. An older one is refused
+   * as `subject_token_expired`; the client exchanges its refresh token instead. Default 3600,
+   * 60 to 86400.
+   */
+  maxIdTokenAgeSeconds?: number | undefined;
   /**
    * The draft: "SHOULD only be supported for confidential clients". Off by default (S5); turning
    * it on logs a warning at startup.
@@ -124,6 +153,8 @@ const optionsSchema = z.strictObject({
       cacheSeconds: intIn(0, 3600).optional(),
     })
     .optional(),
+  blocks: z.strictObject({ canManage: fn.optional() }).optional(),
+  maxIdTokenAgeSeconds: intIn(MIN_MAX_ID_TOKEN_AGE_SECONDS, MAX_MAX_ID_TOKEN_AGE_SECONDS).optional(),
   allowPublicClients: z.boolean().optional(),
   signingAlgorithm: z.enum(ISSUER_SIGNING_ALGORITHMS).optional(),
   defaultLifetimeSeconds: intIn(1, MAX_LIFETIME_SECONDS).optional(),
@@ -141,6 +172,7 @@ export interface ResolvedIssuerOptions extends IdJagIssuerOptions {
   allowPublicClients: boolean;
   allowLoopbackHttpAudiences: boolean;
   sweepIntervalSeconds: number;
+  maxIdTokenAgeSeconds: number;
   registryEnabled: boolean;
   cacheSeconds: number;
 }
@@ -158,6 +190,7 @@ export function resolveIssuerOptions(options: IdJagIssuerOptions = {}): Resolved
     allowPublicClients: options.allowPublicClients ?? false,
     allowLoopbackHttpAudiences: options.allowLoopbackHttpAudiences ?? false,
     sweepIntervalSeconds: options.sweepIntervalSeconds ?? 3600,
+    maxIdTokenAgeSeconds: options.maxIdTokenAgeSeconds ?? DEFAULT_MAX_ID_TOKEN_AGE_SECONDS,
     registryEnabled: options.registry?.enabled === true,
     cacheSeconds: options.registry?.cacheSeconds ?? 60,
   };

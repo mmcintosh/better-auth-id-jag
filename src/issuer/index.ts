@@ -6,6 +6,8 @@ export type {
   AuthorizeDeny,
   AuthorizeInput,
   AuthorizeResult,
+  BlocksOptions,
+  CanManage,
   IdJagIssuerOptions,
   IssuerSigningAlgorithm,
   PolicyClient,
@@ -13,7 +15,7 @@ export type {
   ResolvedIssuerOptions,
   SubjectTokenClaims,
 } from "./options";
-export { ISSUER_SIGNING_ALGORITHMS, resolveIssuerOptions } from "./options";
+export { DEFAULT_MAX_ID_TOKEN_AGE_SECONDS, ISSUER_SIGNING_ALGORITHMS, resolveIssuerOptions } from "./options";
 export { checkIssuerHost, createIssuerState, ISSUER_PLUGIN_ID, idJagIssuer } from "./plugin";
 export type { Grant, PolicyRequest } from "./policy";
 export { decide } from "./policy";

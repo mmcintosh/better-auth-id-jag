@@ -4,8 +4,9 @@
 //   requested_token_type=urn:ietf:params:oauth:token-type:id-jag;
 // - metadata: identity_chaining_requested_token_types_supported (grant_types_supported lists the
 //   grant automatically: docs/phase-0.md);
-// the jti and block tables; with `registry.enabled`, the registry's tables; and with
-// `registry.canManage`, the admin API (blocks and audit always, the registry's routes when enabled).
+// the jti and block tables (blocks are always enforced); with `registry.enabled`, the registry's
+// tables; the registry's routes with `registry.canManage` (and enabled), the blocks routes with
+// `blocks.canManage`, and the audit route with either (D-B24).
 // Subject tokens: ID tokens and refresh tokens this provider issued (no metadata field for them).
 import type { AuthContext, BetterAuthPlugin } from "better-auth";
 import type { JwtOptions } from "better-auth/plugins";
@@ -14,7 +15,7 @@ import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXC
 import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
-import { adminEndpoints, ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
+import { auditEndpoints, blockEndpoints, ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
 import { issuerSchema } from "./schema";
 
 export const ISSUER_PLUGIN_ID = "id-jag-issuer";
@@ -66,13 +67,15 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
     grants: { [TOKEN_EXCHANGE_GRANT]: (input) => handleTokenExchange(input, state) },
     metadata: () => ({ [ISSUER_METADATA_FIELD]: [ID_JAG_TOKEN_TYPE] }),
   };
-  // Typed as mounted so the client plugin can infer the routes; empty at runtime without canManage.
-  // Blocks and audit with canManage; the registry's routes only when it is enabled too.
-  const canManage = resolved.registry?.canManage !== undefined;
+  // Typed as mounted so the client plugin can infer the routes; at runtime each group is mounted
+  // only with its canManage (D-B24): the registry's (when enabled), the blocks', the audit with either.
+  const manageRegistry = resolved.registry?.canManage !== undefined;
+  const manageBlocks = resolved.blocks?.canManage !== undefined;
   const endpoints = {
-    ...(canManage && resolved.registryEnabled ? registryEndpoints(state) : {}),
-    ...(canManage ? adminEndpoints(state) : {}),
-  } as ReturnType<typeof registryEndpoints> & ReturnType<typeof adminEndpoints>;
+    ...(manageRegistry && resolved.registryEnabled ? registryEndpoints(state) : {}),
+    ...(manageBlocks ? blockEndpoints(state) : {}),
+    ...(manageRegistry || manageBlocks ? auditEndpoints(state) : {}),
+  } as ReturnType<typeof registryEndpoints> & ReturnType<typeof blockEndpoints> & ReturnType<typeof auditEndpoints>;
   return {
     id: ISSUER_PLUGIN_ID,
     init(ctx: AuthContext) {
