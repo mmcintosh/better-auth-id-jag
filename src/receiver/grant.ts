@@ -1,6 +1,7 @@
 // The jwt-bearer grant for ID-JAGs (plan §3.4, with the order D-007 settled):
 //  1. client authentication (confidential only by default; a CIMD client only with private_key_jwt)
-//  2. parse the assertion (typ, alg, kid, required claims, lifetime), then its time claims
+//  2. parse the assertion (typ, alg, kid, required claims, lifetime), then its time claims, then
+//     `resource` when requireResourceClaim is on
 //  3. trust lookup from the unverified `iss`
 //  4. verifyIdJag with that issuer's keys: iss, signature, aud = our issuer (exact)
 //  5. client_id continuity: the claim is the authenticated client's id here, exactly
@@ -129,6 +130,9 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     progress.parsed = parsed;
     const now = Math.floor(o.clock().getTime() / 1000);
     checkTimes(parsed.claims, now, o.clockSkewSeconds);
+    // With requireResourceClaim, a missing `resource` is a defect of the token the caller sent: public,
+    // and checked here, before trust, so the answer is the same whether the issuer is trusted (D-A21).
+    if (o.requireResourceClaim && parsed.claims.resource === undefined) refuse("missing_claim", "resource");
 
     // 3. Trust, from the unverified iss.
     const trust: TrustEntry = await findTrustedIssuer(ctx, o, parsed.claims);

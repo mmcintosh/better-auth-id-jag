@@ -52,6 +52,7 @@ const tableRowSchema = z.looseObject({
   emailDomains: jsonList,
   jitProvisioning: z.union([z.boolean(), z.number()]).transform(Boolean),
   jitTrustEmailVerified: z.union([z.boolean(), z.number()]).transform(Boolean).optional(),
+  jitRole: z.string().min(1).max(256).nullable().optional(),
   tenant: z.string().nullable().optional(),
   organizationId: z.string().nullable().optional(),
 });
@@ -131,6 +132,7 @@ async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions
       accountProviderId: orUndef(r.ssoProviderId) ?? defaultAccountProviderId(iss),
       emailDomains: r.emailDomains ? r.emailDomains.map((d) => d.toLowerCase()) : null,
       jit: r.jitProvisioning ? { trustEmailVerified: r.jitTrustEmailVerified === true } : false,
+      jitRole: orUndef(r.jitRole),
     });
   }
   return out;

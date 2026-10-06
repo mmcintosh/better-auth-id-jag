@@ -29,6 +29,9 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
       if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs. The draft says this grant SHOULD be for confidential clients only.");
       if (resolved.trustedIssuers.length === 0 && !resolved.sso && !resolved.trustedIssuerTable) ctx.logger.warn("[id-jag] no trusted issuers configured: every ID-JAG will be refused.");
       if (resolved.sso && !ctx.hasPlugin("sso")) ctx.logger.warn("[id-jag] sso trust is on but the sso plugin is not installed: no sso providers will be trusted.");
+      const orgEntries = resolved.trustedIssuers.filter((t) => t.jit && t.organizationId !== undefined);
+      if (orgEntries.length > 0 && !ctx.hasPlugin("organization"))
+        ctx.logger.warn(`[id-jag] JIT provisioning for ${orgEntries.map((t) => t.issuer).join(", ")} names an organization, but the organization plugin is not installed: users will be created without a membership.`);
       if (resolved.defaultResource !== undefined) {
         const provider = ctx.getPlugin("oauth-provider") as { options?: Parameters<typeof registeredResources>[0] } | null;
         if (provider?.options && !registeredResources(provider.options).includes(resolved.defaultResource)) throw new Error(`id-jag receiver: defaultResource ${resolved.defaultResource} is not a registered resource`);

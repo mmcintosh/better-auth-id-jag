@@ -26,6 +26,9 @@ describe("options are validated when the plugin is built", () => {
     ["fetch that isn't a function", { fetch: "https://proxy.example" }],
     ["a non-boolean allowPublicClients", { allowPublicClients: "yes" }],
     ["an audit retention of 0 days", { auditLog: { retentionDays: 0 } }],
+    ["a non-boolean requireResourceClaim", { requireResourceClaim: 1 }],
+    ["an empty jitRole", { trustedIssuers: [{ ...TRUST[0], organizationId: "org", jitRole: "" }] }],
+    ["a jitRole without organizationId", { trustedIssuers: [{ ...TRUST[0], jitRole: "admin" }] }],
   ];
   for (const [what, options] of bad) {
     it(`refuses ${what}`, () => {
@@ -36,9 +39,10 @@ describe("options are validated when the plugin is built", () => {
   it("accepts a complete, valid configuration", () => {
     expect(() =>
       idJagGrant({
-        trustedIssuers: [{ issuer: "https://idp.example", discoveryUri: "https://idp.example/.well-known/openid-configuration", allowedClientIds: ["c"], emailFallback: { domains: ["corp.example"] }, jitProvisioning: { trustEmailVerified: false }, tenant: "t" }],
+        trustedIssuers: [{ issuer: "https://idp.example", discoveryUri: "https://idp.example/.well-known/openid-configuration", allowedClientIds: ["c"], emailFallback: { domains: ["corp.example"] }, jitProvisioning: { trustEmailVerified: false }, tenant: "t", organizationId: "org", jitRole: "admin" }],
         sso: { emailFallback: true, providerIds: ["okta"] },
         trustedIssuerTable: true,
+        requireResourceClaim: true,
         clockSkewSeconds: 30,
         maxLifetimeSeconds: 300,
         jwks: { timeoutMs: 2000, maxBytes: 32768, cacheTtlSeconds: 300, minRefetchIntervalSeconds: 60 },

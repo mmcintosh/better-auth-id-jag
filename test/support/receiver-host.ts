@@ -1,13 +1,13 @@
 // Track A test support: a test IdP (a jose key pair whose JWKS is served only through the
 // receiver's injected fetch), and receiver hosts on mcp() + cimd() + jwt() (+ sso(), admin()) or on
-// oauthProvider(). In workerd the hosts of one test file share a D1, so every IdP gets a unique
+// oauthProvider(), optionally with organization(). In workerd the hosts of one test file share a D1, so every IdP gets a unique
 // issuer and every user a unique email.
 import { exportJWK, generateKeyPair, type JWK, type JWTPayload, SignJWT } from "jose";
 import type { CryptoKey } from "jose";
 import { betterAuth } from "better-auth";
 import type { BetterAuthPlugin } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
-import { admin, jwt } from "better-auth/plugins";
+import { admin, jwt, organization } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
 import { oauthProvider } from "@better-auth/oauth-provider";
@@ -135,13 +135,20 @@ export type Recorder = ReturnType<typeof recorder>;
 export interface HostOptions {
   receiver: IdJagGrantOptions;
   database?: unknown;
-  sso?: boolean | { domainVerification?: boolean };
+  sso?: boolean | { domainVerification?: boolean; organizationProvisioning?: SsoOrganizationProvisioning };
   admin?: boolean;
+  /** Install the organization plugin. */
+  organization?: boolean;
+  /** Capture the host's log lines ("level: message"). */
+  logs?: string[];
   recorder?: Recorder;
   fetchClientMetadata?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /** oauthProvider() only: its resources. */
   resources?: string[];
 }
+
+/** `@better-auth/sso`'s `organizationProvisioning` option. */
+export type SsoOrganizationProvisioning = NonNullable<NonNullable<Parameters<typeof sso>[0]>["organizationProvisioning"]>;
 
 export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOptions) {
   const common = { loginPage: "/login", consentPage: "/consent", allowDynamicClientRegistration: false, scopes: SCOPES };
@@ -155,14 +162,17 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
           cimd({ fetchClientMetadataResource: o.fetchClientMetadata ?? (() => Promise.reject(new Error("no client metadata fetch"))) }),
         ]
       : [oauthProvider({ ...common, resources: o.resources ?? [MCP_RESOURCE], clientRegistrationDefaultResources: o.resources ?? [MCP_RESOURCE] }) as unknown as BetterAuthPlugin];
-  const ssoPlugin = o.sso ? [sso(typeof o.sso === "object" && o.sso.domainVerification ? { domainVerification: { enabled: true } } : {}) as unknown as BetterAuthPlugin] : [];
+  const ssoOptions = typeof o.sso === "object" ? { ...(o.sso.domainVerification ? { domainVerification: { enabled: true } } : {}), ...(o.sso.organizationProvisioning ? { organizationProvisioning: o.sso.organizationProvisioning } : {}) } : {};
+  const ssoPlugin = o.sso ? [sso(ssoOptions) as unknown as BetterAuthPlugin] : [];
+  const logs = o.logs;
   const auth = betterAuth({
     baseURL: BASE,
     secret: "test-secret-that-is-at-least-32-characters-long",
     telemetry: { enabled: false },
     database: (o.database ?? (await database())) as never,
     emailAndPassword: { enabled: true },
-    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
+    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), ...(o.organization ? [organization() as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
+    ...(logs ? { logger: { level: "warn" as const, log: (level: string, message: string) => void logs.push(`${level}: ${message}`) } } : {}),
     ...(rec ? { advanced: { backgroundTasks: { handler: rec.backgroundTasks } } } : {}),
   });
   const ctx = await auth.$context;
@@ -171,6 +181,20 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
 }
 
 export type ReceiverHost = Awaited<ReturnType<typeof receiverHost>>;
+
+/** A fresh organization id, to configure a trust entry with before the organization exists. */
+export const newOrgId = () => `org-${crypto.randomUUID()}`;
+
+/** An organization (the organization plugin's own table) with this id and a unique slug. */
+export async function createOrganization(h: ReceiverHost, id = newOrgId(), name = "Acme"): Promise<string> {
+  await h.ctx.adapter.create({ model: "organization", data: { id, name, slug: `slug-${crypto.randomUUID()}`, createdAt: new Date() }, forceAllowId: true });
+  return id;
+}
+
+/** The organization's members, as the organization plugin stores them. */
+export async function membersOf(h: ReceiverHost, organizationId: string): Promise<{ userId: string; role: string }[]> {
+  return h.ctx.adapter.findMany<{ userId: string; role: string }>({ model: "member", where: [{ field: "organizationId", value: organizationId }] });
+}
 
 /** A signed-in user (for admin-created clients), returning its session headers. */
 export async function signUp(h: ReceiverHost, email = uniqueEmail()) {

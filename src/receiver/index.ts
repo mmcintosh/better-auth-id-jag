@@ -13,6 +13,7 @@ export {
   type TrustedIssuerView,
   type TrustEntry,
 } from "./options";
+export { addJitMembership, DEFAULT_JIT_ROLE, type MembershipOutcome } from "./membership";
 export { idJagGrant, idJagGrantExtension, RECEIVER_PLUGIN_ID } from "./plugin";
 export { type ResolvedSubject, resolveSubject } from "./resolve";
 export { TRUSTED_ISSUER_MODEL, trustedIssuerSchema } from "./schema";

@@ -219,6 +219,24 @@ describe("receiver: every refusal, by reason and by body", () => {
     expect(decodePayload(r.body.access_token as string).aud).toBe(MCP_RESOURCE);
   });
 
+  it("requireResourceClaim: no `resource` claim is the public missing_claim, before trust, keys and jti", async () => {
+    const s = await setup({ receiver: { requireResourceClaim: true } });
+    const jti = `jti-${crypto.randomUUID()}`;
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: undefined, jti })), "missing_claim");
+    expect(s.rec.refused.at(-1)?.detail).toBe("resource");
+    // A request parameter doesn't stand in for the claim, and defaultResource isn't consulted.
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: undefined }), { resource: MCP_RESOURCE }), "missing_claim");
+    // Checked before the signature: no keys were fetched for it.
+    expect(s.net.calls).toHaveLength(0);
+    // The same answer for an issuer nobody trusts (S8: it says nothing about trust).
+    const stranger = await testIdp();
+    await expectRefusal(s, await redeem(s.h, s.client, await stranger.mint(stranger.claims({ client_id: s.client.client_id, resource: undefined }))), "missing_claim");
+    // The refused token's jti wasn't recorded: the same jti with the claim is accepted.
+    const r = await redeem(s.h, s.client, await s.valid({ jti }));
+    expect(r.status, r.text).toBe(200);
+    expect(decodePayload(r.body.access_token as string).aud).toBe(MCP_RESOURCE);
+  });
+
   it("replay: the same ID-JAG twice", async () => {
     const s = await setup();
     const token = await s.valid();

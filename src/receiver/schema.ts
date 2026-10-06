@@ -20,6 +20,8 @@ export function trustedIssuerSchema() {
         emailDomains: { type: "string", required: false, input: false },
         jitProvisioning: { type: "boolean", required: true, defaultValue: false, input: false },
         jitTrustEmailVerified: { type: "boolean", required: true, defaultValue: false, input: false },
+        /** The organization role of a user JIT creates for this row's organizationId; null = "member". */
+        jitRole: { type: "string", required: false, input: false },
         tenant: { type: "string", required: false, input: false },
         organizationId: { type: "string", required: false, input: false },
         enabled: { type: "boolean", required: true, defaultValue: true, input: false },

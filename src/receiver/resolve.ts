@@ -4,11 +4,13 @@
 //    for sso-trusted issuers) and accountId = `sub`: what `@better-auth/sso` creates at sign-in;
 // 3. the `email` claim, only when the trust entry allows it and the domain is listed or verified;
 //    links the account on success;
-// 4. JIT provisioning, only when enabled (off by default);
+// 4. JIT provisioning, only when enabled (off by default); a JIT user joins the trust entry's
+//    organization (membership.ts). Users found by 1–3 are left as they are (D-A19);
 // otherwise `unknown_subject`. A banned user is refused whichever way it was found. Every refusal
 // reaches the caller with the same generic wording (S8); the reason goes to the audit event.
 import type { GenericEndpointContext, User } from "better-auth";
 import { type IdJagClaims, refuse } from "../core";
+import { addJitMembership } from "./membership";
 import type { ResolvedReceiverOptions, SubjectResolution, TrustEntry, TrustedIssuerView } from "./options";
 
 export interface ResolvedSubject {
@@ -80,6 +82,22 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
     if (await internal.findUserByEmail(email)) refuse("unknown_subject", "JIT: email belongs to an existing user");
     const name = typeof claims.name === "string" && claims.name.length > 0 ? claims.name.slice(0, 256) : email;
     const user = await internal.createUser({ email, name, emailVerified: trust.jit.trustEmailVerified }, { method: "id-jag" });
+    // Membership before the account link (D-A20): if it fails, the new user is removed and the
+    // grant refused. Should the removal fail too, the leftover user has no linked account, so a
+    // retry can't find it by `sub` and JIT refuses its email: it is never accepted half-provisioned.
+    let membershipFailed = false;
+    try {
+      await addJitMembership(ctx, trust, user, claims, now);
+    } catch (e) {
+      membershipFailed = true;
+      ctx.context.logger.error(`[id-jag] JIT: adding the new user to organization ${trust.organizationId ?? ""} failed; removing the user and refusing`, e);
+      try {
+        await internal.deleteUser(user.id);
+      } catch (e2) {
+        ctx.context.logger.error(`[id-jag] JIT: removing the half-provisioned user ${user.id} failed; it has no linked account and won't be accepted`, e2);
+      }
+    }
+    if (membershipFailed) refuse("subject_rejected", "JIT: organization membership failed");
     await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });
     return { user, via: "jit" };
   }
