@@ -7,7 +7,9 @@
 // the jti and block tables (blocks are always enforced); with `registry.enabled`, the registry's
 // tables; the registry's routes with `registry.canManage` (and enabled), the blocks routes with
 // `blocks.canManage`, and the audit route with either (D-B24).
-// Subject tokens: ID tokens and refresh tokens this provider issued (no metadata field for them).
+// Subject tokens: ID tokens and refresh tokens this provider issued (no metadata field for them);
+// with `saml`, SAML assertions this IdP issued (through better-auth-saml-idp), for an ID-JAG
+// (`saml.subjectTokens`) or a refresh token (`saml.refreshTokens`, requested_token_type=refresh_token).
 import type { AuthContext, BetterAuthPlugin } from "better-auth";
 import type { JwtOptions } from "better-auth/plugins";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
@@ -16,6 +18,7 @@ import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
 import { auditEndpoints, blockEndpoints, ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
+import { getSamlIdpExchange } from "./saml-exchange";
 import { issuerSchema } from "./schema";
 
 export const ISSUER_PLUGIN_ID = "id-jag-issuer";
@@ -40,6 +43,12 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
   if (!configured.includes(alg)) throw new Error(`idJagIssuer: signingAlgorithm ${alg} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
   if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))
     throw new Error(`idJagIssuer: the ID-JAG would be signed with ${alg}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
+  // SAML subject tokens (D-B26): the SAML IdP's exchange capability must already be on the context.
+  // Plugins' init run in order, so it must be installed before this one.
+  if (state.options.saml !== undefined && getSamlIdpExchange({ context: ctx }) === undefined)
+    throw new Error(
+      "idJagIssuer: the saml option needs better-auth-saml-idp (>= 1.2.0) with token exchange enabled, installed before idJagIssuer() in plugins: ctx.context.samlIdpExchange (version 1) is missing",
+    );
   if (state.options.allowPublicClients)
     ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs. The draft says this grant SHOULD only be supported for confidential clients.");
   if (!state.options.authorize && !state.directory) ctx.logger.warn("[id-jag] no policy source (authorize or registry): every token exchange is refused (no_policy).");

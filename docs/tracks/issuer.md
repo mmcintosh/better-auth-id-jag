@@ -13,6 +13,8 @@ defines in code, in a database registry, or both. Built on the shared core (`src
 | `exchange.ts` | `handleTokenExchange(input, state)`: the grant handler, as a plain function too |
 | `subject/id-token.ts` | `verifyOwnIdToken`: an ID token this IdP issued, verified with this host's own keys |
 | `subject/refresh-token.ts` | `verifyOwnRefreshToken`: a refresh token this provider issued to the client, looked up by the provider's own hash, never changed (D-B14) |
+| `subject/saml2.ts` | `decodeSaml2SubjectToken`, `verifyOwnSamlAssertion`: a SAML assertion this IdP issued, verified and consumed by better-auth-saml-idp, its error codes mapped (D-B26) |
+| `saml-exchange.ts` | the SAML IdP's `SamlIdpExchange` interface (version 1), mirrored as types; `getSamlIdpExchange` and `assertionExchangeErrorCode`, duck-typed (D-B26) |
 | `blocks.ts` | blocks (D-B16): input schema, matching, `checkBlocks` (the policy step's first check), sweep |
 | `policy.ts` | `decide`: blocks, then code hook + registry, deny by default, narrowing |
 | `directory.ts` | registry lookups by audience, re-validated rows, per-isolate cache |
@@ -37,7 +39,11 @@ idJagIssuer({
   defaultLifetimeSeconds?: number,       // default 300, max 900 (S7)
   allowLoopbackHttpAudiences?: boolean,  // http://localhost etc. for development; default false
   sweepIntervalSeconds?: number,         // opportunistic jti/audit sweeps per isolate; default 3600, 0 = never
-  events?: { onIssued?, onRefused?, onAdminChanged? },   // the core's audit hooks
+  saml?: {                               // D-B26, D-B27; experimental; needs better-auth-saml-idp >= 1.2.0 before this plugin
+    subjectTokens?: boolean,             // path (a): saml2 → ID-JAG; default false
+    refreshTokens?: { scopes?: string[] } | false, // path (b): saml2 → refresh token; default off; scopes default openid offline_access profile email
+  },
+  events?: { onIssued?, onRefreshIssued?, onRefused?, onAdminChanged? },   // the core's audit hooks
   auditLog?: { retentionDays: number },  // the core's audit table
 })
 // AuthorizeResult:
@@ -67,8 +73,16 @@ Admin API (all `sensitiveSessionMiddleware`; GET list/get, POST mutations; D-B24
 - with either, allowed by either: `/id-jag/audit` (404 without `auditLog`).
 
 Subject tokens: `subject_token_type` `urn:ietf:params:oauth:token-type:id_token` or
-`urn:ietf:params:oauth:token-type:refresh_token`. Nothing new is advertised: draft -04 defines no metadata for
-subject token types, only `identity_chaining_requested_token_types_supported`.
+`urn:ietf:params:oauth:token-type:refresh_token`; with `saml.subjectTokens`, `urn:ietf:params:oauth:token-type:saml2`
+too. With `saml.refreshTokens`, one more exact pair: `requested_token_type=…:refresh_token` with
+`subject_token_type=…:saml2` issues a refresh token (D-B27). Nothing new is advertised: draft -04 defines no metadata
+for subject token types, only `identity_chaining_requested_token_types_supported`, which stays the ID-JAG URN alone.
+
+Phase 3 exports: `getSamlIdpExchange`, `assertionExchangeErrorCode`, `ASSERTION_EXCHANGE_ERROR_CODES`,
+`SAML_IDP_EXCHANGE_KEY`, `MAX_ASSERTION_BYTES`, `decodeSaml2SubjectToken`, `MAX_SAML2_TOKEN_LENGTH`,
+`verifyOwnSamlAssertion`, `checkBlocksWithoutAudience`, `DEFAULT_SAML_REFRESH_SCOPES`, and the types
+`SamlIdpExchange`, `VerifiedAssertion`, `AssertionExchangeErrorCode`, `AssertionExchangeErrorLike`, `SamlOptions`,
+`SamlAssertionExpectations`. `SubjectTokenClaims.tokenType` gained the saml2 URN.
 
 ## How each plan §3.3 step is implemented
 
@@ -299,7 +313,163 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   The `jti` audit column isn't indexed (the core's schema); the query is filtered by the indexed `type` too, and this is
   an administrator's occasional action. An index on `jti` would be a core change (not requested).
 
+### Phase 3 (SAML subject tokens; the maintainer's D-016), 2026-10-06
+
+- **D-B26: path (a), a SAML assertion exchanged directly for an ID-JAG (`saml.subjectTokens`).**
+  - **The interface.** better-auth-saml-idp (>= 1.2.0) publishes `ctx.context.samlIdpExchange`
+    (`SamlIdpExchange`, version 1). It is mirrored as types in `src/issuer/saml-exchange.ts`, not imported: the
+    package stays an optional peer with no runtime import (Workers bundles, no second module copy).
+    `getSamlIdpExchange` is duck-typed (an object with `version === 1` and a `verifyIssuedAssertion` function).
+    `nameIdFor` is not declared or used: `sub_id` minting is deferred (D-016 #6).
+  - **Errors** are recognised by `name === "AssertionExchangeError"` plus one of the nine codes, never by
+    `instanceof` (another copy of that module throws them). The final interface the SAML IdP's agent reported, relayed
+    by the coordinator, specifies exactly this.
+  - **Startup.** Any `saml` option (even `{}`) requires the capability at `checkIssuerHost`, otherwise boot fails.
+    Better Auth runs plugins' `init` in order and merges each result into the context, so **the SAML IdP must be
+    installed before `idJagIssuer()`**. The error says so. The capability is also read at request time; if it has
+    vanished since, that is a configuration error (an exception, not a refusal).
+  - **Decoding** (`decodeSaml2SubjectToken`). Accepts base64url (padding optional, but correct when present: Python's
+    `urlsafe_b64encode` pads) or padded standard base64 (the draft's example). It refuses:
+    - mixed alphabets, whitespace, wrong padding, a length ≡ 1 mod 4, and standard base64 missing its padding;
+    - a non-canonical encoding (stray bits);
+    - invalid UTF-8 (`TextDecoder` with `fatal`). A BOM is kept for the SAML IdP's parser to judge.
+  - **The cap.** Sized from the SAML IdP's `MAX_ASSERTION_BYTES = 65536`, per the final interface (the design's
+    96 KiB was a placeholder). At most 87384 characters (padded base64 of 65536 bytes) are accepted before decoding,
+    and at most 65536 bytes after. Both limits refuse before the verifier runs. Responses are not unwrapped: the
+    client sends the `<saml:Assertion>` element alone, and the SAML IdP refuses a Response root as `MALFORMED`.
+  - **The verifier** gets the decoded XML, the **authenticated** client's id (never one named in the body), and our
+    clock (`now`, the same instant the exchange uses). Its codes map as follows:
+
+    | SAML IdP code | Our reason | Public? |
+    |---|---|---|
+    | `ALREADY_EXCHANGED` | `replay` | no |
+    | `EXPIRED` | `subject_token_expired` | yes |
+    | `NOT_YET_VALID` | `not_yet_valid` | yes |
+    | `MALFORMED`, `NOT_OURS`, `BAD_SIGNATURE`, `NOT_EXCHANGEABLE`, `WRONG_CLIENT`, `ACCOUNT_INACTIVE` | `invalid_subject_token`, detail `saml2: <code>[: message]` | no |
+    | an unknown code, or any other throw | `invalid_subject_token`, detail `saml2: the verifier failed`, and `logger.error` | no |
+    | a result that fails our schema (empty ids, non-Date times, …) | `invalid_subject_token`, detail `saml2: the verifier returned a malformed result`, and `logger.error` | no |
+
+    The time-window reasons stay public because the SAML IdP checks them only after the signature, and the
+    caller can read the window from its own Assertion. Failing closed on an unexpected throw, rather than returning
+    a 500, keeps every outcome audited and the fuzzed form 4xx-only; the log tells the operator.
+  - **Then nothing new.** `SubjectTokenClaims` gets `tokenType` = the saml2 URN, `sub` = `userId`, `auth_time` =
+    AuthnInstant, `acr` = AuthnContextClassRef, no `amr`, and `raw = { issuer, spEntityId, nameIdFormat, assertionId,
+    notOnOrAfter }`, never the XML. The user re-read, ban, pairwise refusal, blocks, policy, mint and audit are
+    unchanged. A verifier that accepts anything therefore can't choose the client, the audience, the scopes, or a user
+    who doesn't exist or is banned (tested with an accept-all fake).
+  - **Single use costs.** The assertion is consumed at verification, after every request check (parameters,
+    audience, pairwise) but before the policy. A policy refusal therefore burns it, which matches the SAML IdP's own
+    rule: single use whatever the outcome.
+- **D-B27: path (b), a SAML assertion exchanged for a refresh token (`saml.refreshTokens`, draft -04 §4.5).** Only
+  `requested_token_type=refresh_token` with `subject_token_type=saml2`; any other subject type for a refresh token is
+  `unsupported_subject_token_type`, and every other requested type is still `unsupported_requested_token_type`. In
+  order:
+  1. **Client.** Confidential (`public_client` even with `allowPublicClients`: this is a long-lived credential).
+     It must list `refresh_token` in `grantTypes` by name, otherwise our own `client_not_allowed_grant`
+     (`unauthorized_client`). This is stricter than the provider's `clientAllowsGrant`, where `authorization_code`
+     implies `refresh_token`. Pairwise clients are refused (D-B02).
+  2. **Parameters.** No `audience` and no `resource` (`unsupported_parameter`, even when empty): the token is for us.
+  3. **Scopes.** Must include `openid` and `offline_access` (new public `scope_required`). Each scope must be in
+     `saml.refreshTokens.scopes` (default `openid offline_access profile email`; the option must itself contain the
+     two), in the client's registered scopes when it has any, and in the provider's `scopes` when set, otherwise
+     `no_scope`. `issueTokens` re-checks none of this (a "raw minting primitive").
+  4. **The assertion**, verified and consumed as in D-B26. Then the user is re-read (`unknown_subject`) and checked
+     for a ban (`banned_user`).
+  5. **Blocks without an audience** (`checkBlocksWithoutAudience`, D-B30).
+  6. **Mint.** `provider.issueTokens({ client, user, scopes, authTime: AuthnInstant, tokenResponse: {} })`. We take
+     `refresh_token` (a missing one is an internal error), delete the stray access token (D-B28), and read
+     `expires_in` from the stored row's `expiresAt`. That row honours `refreshTokenExpiresIn` and any resource policy,
+     where computing it from the option would not.
+  7. **Respond** with exactly `{ issued_token_type: …:refresh_token, access_token: <refresh token>, token_type: "N_A",
+     scope, expires_in }` (no `id_token`, no `refresh_token` field), and emit `id-jag.refresh-issued` (D-B29).
+  - **No policy source runs.** The refresh token is only for this IdP. The policy (and audience blocks) decide when
+    it is exchanged for an ID-JAG through the unchanged refresh-token subject path (D-B14), which accepts it: it has
+    `openid`, it is bound to the client, and it has no `confirmation`. So D-014 question 6 is answered: **keep
+    requiring `openid`.**
+  - **Not passed to `issueTokens`:** `sessionId`, following the design's call. The refresh token is not tied to the
+    SAML sign-in's Better Auth session, just as an `offline_access` token from the authorization-code flow outlives
+    its session. Revoking it at `/oauth2/revoke`, a block, or a ban stops it.
+  - **DPoP.** A client that sends a DPoP proof gets a DPoP-bound refresh token from the provider, which our
+    refresh-token path then refuses as sender-constrained (D-B15). A client with `dpop_bound_access_tokens` that
+    sends no proof gets the provider's `invalid_dpop_proof` after the assertion is consumed. Both are left as they are
+    until DPoP lands.
+- **D-B28: T0, what `issueTokens` leaves behind.** Measured inside our handler (oauth-provider 1.7.6, node:sqlite):
+  - **The return value** is the plain body, not better-call's `{ _flag: "json", body }` wrapper:
+    `{ access_token, expires_in: 3600, expires_at, token_type: "Bearer", refresh_token, scope, id_token }`. We unwrap
+    either, defensively.
+  - **An opaque access token row** is written to `oauthAccessToken` (1 hour, `refreshId` = the new refresh token's
+    row, the same scopes), live and held by nobody. It is deleted by `provider.hashToken(value without
+    prefix.opaqueAccessToken, "access_token")`. This is best effort: a failure is logged as a warning and the
+    response still goes out. The tests check the table is back to its previous count, with and without prefixes.
+  - **An ID token** is signed (`openid` is always granted) and discarded. It is never stored, so nothing is left
+    behind.
+  - **The refresh token's row:** `clientId`, `userId`, our scopes, `authTime` = AuthnInstant, `sessionId` null,
+    `expiresAt` = `createdAt` + `refreshTokenExpiresIn` (default 2592000 s, 30 days; 7200 measured when configured).
+    A resource policy's `refreshTokenTtl` could only shorten it, and no resources are passed here.
+- **D-B29: the `id-jag.refresh-issued` event** `{ userId, clientId, scopes, spEntityId, assertionId }`, with handler
+  `onRefreshIssued` (core). It never carries the token or the assertion. In the audit table, `userId` and `clientId`
+  are their columns. **The SP's entity ID goes in the `audience` column and the assertion ID in `jti`**: those are the
+  assertion's Audience and its unique identifier, and this makes them queryable without a new column. The whole
+  event is in `details` as usual.
+- **D-B30: blocks without an audience.** `checkBlocks` takes `audience: string | null`. With `null`, the third
+  (audience-only) query is skipped, and a block that names an audience doesn't match (`blockMatches` already
+  compares it). So the (user), (user, client) and (client) blocks refuse a refresh token. A block naming an
+  audience refuses only later, when that refresh token is exchanged for an ID-JAG for that audience (tested).
+- **D-B31: core additions, for DECISIONS.md.** Made in `src/core/` for exactly these:
+  1. `scope_required` (`invalid_scope`, **public**, "openid and offline_access are required."). The pinned
+     public-reasons test in `test/core/errors.test.ts` gains it, a security decision made on purpose: the caller
+     sent the scope parameter, so naming the defect reveals nothing.
+  2. `RefreshIssuedEvent` (`id-jag.refresh-issued`) in the `IdJagEvent` union, `onRefreshIssued` in
+     `IdJagEventHandlers` and the handler map, and the `auditRow` column mapping of D-B29.
+  3. `SubjectTokenClaims.tokenType` widened to the saml2 URN. It lives in `src/issuer/options.ts`, not the core.
+     `SAML2_TOKEN_TYPE` was already in `src/core/urns.ts`.
+
+  The receiver's `events` schema (`src/receiver/options.ts`) doesn't list `onRefreshIssued`. It is not needed there,
+  since the receiver never emits it, and this track doesn't touch receiver files.
+
 ## Evidence
+
+### Phase 3 (SAML subject tokens, D-B26–D-B31), 2026-10-06
+
+- **Against a stub, not the package.** `FakeSamlIdp` in `test/support/issuer-host.ts` puts a version-1 capability on
+  the context from `init`, as better-auth-saml-idp does. Its rules follow the real verifier's order: a record per
+  issued ID; the time window on our clock; the SP-to-client mapping; consume. It can also be forced to throw any
+  code, or replaced with an accept-anything verifier. Its "assertions" aren't real SAML: the XML hardening and
+  signature rows (P3-S1, S2, S4, S5 concurrency, S7, the XML half of S8) are the SAML IdP's own tests. The
+  coordinator runs the cross-repository end-to-end test.
+- **P3 items → tests.** `D` = `saml-decode.test.ts`, `A` = `saml-subject.test.ts`, `B` = `saml-refresh.test.ts`.
+
+  | Item | Our side, and where it's tested |
+  |---|---|
+  | S1, S2, S4, S7 | the codes `BAD_SIGNATURE`, `NOT_OURS`, `EXPIRED`/`NOT_YET_VALID` and `ACCOUNT_INACTIVE` map to their refusals (A, B: "every SAML IdP error code maps"); our clock is passed (A, first test); the user is re-read and bans apply even when the verifier accepts anything (A, B: "accepts anything") |
+  | S3 | the authenticated client's id goes to the verifier; `WRONG_CLIENT` and `NOT_EXCHANGEABLE` map to the generic body (A: "single use … WRONG_CLIENT") |
+  | S5 | `ALREADY_EXCHANGED` → `replay`; a sequential replay is refused on both paths (A, B) |
+  | S6 | an assertion with no record (`NOT_OURS`/`ALREADY_EXCHANGED`) is refused (A) |
+  | S8 | decoding rules, the cap at exactly the limit and one over, and fast-check fuzz (D); malformed tokens never reach the verifier (A) |
+  | S9 | `scope_required`, `no_scope` (configured list, client, provider), `unsupported_parameter` for `audience`/`resource` (B) |
+  | S10 | a public client even with `allowPublicClients`; a client without `refresh_token` in its grant types (B) |
+  | S11 | (user), (user, client) and (client) blocks refuse; audience blocks apply later, at the ID-JAG (B) |
+  | S12 | one generic body for every code except the time window; the pinned public-reasons test (`test/core/errors.test.ts`) (A, B) |
+  | S13 | a `fetch` that throws, on both paths, accepted and refused (A, B) |
+  | S14 | deferred (D-016 #6) |
+  | S15 | the refresh token → ID-JAG through the refresh-token path; another client refused; revoked at `/oauth2/revoke` → refused; it works at the refresh grant (B) |
+
+- **Tests.** `pnpm test:node`: 377 passed, 14 skipped. `pnpm test:workerd`: 377 passed, 14 skipped (the interop
+  suites are skipped). Per runtime, 39 issuer tests are new (D 9, A 14, B 16), plus 1 core audit test. `pnpm
+  typecheck` and `pnpm lint` are clean.
+  - **One defect found on workerd:** `expires_in` was computed from a `now` taken before `issueTokens`, so it could
+    come out one second over the lifetime when a second ticked over in between. It is now computed when the response
+    is built. The bound test (≤ 7200) caught it.
+- **Mutations.** `python3 scripts/mutate.py test/mutations/issuer.json test/mutations/core.json`: **252 mutations, 241
+  caught, 11 expected survivors, 0 problems, exit 0.** 60 were added (issuer 56, core 4).
+  - **One new expected survivor:** "P3-S9 scope length not capped (path b)". An over-long scope fails the
+    configured-list check anyway, since every scope token is at most 256 characters and the list holds at most 100.
+  - **5 stale patterns updated**, from code that moved:
+    - `S6r stored hash not matched exactly (collation)`, now in `refreshTokenRow`;
+    - `B any-user any-client audience blocks not looked up`, now the conditional push;
+    - `Req requested_token_type not checked`;
+    - `Req subject_token_type not checked`;
+    - `S6r refresh_token subject type refused (not served)`.
 
 ### After the independent review (D-B22–D-B25), 2026-10-06
 
@@ -538,6 +708,9 @@ S-items covered by at least one caught mutation:
    `BLOCK_TARGET` cast in `src/issuer/registry.ts` goes. A host whose handler switches on `target` sees `"block"`
    today already.
 
+Phase 3: the core additions were made directly, as instructed (D-B31): `scope_required`, the `id-jag.refresh-issued`
+event and its handler and table mapping.
+
 ## Open questions for the maintainer
 
 - D-B04 (both sources must allow) vs "either allows": the safer one is implemented; the consumer's user-status gate fits
@@ -552,10 +725,23 @@ Phase 2:
 
 - **D-B15, sender-constrained refresh tokens:** they are refused today. When DPoP lands (v2), should the exchange
   require the DPoP proof and carry `cnf` into the ID-JAG?
-- **D-B15, `openid`:** a refresh token must have been granted `openid`. Is that too strict for the SAML path, where
-  the refresh token comes from an assertion grant? Nothing in this repository issues one today, so it's untested.
+- ~~**D-B15, `openid`:**~~ answered by D-B27: path (b) always grants `openid`, so the requirement stays (tested end
+  to end with the stub).
 - ~~**D-B18, blocks API mounting**~~: decided (Question 7 accepted), `blocks: { canManage }` (D-B24).
 - **D-B22, the ID-token age cap's default (3600):** the orchestrating session's choice, to be confirmed.
 - **D-B24, the audit route under either `canManage`:** or should it have its own (`auditLog: { canRead }`)?
 - **D-B16, blocks and sessions:** should a block also revoke the user's refresh tokens for that client at the provider?
   Today it only stops ID-JAGs: the client can still refresh its access tokens here.
+
+Phase 3:
+
+- **D-B26, plugin order:** the SAML IdP must come before `idJagIssuer()` in `plugins`, because the capability is
+  checked at our `init`. Accept the order rule (now), or check lazily at the first SAML exchange, which would give
+  up the boot-time failure?
+- **D-B26, `saml: {}`:** any `saml` key requires the SAML IdP, even with both paths off. Keep that literal reading,
+  or require it only when a path is on?
+- **D-B27, sessions:** should the refresh token carry the SAML sign-in's `sessionId` (the provider then puts `sid` in
+  ID tokens for logout-capable clients)? The design didn't pass it, and the provider's refresh grant doesn't check
+  the session anyway.
+- **D-B27, DPoP:** see D-B27. Should path (b) refuse a DPoP header up front, rather than mint a bound token our own
+  refresh-token path then refuses?

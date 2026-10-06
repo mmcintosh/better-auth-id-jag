@@ -57,6 +57,9 @@ export const REASONS = {
   subject_rejected: { error: "invalid_grant", public: false },
   banned_user: { error: "invalid_grant", public: false },
   no_scope: { error: "invalid_scope", public: false },
+  // Issuer, a SAML assertion exchanged for a refresh token (draft -04 §4.5): the request lacks a
+  // scope it must carry. The caller sent the scope parameter, so naming the defect is safe.
+  scope_required: { error: "invalid_scope", public: true, description: "openid and offline_access are required." },
   // Issuer: the exchange.
   unsupported_requested_token_type: { error: "invalid_request", public: true, description: "Unsupported requested_token_type." },
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },

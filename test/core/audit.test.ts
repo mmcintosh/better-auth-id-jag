@@ -149,6 +149,25 @@ describe("audit events", () => {
     expect(left).toContain(live);
   });
 
+  it("id-jag.refresh-issued reaches onRefreshIssued only, and its row maps the SP to audience and the assertion ID to jti", async () => {
+    const { endpoint, settle, rows } = await setup();
+    const seen: IdJagEvent[] = [];
+    const other: IdJagEvent[] = [];
+    const options: AuditOptions = {
+      events: { onRefreshIssued: (e) => void seen.push(e), onIssued: (e) => void other.push(e), onAccepted: (e) => void other.push(e) },
+      auditLog: { retentionDays: 7 },
+    };
+    const assertionId = `_${crypto.randomUUID()}`;
+    emit(endpoint(), options, { type: "id-jag.refresh-issued", userId: "u1", clientId: "c1", scopes: ["openid", "offline_access"], spEntityId: "https://sp.example/saml", assertionId });
+    await settle();
+    expect(other).toHaveLength(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ type: "id-jag.refresh-issued", userId: "u1", clientId: "c1", scopes: ["openid", "offline_access"], spEntityId: "https://sp.example/saml", assertionId, ipAddress: "203.0.113.7" });
+    const [row] = (await rows("id-jag.refresh-issued")).filter((r) => r.jti === assertionId);
+    expect(row).toMatchObject({ userId: "u1", clientId: "c1", audience: "https://sp.example/saml", jti: assertionId, iss: null, reason: null });
+    expect(JSON.parse(String(row?.details))).toMatchObject({ spEntityId: "https://sp.example/saml", assertionId, scopes: ["openid", "offline_access"] });
+  });
+
   it("no table, no handler: nothing runs", async () => {
     const { endpoint, settle, rows } = await setup();
     const jti = crypto.randomUUID();

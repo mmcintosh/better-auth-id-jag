@@ -96,17 +96,29 @@ async function storedValueOf(token: string, opts: RefreshTokenExpectations["opts
 }
 
 /**
+ * The provider's stored row for a refresh token, found as its refresh_token grant finds it (prefix,
+ * format, hash; an exact match whatever the collation), or undefined. Throws IdJagRefusal
+ * (`invalid_subject_token`) for a missing prefix or an undecodable format.
+ */
+export async function refreshTokenRow(ctx: GenericEndpointContext, token: string, o: Pick<RefreshTokenExpectations, "opts" | "hashToken">): Promise<Record<string, unknown> | undefined> {
+  const value = await storedValueOf(token, o.opts);
+  const hash = await o.hashToken(value, "refresh_token");
+  const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: REFRESH_TOKEN_MODEL, where: [{ field: "token", value: hash }] });
+  return row && row.token === hash ? row : undefined;
+}
+
+/** A stored date (Date, ISO text or epoch milliseconds) in seconds, or undefined. */
+export const storedSeconds = (v: unknown): number | undefined => seconds(v);
+
+/**
  * Verifies a refresh token this provider issued to `clientId`, without changing it. Throws
  * IdJagRefusal: `invalid_subject_token` (the step in the detail, for the audit log), or
  * `subject_token_expired`.
  */
 export async function verifyOwnRefreshToken(ctx: GenericEndpointContext, token: string, expected: RefreshTokenExpectations): Promise<RefreshTokenSubject> {
   if (token.length > MAX_TOKEN_LENGTH) bad("length");
-  const value = await storedValueOf(token, expected.opts);
-  const hash = await expected.hashToken(value, "refresh_token");
-  const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: REFRESH_TOKEN_MODEL, where: [{ field: "token", value: hash }] });
-  // Exact match, whatever the collation.
-  if (!row || row.token !== hash) return bad("refresh token: unknown");
+  const row = await refreshTokenRow(ctx, token, expected);
+  if (!row) return bad("refresh token: unknown");
   if (row.clientId !== expected.clientId) bad("refresh token: issued to another client");
   if (row.revoked !== null && row.revoked !== undefined) bad(row.rotatedAt ? "refresh token: rotated" : "refresh token: revoked");
   if (row.confirmation !== null && row.confirmation !== undefined && row.confirmation !== "") bad("refresh token: sender-constrained");

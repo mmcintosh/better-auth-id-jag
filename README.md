@@ -123,7 +123,8 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | `defaultLifetimeSeconds` | `300` | When no policy sets a lifetime. At most 900. |
 | `allowLoopbackHttpAudiences` | `false` | Allow `http://` audiences on `localhost`, `127.0.0.1` and `[::1]`, for local development. Otherwise audiences are https. |
 | `sweepIntervalSeconds` | `3600` | Seconds between opportunistic sweeps of expired rows, per isolate. `0` never sweeps. |
-| `events` | | `{ onIssued?, onAccepted?, onRefused?, onAdminChanged? }`. See [Audit events](#-audit-events). |
+| `saml` | | Experimental: `{ subjectTokens?, refreshTokens? }`. See [SAML subject tokens](#saml-subject-tokens). |
+| `events` | | `{ onIssued?, onRefreshIssued?, onAccepted?, onRefused?, onAdminChanged? }`. See [Audit events](#-audit-events). |
 | `auditLog` | | `{ retentionDays }` (1 to 3650): also write events to the `idJagAudit` table. |
 
 Options are checked when the plugin starts: an unknown key, a misspelling or an out-of-range number stops it with a message naming each problem, rather than silently switching a check off.
@@ -167,6 +168,40 @@ With both `authorize` and `registry`, both must allow. Without a `canManage` its
 A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an ID-JAG this issuer minted: from its `jti` row while that lasts (until a few minutes after the token expires), then from its `id-jag.issued` audit row, so blocking from a `jti` seen in the audit log needs `auditLog`. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
 
 **What stops an exchange:** a ban, a block, an ID token older than `maxIdTokenAgeSeconds` (an hour by default), an ID token whose session has ended (only for clients whose ID tokens carry `sid`: those with `enable_end_session` or a back-channel logout URI), and revoking the refresh token at `/oauth2/revoke`. Signing out alone doesn't stop an ID token without `sid` (it works until the age cap), nor an `offline_access` refresh token (revoke it, or block the user).
+
+### SAML subject tokens
+
+> **Experimental.** This needs [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp) **≥ 1.2.0**, which hasn't been released yet, with token exchange turned on for the SP. It is tested against a stub of that package's interface, not against the package itself.
+
+When people sign in to an agent through SAML, using your Better Auth server as the SAML IdP, the agent holds an Assertion. It can exchange that Assertion at your token endpoint (RFC 8693, `subject_token_type=urn:ietf:params:oauth:token-type:saml2`, the Assertion as base64url or padded base64). The SAML IdP does the verification:
+- the Assertion carries its own signature;
+- it was issued to the SP that is mapped to the authenticated client (`tokenExchange: { clientId }` on the SP);
+- it is within its validity window;
+- it hasn't been exchanged before (single use);
+- the user and the session are still good.
+
+The issuer then re-reads the user and applies bans and blocks.
+
+```ts
+betterAuth({
+  plugins: [
+    jwt(),
+    oauthProvider({ /* … */ }),
+    samlIdp({ /* … an SP with tokenExchange: { clientId } … */ }), // before idJagIssuer()
+    idJagIssuer({
+      authorize,
+      saml: {
+        subjectTokens: true,                     // (a) Assertion → ID-JAG
+        refreshTokens: { scopes: ["openid", "offline_access", "profile", "email"] }, // (b) Assertion → refresh token
+      },
+    }),
+  ],
+});
+```
+
+- **(b) is what Okta and MCP's Enterprise-Managed Authorization use** (draft -04 §4.5). The client sends `requested_token_type=urn:ietf:params:oauth:token-type:refresh_token`, `scope=openid offline_access …` and no `audience` or `resource`. It gets back `{ issued_token_type: …:refresh_token, access_token: <the refresh token>, token_type: "N_A", scope, expires_in }`, then exchanges that refresh token for ID-JAGs as usual. Only confidential clients that list `refresh_token` in their grant types can do this. The scopes must include `openid` and `offline_access` and stay within your list, the client's and the provider's. Bans and (user), (user, client) and (client) blocks apply. The ID-JAG policy runs later, when the refresh token is exchanged. Each refresh token issued emits `onRefreshIssued`.
+- **(a)** exchanges the Assertion directly for an ID-JAG, through the same policy as an ID token. `auth_time` is its AuthnInstant and `acr` its AuthnContextClassRef.
+- **Either way, an Assertion works once.** Exchanging it again is refused, and so is presenting it from another client. Any `saml` option makes startup fail unless better-auth-saml-idp's exchange capability is on the context, which means **install `samlIdp()` before `idJagIssuer()`**. Assertions are capped at 64 KiB of XML.
 
 ## 🔑 Receiver: `idJagGrant()`
 
