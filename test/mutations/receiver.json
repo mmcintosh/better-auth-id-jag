@@ -1,0 +1,569 @@
+[
+ {
+  "name": "S1 trust: any issuer trusted (first static entry, whatever iss)",
+  "file": "src/receiver/trust.ts",
+  "a": "o.trustedIssuers.filter((t) => t.issuer === iss)",
+  "b": "o.trustedIssuers.slice(0, 1).map((t) => ({ ...t, issuer: iss }))",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 trust: no match falls back to the issuer's own discovery (trust any fetchable JWKS)",
+  "file": "src/receiver/trust.ts",
+  "a": "if (candidates.length === 0) refuse(\"untrusted_issuer\", iss);",
+  "b": "if (candidates.length === 0) return { source: \"static\", id: iss, issuer: iss, discoveryUri: openIdConfigurationUrl(iss), accountProviderId: defaultAccountProviderId(iss), emailDomains: null, jit: false };",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 trust: ambiguous entries resolved by taking the first",
+  "file": "src/receiver/trust.ts",
+  "a": "refuse(\"untrusted_issuer\", `ambiguous: ${candidates.length} trust entries for ${iss}`);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 trust: sso trust on without opting in",
+  "file": "src/receiver/trust.ts",
+  "a": "if (!o.sso || !ctx.context.hasPlugin(\"sso\")) return [];\n  const sso = o.sso;",
+  "b": "if (!ctx.context.hasPlugin(\"sso\")) return [];\n  const sso = o.sso ?? { emailFallback: false, jit: false as const };",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 trust: SAML sso rows trusted too (both guards: the presence check and the parse)",
+  "file": "src/receiver/trust.ts",
+  "a": "    if (!row.data.oidcConfig) continue;\n",
+  "b": "    row.data.oidcConfig ??= {};\n",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 trust: disabled table rows trusted",
+  "file": "src/receiver/trust.ts",
+  "a": "      { field: \"enabled\", value: true },\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S1 jwks: empty key set accepted",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (keys.length === 0) refuse(\"jwks_unavailable\", \"JWKS has no signing keys\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S2 typ not checked (core parse, seen from the receiver)",
+  "file": "src/core/jwt.ts",
+  "a": "if (!isIdJagTyp(rawHeader.typ)) refuse",
+  "b": "if (false) refuse",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 aud: whatever the token says",
+  "file": "src/receiver/grant.ts",
+  "a": "{ issuer: trust.issuer, audience, now,",
+  "b": "{ issuer: trust.issuer, audience: parsed.audience, now,",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 aud: trailing slash and case normalised away",
+  "file": "src/receiver/grant.ts",
+  "a": "{ issuer: trust.issuer, audience, now,",
+  "b": "{ issuer: trust.issuer, audience: parsed.audience.replace(/\\/+$/, \"\").toLowerCase() === audience.toLowerCase() ? parsed.audience : audience, now,",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 client_id continuity not checked",
+  "file": "src/receiver/grant.ts",
+  "a": "if (claims.client_id !== authn.clientId) refuse(\"client_mismatch\", `claim ${claims.client_id}`);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 allowedClientIds not checked",
+  "file": "src/receiver/grant.ts",
+  "a": "if (trust.allowedClientIds && !trust.allowedClientIds.includes(authn.clientId)) refuse(\"client_mismatch\", \"client not allowed for this issuer\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 jti: replay not refused",
+  "file": "src/receiver/grant.ts",
+  "a": "if (!first) refuse(\"replay\", claims.jti);",
+  "b": "void first;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S3 jti: not recorded",
+  "file": "src/receiver/grant.ts",
+  "a": "    const first = await recordJti(",
+  "b": "    const first = true || await recordJti(",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 alg: not narrowed to the issuer's published algorithms",
+  "file": "src/receiver/grant.ts",
+  "a": "if (keys.algorithms && !(keys.algorithms as string[]).includes(header.alg)) refuse(\"bad_signature\", `alg ${header.alg} not published by the issuer`);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 refetch: no rate limit on unknown kids",
+  "file": "src/receiver/jwks.ts",
+  "a": "else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs) await this.refresh(entry, source);",
+  "b": "else await this.refresh(entry, source);",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 refetch: never refetch on an unknown kid (rotation breaks)",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (!(fresh && hasKid)) {",
+  "b": "if (!(fresh || entry.keys)) {",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 cache: no TTL",
+  "file": "src/receiver/jwks.ts",
+  "a": "const fresh = entry.keys !== null && now - entry.fetchedAt < this.settings.cacheTtlMs;",
+  "b": "const fresh = entry.keys !== null;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 cache: failed fetch doesn't count toward the interval",
+  "file": "src/receiver/jwks.ts",
+  "a": "    entry.lastAttemptAt = this.now();\n    const run",
+  "b": "    const run",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 cache: issuers share one entry",
+  "file": "src/receiver/jwks.ts",
+  "a": "const cacheKey = JSON.stringify([source.issuer, source.jwksUri ?? \"\", source.discoveryUri ?? \"\"]);",
+  "b": "const cacheKey = \"all\";",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S4 discovery: issuer not compared",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (doc.data.issuer !== source.issuer) refuse(\"jwks_unavailable\", \"discovery issuer mismatch\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S5 public clients accepted (requireCredentials false and no own check)",
+  "file": "src/receiver/grant.ts",
+  "a": "const authn = await provider.authenticateClient({ requireCredentials: !o.allowPublicClients });\n    progress.clientId = authn.clientId;\n    const isPublic = authn.method === \"none\" || authn.method === undefined || authn.client.tokenEndpointAuthMethod === \"none\";",
+  "b": "const authn = await provider.authenticateClient({ requireCredentials: false });\n    progress.clientId = authn.clientId;\n    const isPublic = false;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S5 allowPublicClients warning not logged",
+  "file": "src/receiver/plugin.ts",
+  "a": "if (resolved.allowPublicClients) ctx.logger.warn(",
+  "b": "if (false) ctx.logger.warn(",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S5 authenticated flag set before client authentication",
+  "file": "src/receiver/grant.ts",
+  "a": "  const progress: Progress = { authenticated: false };",
+  "b": "  const progress: Progress = { authenticated: true };",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 scopes: client's registered scopes ignored",
+  "file": "src/receiver/grant.ts",
+  "a": "(clientScopes === null || clientScopes.has(s))",
+  "b": "true",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 scopes: request scope ignored",
+  "file": "src/receiver/grant.ts",
+  "a": "(requestScope === null || requestScope.has(s))",
+  "b": "true",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 scopes: resource-supported scopes ignored",
+  "file": "src/receiver/grant.ts",
+  "a": " && supported.has(s),",
+  "b": ",",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 scopes: offline_access not stripped (refresh token)",
+  "file": "src/receiver/grant.ts",
+  "a": "export const STRIPPED_SCOPES = [\"openid\", \"offline_access\"] as const;",
+  "b": "export const STRIPPED_SCOPES = [\"openid\"] as const;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 scopes: openid not stripped (ID token)",
+  "file": "src/receiver/grant.ts",
+  "a": "export const STRIPPED_SCOPES = [\"openid\", \"offline_access\"] as const;",
+  "b": "export const STRIPPED_SCOPES = [\"offline_access\"] as const;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 resource: unregistered resource accepted",
+  "file": "src/receiver/grant.ts",
+  "a": "if (!registered.includes(resource)) refuse(\"unknown_resource\", resource);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 resource: request may pick a resource outside the ID-JAG's",
+  "file": "src/receiver/grant.ts",
+  "a": "if (!claimed.includes(asked)) refuse(\"unknown_resource\", \"requested resource not in the ID-JAG\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 resource: several claimed resources, first one taken",
+  "file": "src/receiver/grant.ts",
+  "a": "if (claimed.length !== 1) refuse(\"unknown_resource\", \"the ID-JAG names several resources; request one\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S7 resource: token not audience-restricted",
+  "file": "src/receiver/grant.ts",
+  "a": "      resources: [resource],\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S8 time checks after the trust lookup (expired reveals trust)",
+  "file": "src/receiver/grant.ts",
+  "a": "    checkTimes(parsed.claims, now, o.clockSkewSeconds);\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S8 no_scope after subject resolution",
+  "file": "src/receiver/grant.ts",
+  "a": "    if (scopes.length === 0 && !o.allowEmptyScope) refuse(\"no_scope\", claims.scope ?? \"(none)\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S8 unknown_subject made public (core)",
+  "file": "src/core/errors.ts",
+  "a": "unknown_subject: { error: \"invalid_grant\", public: false },",
+  "b": "unknown_subject: { error: \"invalid_grant\", public: true, description: \"Unknown subject.\" },",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 https not required",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (u.protocol !== \"https:\") refuse(\"jwks_unavailable\", `${what}: not https`);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 redirects followed",
+  "file": "src/receiver/jwks.ts",
+  "a": "method: \"GET\", redirect: \"manual\"",
+  "b": "method: \"GET\", redirect: \"follow\"",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 3xx not treated as failure",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (res.type === \"opaqueredirect\" || (res.status >= 300 && res.status < 400)) refuse(\"jwks_unavailable\", `${what}: redirect refused`);",
+  "b": "if (res.type === \"opaqueredirect\") refuse(\"jwks_unavailable\", `${what}: redirect refused`);",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 opaque redirect (workerd) not treated as failure",
+  "file": "src/receiver/jwks.ts",
+  "a": "res.type === \"opaqueredirect\" || (res.status",
+  "b": "(res.status",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 no size cap on the streamed body",
+  "file": "src/receiver/jwks.ts",
+  "a": "    if (total > max) {",
+  "b": "    if (false) {",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 no size cap from content-length",
+  "file": "src/receiver/jwks.ts",
+  "a": "if (Number.isFinite(declared) && declared > this.settings.maxBytes) refuse(\"jwks_unavailable\", `${what}: too large`);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 no timeout race",
+  "file": "src/receiver/jwks.ts",
+  "a": "return await Promise.race([this.exchange(url, what, controller.signal), deadline]);",
+  "b": "void deadline; return await this.exchange(url, what, controller.signal);",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "S10 injected fetch ignored (global fetch)",
+  "file": "src/receiver/options.ts",
+  "a": "const fetchImpl: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));",
+  "b": "const fetchImpl: FetchLike = (input, init) => fetch(input, init);",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: banned users accepted",
+  "file": "src/receiver/resolve.ts",
+  "a": "    if (!expires || Number.isNaN(expires.getTime()) || expires.getTime() > now.getTime()) refuse(\"banned_user\", user.id);",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: ban expiry ignored (expired bans still refuse)",
+  "file": "src/receiver/resolve.ts",
+  "a": "expires.getTime() > now.getTime()",
+  "b": "true",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: hook reject ignored",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (decision?.action === \"reject\") refuse(\"subject_rejected\", \"resolveSubject\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: hook throw treated as continue",
+  "file": "src/receiver/resolve.ts",
+  "a": "      refuse(\"subject_rejected\", \"resolveSubject threw\");\n    }",
+  "b": "      decision = { action: \"continue\" };\n    }",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: email fallback for any domain",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (email && domain && trust.emailDomains?.includes(domain)) {",
+  "b": "if (email && domain && trust.emailDomains) {",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: email fallback without opt-in",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (email && domain && trust.emailDomains?.includes(domain)) {",
+  "b": "if (email && domain) {",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: email fallback takes a user linked to another subject",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (found.accounts.some((a) => a.providerId === trust.accountProviderId)) refuse(\"unknown_subject\", \"email matches a user linked to another subject\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: orphaned account falls through to email",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (owner?.kind === \"orphaned\") refuse(\"unknown_subject\", \"orphaned account\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: JIT on by default",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (trust.jit && email) {",
+  "b": "if (email) {",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: JIT links an existing user by email",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (await internal.findUserByEmail(email)) refuse(\"unknown_subject\", \"JIT: email belongs to an existing user\");",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: JIT trusts email_verified regardless",
+  "file": "src/receiver/resolve.ts",
+  "a": "emailVerified: trust.jit.trustEmailVerified",
+  "b": "emailVerified: true",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "trust: sso email fallback without domainVerified",
+  "file": "src/receiver/trust.ts",
+  "a": "row.data.domainVerified === true && row.data.domain",
+  "b": "row.data.domain",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "trust: tenant not compared",
+  "file": "src/receiver/trust.ts",
+  "a": "(t) => t.tenant === undefined || t.tenant === claims.tenant,",
+  "b": "(t) => t.tenant === undefined || true,",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "options: unknown keys accepted",
+  "file": "src/receiver/options.ts",
+  "a": "const optionsSchema = z.strictObject({",
+  "b": "const optionsSchema = z.looseObject({",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "options: http jwksUri accepted",
+  "file": "src/receiver/options.ts",
+  "a": "return u.protocol === \"https:\" && !u.username",
+  "b": "return !u.username",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "sweep: never runs",
+  "file": "src/receiver/grant.ts",
+  "a": "  maybeSweep(input, o);\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "sweep: no throttle",
+  "file": "src/receiver/grant.ts",
+  "a": "  if (now - o.sweep.lastAt < o.sweep.intervalMs) return;\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "sweep: audit table never swept",
+  "file": "src/receiver/grant.ts",
+  "a": "      if (o.audit.auditLog) await sweepAudit(adapter, new Date(now));\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "metadata: grant profile not advertised",
+  "file": "src/receiver/plugin.ts",
+  "a": "    metadata: () => ({ [RECEIVER_METADATA_FIELD]: [ID_JAG_GRANT_PROFILE] }),\n",
+  "b": "",
+  "paths": [
+   "test/receiver"
+  ]
+ }
+]
