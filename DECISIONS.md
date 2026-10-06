@@ -287,3 +287,44 @@ Checked against Better Auth's own `biome.json`.
   - a changeset for anything under `packages/**`;
   - `main` for non-breaking changes, `next` for features and breaking changes;
   - Better Auth's AI policy: whoever submits must understand the change well enough to discuss it.
+
+## D-014: Phase 2 review — response (2026-10-06)
+
+An independent review at `de31e58` gave a conditional go. It re-ran the suite, CI, the live demo and the Okta audit
+rows, and reproduced five defects with probe tests.
+
+**Defects**, all being fixed, receiver and issuer in parallel; D-A23… and D-B22… record the evidence:
+1. **Email fallback could link an ID-JAG to an unverified local account (security).** It now requires the local
+   user's `emailVerified`.
+2. **Concurrent first use** could leave two account links and every later grant an empty, unaudited HTTP 500 (on D1).
+   Resolution must converge on one link, and never escape as a 500.
+3. **Stale JWKS keys were used indefinitely while the IdP's JWKS was unreachable.** New `jwks.maxStaleSeconds`,
+   default 3600.
+4. **An ID token kept minting ID-JAGs after sign-out (up to its 10-hour lifetime).** New `maxIdTokenAgeSeconds`,
+   default 3600; older sign-ins use the refresh token. This is the orchestrating session's choice over
+   documentation-only, raised with the maintainer.
+5. **"Block from a jti" stopped working when the jti row was swept.** It now falls back to the audit row.
+
+**Claims that didn't hold, corrected:**
+- **The mutation and interop workflows had never run.** Both dispatched by hand on 2026-10-06; see their runs.
+- **The npm name isn't reserved:** the placeholder was never published. The maintainer publishes it; the README no
+  longer claims it.
+- **README gaps:** the issuer wasn't marked experimental; the single-use position and oauth-wg #130 were missing; the
+  receiver's check order was wrong; the CHANGELOG had nothing from Phase 2. All fixed.
+- **"The build agent did not stop":** `52bd35e` (README, SECURITY, CONTRIBUTING, threat model, templates) came from a
+  separate docs agent the maintainer was running in the same checkout, now stopped. `294efe1` is D-013.
+- **The Okta agent secret:** the maintainer rotates it.
+
+**The ten Phase 2 questions**, as the review recommended (the maintainer asked to proceed on its recommendations):
+1. **Membership for existing users:** no (D-A19 stays).
+2. **`jitRole`:** checked against the organization plugin's roles at startup; sso and table rows checked at
+   provisioning.
+3. **The membership write skips the organization plugin's hooks and `membershipLimit`:** accepted for 0.1, and
+   documented as a limitation.
+4. **No membership while an invitation is pending:** kept.
+5. **Sender-constrained refresh tokens:** deferred until DPoP.
+6. **`openid` required on refresh-token subjects:** kept; revisit in Phase 3.
+7. **Blocks get their own option** before 0.1.
+8. **A block doesn't revoke refresh tokens** in 0.1: a block can expire, a revocation can't.
+9. **The Okta secret:** rotated now.
+10. **The demo Workers:** kept through the next Okta session, then decided.
