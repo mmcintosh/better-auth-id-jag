@@ -24,7 +24,10 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "biome lint --error-on-warnings",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "test:node": "vitest run --project node",
+    "test:workerd": "vitest run --project workerd",
+    "release": "node scripts/release.mjs"
   },
   "peerDependencies": {
     "@better-auth/core": ">=1.7.5 <1.8.0",
@@ -43,12 +46,13 @@
     "@better-auth/oauth-provider": "1.7.6",
     "@better-auth/sso": "1.7.6",
     "@biomejs/biome": "2.5.14",
+    "@cloudflare/vitest-plugin": "1.3.6",
     "@cloudflare/workers-types": "5.20261006.1",
     "@types/node": "26.6.4",
     "better-auth": "1.7.6",
     "esbuild": "0.28.2",
     "typescript": "5.9.3",
-    "vitest": "5.0.3",
+    "vitest": "4.1.11",
     "wrangler": "4.147.0"
   },
   "pnpm": {

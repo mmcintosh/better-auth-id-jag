@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM"],
-    "types": ["node"],
+    "types": ["node", "@cloudflare/vitest-plugin/types"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -14,5 +14,6 @@
     "paths": { "better-auth-id-jag": ["./src/index.ts"] }
   },
   "include": ["src", "test"],
-  "exclude": ["test/worker"]
+  "exclude": ["test/worker"],
+  "files": ["test/support/env.d.ts"]
 }

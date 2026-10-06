@@ -1,6 +1,5 @@
 // Two Better Auth hosts on in-memory SQLite: one on oauthProvider() + jwt(), one on mcp() + cimd() +
 // jwt() (+ sso, for the ssoProvider desk check). Each registers the ping plugin.
-import { DatabaseSync } from "node:sqlite";
 import { betterAuth } from "better-auth";
 import type { BetterAuthPlugin } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
@@ -18,6 +17,16 @@ export const MCP_RESOURCE = "http://localhost:3000/mcp";
 
 type ClientMetadataFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+/** In workerd, the test file's D1; on Node, a fresh in-memory SQLite. */
+async function database(): Promise<unknown> {
+  if (navigator.userAgent === "Cloudflare-Workers") return (await import("cloudflare:test")).env.DB;
+  const { DatabaseSync } = await import("node:sqlite");
+  return new DatabaseSync(":memory:");
+}
+
+/** A unique email per host: in workerd, the hosts in one test file share a D1 database. */
+export const uniqueEmail = () => `ada+${crypto.randomUUID()}@example.com`;
+
 export async function createHost(kind: "oauth-provider" | "mcp", o: { extra?: BetterAuthPlugin[]; observe?: (seen: PingObservation) => void; fetchClientMetadata?: ClientMetadataFetch } = {}) {
   const common = { loginPage: "/login", consentPage: "/consent", allowDynamicClientRegistration: false, scopes: ["openid", "profile", "email", "offline_access", "read"] };
   // `as unknown as BetterAuthPlugin`: oauthProvider()/mcp() don't typecheck in a host with
@@ -30,7 +39,7 @@ export async function createHost(kind: "oauth-provider" | "mcp", o: { extra?: Be
     baseURL: BASE,
     secret: "test-secret-that-is-at-least-32-characters-long",
     telemetry: { enabled: false },
-    database: new DatabaseSync(":memory:") as never,
+    database: (await database()) as never,
     emailAndPassword: { enabled: true },
     plugins: [jwt(), ...provider, ping(o.observe ? { observe: o.observe } : {}), ...(o.extra ?? [])],
   });
@@ -43,9 +52,10 @@ export type Host = Awaited<ReturnType<typeof createHost>>;
 
 /** A user, and a confidential client (client_secret_basic) allowed the given grants. */
 export async function seed(auth: Host, grantTypes: string[]) {
-  const { headers: set } = await auth.api.signUpEmail({ body: { email: "ada@example.com", password: "password-1234", name: "Ada" }, returnHeaders: true });
+  const email = uniqueEmail();
+  const { headers: set } = await auth.api.signUpEmail({ body: { email, password: "password-1234", name: "Ada" }, returnHeaders: true });
   const headers = new Headers({ cookie: (set.get("set-cookie") ?? "").split(";")[0] ?? "" });
-  return { ...(await createClient(auth, headers, grantTypes)), headers };
+  return { ...(await createClient(auth, headers, grantTypes)), headers, email };
 }
 
 export async function createClient(auth: Host, headers: Headers, grantTypes: string[]) {

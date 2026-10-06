@@ -1,0 +1,8 @@
+{
+  // Test host for the workerd vitest project (never deployed).
+  "name": "id-jag-test",
+  "main": "test/support/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{ "binding": "DB", "database_name": "id-jag-test", "database_id": "00000000-0000-0000-0000-000000000000" }]
+}

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
-import { BASE, createClient, createHost, ISSUER, MCP_RESOURCE, seed, tokenRequest } from "./support/hosts";
+import { BASE, createClient, createHost, ISSUER, uniqueEmail, MCP_RESOURCE, seed, tokenRequest } from "./support/hosts";
 import { PING_GRANT, PING_METADATA_FIELD, ping, type PingObservation } from "./support/ping";
 
 for (const kind of ["oauth-provider", "mcp"] as const) {
@@ -15,7 +15,7 @@ for (const kind of ["oauth-provider", "mcp"] as const) {
       const auth = await createHost(kind, { observe: (s: PingObservation) => seen.push(s) });
       const client = await seed(auth, [PING_GRANT]);
       const res = await auth.handler(
-        tokenRequest({ grant_type: PING_GRANT, username: "ada@example.com", ...(kind === "mcp" ? { resource: MCP_RESOURCE } : {}) }, { id: client.client_id, secret: client.client_secret }),
+        tokenRequest({ grant_type: PING_GRANT, username: client.email, ...(kind === "mcp" ? { resource: MCP_RESOURCE } : {}) }, { id: client.client_id, secret: client.client_secret }),
       );
       const body = (await res.json()) as Record<string, unknown>;
       expect(res.status, JSON.stringify(body)).toBe(200);
@@ -44,27 +44,27 @@ for (const kind of ["oauth-provider", "mcp"] as const) {
     it("refuses the grant without client credentials, with a wrong secret, and for a client not registered for it", async () => {
       const auth = await createHost(kind);
       const client = await seed(auth, [PING_GRANT]);
-      const none = await auth.handler(tokenRequest({ grant_type: PING_GRANT, client_id: client.client_id, username: "ada@example.com" }));
+      const none = await auth.handler(tokenRequest({ grant_type: PING_GRANT, client_id: client.client_id, username: client.email }));
       // 400, not 401: the provider answers a missing credential with invalid_client over 400.
       expect(none.status).toBe(400);
       expect(((await none.json()) as { error: string }).error).toBe("invalid_client");
-      const wrong = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: "ada@example.com" }, { id: client.client_id, secret: "nope" }));
+      const wrong = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: client.email }, { id: client.client_id, secret: "nope" }));
       expect(((await wrong.json()) as { error: string }).error).toBe("invalid_client");
 
       const other = await createClient(auth, client.headers, ["client_credentials"]);
-      const unauthorized = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: "ada@example.com" }, { id: other.client_id, secret: other.client_secret }));
+      const unauthorized = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: client.email }, { id: other.client_id, secret: other.client_secret }));
       expect(((await unauthorized.json()) as { error: string }).error).toBe("unauthorized_client");
     });
 
     it("refuses a public client (token_endpoint_auth_method none) registered for the grant: requireCredentials", async () => {
       const auth = await createHost(kind);
-      const { headers } = await seed(auth, [PING_GRANT]);
+      const { headers, email } = await seed(auth, [PING_GRANT]);
       const api = auth.api as unknown as { adminCreateOAuthClient: (o: { headers: Headers; body: Record<string, unknown> }) => Promise<{ client_id: string }> };
       const pub = await api.adminCreateOAuthClient({
         headers,
         body: { client_name: "public", redirect_uris: ["https://app.example/cb"], grant_types: [PING_GRANT], token_endpoint_auth_method: "none", scope: "read", application_type: "native" },
       });
-      const res = await auth.handler(tokenRequest({ grant_type: PING_GRANT, client_id: pub.client_id, username: "ada@example.com", ...(kind === "mcp" ? { resource: MCP_RESOURCE } : {}) }));
+      const res = await auth.handler(tokenRequest({ grant_type: PING_GRANT, client_id: pub.client_id, username: email, ...(kind === "mcp" ? { resource: MCP_RESOURCE } : {}) }));
       const body = (await res.json()) as { error?: string };
       expect(body.error, JSON.stringify(body)).toBe("invalid_client");
     });
@@ -149,7 +149,8 @@ describe("desk check: a CIMD client authenticating with private_key_jwt (receive
         return new Response(JSON.stringify(doc), { headers: { "content-type": "application/json", "cache-control": "max-age=60" } });
       },
     });
-    await auth.api.signUpEmail({ body: { email: "ada@example.com", password: "password-1234", name: "Ada" } });
+    const email = uniqueEmail();
+    await auth.api.signUpEmail({ body: { email, password: "password-1234", name: "Ada" } });
     const assertion = async () =>
       new SignJWT({})
         .setProtectedHeader({ alg: "ES256", kid: "k1" })
@@ -162,7 +163,7 @@ describe("desk check: a CIMD client authenticating with private_key_jwt (receive
         .sign(privateKey);
     const form = (a: string) => ({
       grant_type: PING_GRANT,
-      username: "ada@example.com",
+      username: email,
       resource: MCP_RESOURCE,
       client_id: clientId,
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
@@ -176,7 +177,7 @@ describe("desk check: a CIMD client authenticating with private_key_jwt (receive
     expect(idJag.payload.client_id).toBe(clientId);
 
     // The same CIMD client with no assertion is refused (requireCredentials).
-    const bare = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: "ada@example.com", client_id: clientId }));
+    const bare = await auth.handler(tokenRequest({ grant_type: PING_GRANT, username: email, client_id: clientId }));
     expect(((await bare.json()) as { error: string }).error).toBe("invalid_client");
     // A replayed assertion is refused (the provider's oauthClientAssertion table).
     const once = await assertion();

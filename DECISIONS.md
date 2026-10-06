@@ -41,5 +41,22 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
   ID at your resource authorization server, which might differ from its ID at the IdP". The issuer stores a
   client-id-at-resource per (requesting client, resource server), defaulting to the client's own id.
 
-Still open: Vitest 4 (with `@cloudflare/vitest-plugin`) or 5 (with Miniflare from Node), CI scope, and the receiver's first
-real consumer.
+
+## D-005: Vitest 4 with @cloudflare/vitest-plugin; CI scope; first consumer (2026-10-05) — the maintainer's decisions
+
+- **Vitest 4.1.11 and `@cloudflare/vitest-plugin` 1.3.6**, as `better-auth-saml-idp` (its D-069): the plugin peers
+  `vitest ^4.1`, and it runs the **whole** suite inside workerd, which the plan asks for (§4). Two projects over the same
+  files: `node` (node:sqlite) and `workerd` (D1, migrated by Better Auth's own `getMigrations`). The siblings on Vitest 5
+  (`better-auth-scim-provisioning`, `better-auth-digital-credentials`) drive workerd through Miniflare from Node for
+  specific tests instead. Vitest 5 when the plugin supports it (cloudflare/workers-sdk#15500, #15618).
+  - In workerd the hosts in one test file share a D1, so test users get unique emails.
+  - workerd logs "Called .text() on an HTTP body which does not appear to be text" for every form POST Better Auth
+    reads: noise, not a failure.
+- **CI now:** `ci.yml` (typecheck, lint, both test projects, build; Better Auth 1.7.5 and latest-1.7, every
+  `@better-auth/*` switched with it; Node 22 and 24; gitleaks), `dependencies.yml` (runtime audit, dependency review;
+  OSV skipped while the repository is private, since code scanning needs Advanced Security there), Dependabot.
+  **Wired but dormant:** `release.yml` (tags and manual dry runs only) and `tag-release.yml` (does nothing while
+  `package.json` is `"private": true`). **Later:** CodeQL and Scorecard when the repository is public; adapters,
+  runtimes and the example jobs when there is code for them.
+- **First receiver consumer:** the example in this repository. A real MCP server when there is one to name.
+- **npm:** a 0.0.1 placeholder, published by the maintainer, only to hold the name.
