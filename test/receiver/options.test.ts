@@ -99,6 +99,36 @@ describe("handleIdJagGrant as a plain function", () => {
   });
 });
 
+describe("handleIdJagGrant: our own public-client guard (S5), behind the provider's", () => {
+  it("a client the provider let through as public (method none) is refused, unauthenticated, and nothing else runs", async () => {
+    const h = await receiverHost("mcp", { receiver: {} });
+    const refused: { reason: string; authenticated: boolean }[] = [];
+    const resolved = resolveReceiverOptions({ trustedIssuers: TRUST, events: { onRefused: (e) => void refused.push(e) } });
+    let issued = false;
+    const fake = (method: string | undefined, discovered = false) => ({
+      ctx: { context: { ...h.ctx, runInBackground: (p: Promise<unknown>) => void p }, body: { assertion: "x" }, headers: new Headers() },
+      opts: { scopes: ["read"], resources: [MCP_RESOURCE] },
+      grantType: JWT_BEARER_GRANT,
+      provider: {
+        authenticateClient: async () => ({ clientId: "c", method, client: { clientId: "c", tokenEndpointAuthMethod: method, ...(discovered ? { clientDiscoveryId: "cimd" } : {}) } }),
+        issueTokens: async () => {
+          issued = true;
+          return {};
+        },
+      },
+    });
+    for (const [method, discovered] of [["none", false], [undefined, false], ["client_secret_post", true]] as const) {
+      const outcome = await handleIdJagGrant(fake(method, discovered) as never, resolved).then(
+        () => "accepted",
+        (e: { body?: { error?: string } }) => e.body?.error,
+      );
+      expect(outcome).toBe("invalid_client");
+      expect(refused.at(-1)).toMatchObject({ reason: "public_client", authenticated: false });
+    }
+    expect(issued).toBe(false);
+  });
+});
+
 describe("audit table and sweeps", () => {
   async function host(receiver: Partial<IdJagGrantOptions>) {
     const idp = await testIdp();

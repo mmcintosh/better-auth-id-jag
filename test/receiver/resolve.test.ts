@@ -47,6 +47,8 @@ describe("subject resolution: the host hook runs first", () => {
     expect((await s.attempt({ sub })).reason).toBe("unknown_subject");
     decision = { action: "reject" };
     expect((await s.attempt({ sub })).reason).toBe("subject_rejected");
+    // Refused as the hook's own decision, not as "no decision".
+    expect(s.rec.refused.at(-1)?.detail).toBe("resolveSubject");
     decision = () => {
       throw new Error("hook bug");
     };

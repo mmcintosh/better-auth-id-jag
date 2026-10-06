@@ -114,6 +114,30 @@ describe("on oauthProvider() instead of mcp()", () => {
     expect(doc.grant_types_supported).toContain(JWT_BEARER_GRANT);
   });
 
+  it("the request may only pick a resource the ID-JAG names, even a registered one", async () => {
+    const idp = await testIdp();
+    const rec = recorder();
+    const h = await receiverHost("oauth-provider", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch }, recorder: rec, resources: [MCP_RESOURCE, OTHER_RESOURCE] });
+    const client = await createClient(h);
+    const sub = crypto.randomUUID();
+    await linkedUser(h, `id-jag:${idp.issuer}`, sub);
+    const r = await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id, resource: MCP_RESOURCE })), { resource: OTHER_RESOURCE });
+    expect(r.body.error).toBe("invalid_target");
+    await rec.settle();
+    expect(rec.refused.at(-1)?.reason).toBe("unknown_resource");
+  });
+
+  it("a client with no registered scope list still only gets the resource's scopes", async () => {
+    const idp = await testIdp();
+    const h = await receiverHost("oauth-provider", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch } });
+    const client = await createClient(h, { scope: null });
+    const sub = crypto.randomUUID();
+    await linkedUser(h, `id-jag:${idp.issuer}`, sub);
+    const r = await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id, scope: "read banana" })));
+    expect(r.status, r.text).toBe(200);
+    expect(r.body.scope).toBe("read");
+  });
+
   it("two registered resources, no claim, no default: refused rather than guessed", async () => {
     const idp = await testIdp();
     const rec = recorder();

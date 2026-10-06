@@ -81,6 +81,20 @@ describe("JwksCache: network rules (S10)", () => {
     const big = JSON.stringify({ keys: [idp.key.jwk], pad: "x".repeat(70 * 1024) });
     idp.override = () => new Response(big, { headers: { "content-length": String(big.length) } });
     expect(await reasonOf(new JwksCache(network(idp).fetch, SETTINGS, clock().now).keysFor(idp, idp.key.kid))).toBe("jwks_unavailable: jwks: too large");
+    // A declared size over the cap is refused without reading the body (which here never ends).
+    let pulled = 0;
+    idp.override = () =>
+      new Response(
+        new ReadableStream({
+          pull(c) {
+            pulled++;
+            c.enqueue(new TextEncoder().encode(" "));
+          },
+        }),
+        { headers: { "content-length": String(10 * 1024 * 1024) } },
+      );
+    expect(await reasonOf(new JwksCache(network(idp).fetch, SETTINGS, clock().now).keysFor(idp, idp.key.kid))).toBe("jwks_unavailable: jwks: too large");
+    expect(pulled).toBeLessThan(10);
     // No content-length: streamed, and cut off at the cap.
     idp.override = () =>
       new Response(

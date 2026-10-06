@@ -136,6 +136,16 @@ describe("receiver: every refusal, by reason and by body", () => {
     expect(s.net.calls).toHaveLength(0);
   });
 
+  it("S8: an expired token from an untrusted issuer says expired, exactly as from a trusted one", async () => {
+    const s = await setup();
+    const stranger = await testIdp();
+    const t = Math.floor(Date.now() / 1000);
+    const fromStranger = await redeem(s.h, s.client, await stranger.mint(stranger.claims({ client_id: s.client.client_id, iat: t - 400, exp: t - 100 })));
+    await expectRefusal(s, fromStranger, "expired");
+    const fromTrusted = await redeem(s.h, s.client, await s.valid({ iat: t - 400, exp: t - 100 }));
+    expect(fromTrusted.text).toBe(fromStranger.text);
+  });
+
   it("self_issued: our own issuer configured as trusted is still refused", async () => {
     const s = await setup();
     const self = await setup({ receiver: { trustedIssuers: [{ issuer: ISSUER, jwksUri: "https://self.example/jwks" }] } });

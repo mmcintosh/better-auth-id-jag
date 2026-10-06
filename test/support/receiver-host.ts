@@ -184,7 +184,7 @@ export interface Client {
 }
 
 /** A confidential client (client_secret_basic) at the receiver, registered for the jwt-bearer grant. */
-export async function createClient(h: ReceiverHost, o: { headers?: Headers; grantTypes?: string[]; scope?: string; authMethod?: string } = {}): Promise<Client> {
+export async function createClient(h: ReceiverHost, o: { headers?: Headers; grantTypes?: string[]; scope?: string | null; authMethod?: string } = {}): Promise<Client> {
   const headers = o.headers ?? (await signUp(h)).headers;
   const api = h.auth.api as unknown as { adminCreateOAuthClient: (o: { headers: Headers; body: Record<string, unknown> }) => Promise<unknown> };
   return (await api.adminCreateOAuthClient({
@@ -194,7 +194,7 @@ export async function createClient(h: ReceiverHost, o: { headers?: Headers; gran
       redirect_uris: ["https://app.example/cb"],
       grant_types: o.grantTypes ?? [JWT_BEARER_GRANT, "authorization_code", "refresh_token"],
       token_endpoint_auth_method: o.authMethod ?? "client_secret_basic",
-      scope: o.scope ?? "read write openid offline_access profile",
+      ...(o.scope === null ? {} : { scope: o.scope ?? "read write openid offline_access profile" }),
       skip_consent: true,
       ...(o.authMethod === "none" ? { application_type: "native" } : {}),
     },

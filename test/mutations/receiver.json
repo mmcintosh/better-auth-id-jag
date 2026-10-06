@@ -36,10 +36,10 @@
   ]
  },
  {
-  "name": "S1 trust: SAML sso rows trusted too",
+  "name": "S1 trust: SAML sso rows trusted too (both guards: the presence check and the parse)",
   "file": "src/receiver/trust.ts",
   "a": "    if (!row.data.oidcConfig) continue;\n",
-  "b": "",
+  "b": "    row.data.oidcConfig ??= {};\n",
   "paths": [
    "test/receiver"
   ]
