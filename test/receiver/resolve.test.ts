@@ -109,11 +109,12 @@ describe("subject resolution: email fallback", () => {
     const trust = o.trustedIssuers[0]!;
     const linked: unknown[] = [];
     const internalAdapter = {
-      findAccountOwnerByKey: async () => ({ kind: "orphaned", account: { userId: "gone" } }),
+      findUserById: async () => null,
       findUserByEmail: async () => ({ user: { id: "someone", email: "a@corp.example", emailVerified: true }, accounts: [] }),
       linkAccount: async (a: unknown) => void linked.push(a),
     };
-    const ctx = { context: { ...s.h.ctx, internalAdapter } } as unknown as GenericEndpointContext;
+    const adapter = { ...s.h.ctx.adapter, findMany: async () => [{ id: "acc-1", userId: "gone", createdAt: new Date() }] };
+    const ctx = { context: { ...s.h.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
     const claims = s.idp.claims({ email: "a@corp.example" }) as unknown as IdJagClaims;
     const outcome = await resolveSubject(ctx, o, trust, claims, "c").then(
       () => "accepted",

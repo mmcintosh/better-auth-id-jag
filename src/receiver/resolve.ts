@@ -8,9 +8,15 @@
 //    organization (membership.ts). Users found by 1–3 are left as they are (D-A19);
 // otherwise `unknown_subject`. A banned user is refused whichever way it was found. Every refusal
 // reaches the caller with the same generic wording (S8); the reason goes to the audit event.
+//
+// Concurrency (D-A24): Better Auth's adapters give no transaction that works on D1, and nothing
+// makes (providerId, accountId) unique, so concurrent first uses of one subject can each link an
+// account. Lookups therefore tolerate several matching rows (the oldest wins, by createdAt then id),
+// and after linking, a request that finds it lost removes what it created and continues with the
+// winner's user. Anything unexpected is an audited `subject_rejected`, never an empty 500.
 import type { GenericEndpointContext, User } from "better-auth";
-import { type IdJagClaims, refuse } from "../core";
-import { addJitMembership } from "./membership";
+import { type IdJagClaims, IdJagRefusal, refuse } from "../core";
+import { addJitMembership, type MembershipOutcome } from "./membership";
 import type { ResolvedReceiverOptions, SubjectResolution, TrustEntry, TrustedIssuerView } from "./options";
 
 export interface ResolvedSubject {
@@ -36,7 +42,111 @@ const emailDomain = (email: string): string | undefined => {
   return at > 0 ? email.slice(at + 1).toLowerCase() : undefined;
 };
 
+interface AccountRow {
+  id: string;
+  userId: string;
+  createdAt?: Date | string | number | null;
+}
+
+/** Enough to find the oldest of any realistic number of duplicates; they are sorted here too. */
+const MAX_LINKED_ROWS = 100;
+
+const createdAtMs = (r: AccountRow): number => {
+  const t = r.createdAt === null || r.createdAt === undefined ? Number.NaN : new Date(r.createdAt).getTime();
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
+};
+
+/** The deterministic order of duplicate links: the oldest by createdAt, then the lowest id. */
+function byAge(a: AccountRow, b: AccountRow): number {
+  const d = createdAtMs(a) - createdAtMs(b);
+  if (d !== 0 && !Number.isNaN(d)) return d;
+  const [x, y] = [String(a.id), String(b.id)];
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** Every account linking this subject at this issuer, the winner first. Never throws on duplicates. */
+async function linkedAccounts(ctx: GenericEndpointContext, providerId: string, accountId: string): Promise<AccountRow[]> {
+  const rows = await ctx.context.adapter.findMany<AccountRow>({
+    model: "account",
+    where: [
+      { field: "providerId", value: providerId },
+      { field: "accountId", value: accountId },
+    ],
+    sortBy: { field: "createdAt", direction: "asc" },
+    limit: MAX_LINKED_ROWS,
+  });
+  return [...rows].sort(byAge);
+}
+
+type Owner = { kind: "owned"; user: User } | { kind: "orphaned" } | null;
+
+/** The user the winning account row belongs to (as Better Auth's findAccountOwnerByKey, but tolerant of duplicates). */
+async function findAccountOwner(ctx: GenericEndpointContext, providerId: string, accountId: string): Promise<Owner> {
+  const winner = (await linkedAccounts(ctx, providerId, accountId))[0];
+  if (!winner) return null;
+  const user = await ctx.context.internalAdapter.findUserById(winner.userId);
+  return user ? { kind: "owned", user } : { kind: "orphaned" };
+}
+
+interface Linked {
+  /** The account row this request created. */
+  account: AccountRow;
+  user: User;
+  /** JIT: this request created the user (and maybe a membership), so it removes them if it lost. */
+  created?: { membershipOrganizationId: string | undefined };
+}
+
+/**
+ * After linking: if concurrent requests linked the same subject too, the oldest row wins. Exact
+ * duplicates of the winner (same user) are removed by whoever sees them; a request whose own row lost
+ * also removes the user and membership it created (JIT), then continues with the winner's user.
+ */
+async function converge(ctx: GenericEndpointContext, trust: TrustEntry, sub: string, mine: Linked): Promise<User> {
+  const { adapter, internalAdapter, logger } = ctx.context;
+  const rows = await linkedAccounts(ctx, trust.accountProviderId, sub);
+  const winner = rows[0];
+  if (!winner) refuse("subject_rejected", "the account just linked is gone");
+  if (rows.length === 1) return mine.user;
+  const lost = winner.id !== mine.account.id;
+  const remove = rows.slice(1).filter((r) => r.userId === winner.userId || (lost && r.id === mine.account.id));
+  logger.warn(`[id-jag] ${rows.length} accounts link one subject of ${trust.accountProviderId} (concurrent first use); keeping the oldest`);
+  try {
+    for (const r of remove) await adapter.delete({ model: "account", where: [{ field: "id", value: r.id }] });
+    if (lost && mine.created) {
+      const organizationId = mine.created.membershipOrganizationId;
+      if (organizationId !== undefined)
+        await adapter.deleteMany({
+          model: "member",
+          where: [
+            { field: "organizationId", value: organizationId },
+            { field: "userId", value: mine.user.id },
+          ],
+        });
+      await internalAdapter.deleteUser(mine.user.id);
+    }
+  } catch (e) {
+    // Leftovers don't break lookups (the winner is still found first); an administrator can see them here.
+    logger.error(`[id-jag] removing the losing link of a concurrent first use failed (account ${mine.account.id}, user ${mine.user.id})`, e);
+  }
+  if (!lost) return mine.user;
+  const user = await internalAdapter.findUserById(winner.userId);
+  if (!user) refuse("unknown_subject", "the winning account's user is gone");
+  return user;
+}
+
 export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, trust: TrustEntry, claims: IdJagClaims, clientId: string): Promise<ResolvedSubject> {
+  try {
+    return await resolve(ctx, o, trust, claims, clientId);
+  } catch (e) {
+    if (e instanceof IdJagRefusal) throw e;
+    // A database error, a unique violation lost to a concurrent request, anything unforeseen:
+    // refused and audited like any other refusal, not an empty HTTP 500 (D-A24).
+    ctx.context.logger.error("[id-jag] subject resolution failed unexpectedly; refusing", e);
+    refuse("subject_rejected", "unexpected error in subject resolution");
+  }
+}
+
+async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, trust: TrustEntry, claims: IdJagClaims, clientId: string): Promise<ResolvedSubject> {
   const internal = ctx.context.internalAdapter;
   const now = o.clock();
 
@@ -57,8 +167,7 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
     if (decision?.action !== "continue") refuse("subject_rejected", "resolveSubject returned no decision");
   }
 
-  const key = { providerId: trust.accountProviderId, accountId: claims.sub };
-  const owner = await internal.findAccountOwnerByKey(key);
+  const owner = await findAccountOwner(ctx, trust.accountProviderId, claims.sub);
   if (owner?.kind === "owned") return { user: assertNotBanned(owner.user, now), via: "account" };
   // An account row whose user is gone: never re-link it to someone else by email.
   if (owner?.kind === "orphaned") refuse("unknown_subject", "orphaned account");
@@ -77,8 +186,9 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
       // Refused, not passed on to JIT, which refuses an existing email anyway.
       if (found.user.emailVerified !== true) refuse("unknown_subject", "email fallback: the local user's email is not verified");
       assertNotBanned(found.user, now);
-      await internal.linkAccount({ userId: found.user.id, providerId: trust.accountProviderId, accountId: claims.sub });
-      return { user: found.user, via: "email" };
+      const account = await internal.linkAccount({ userId: found.user.id, providerId: trust.accountProviderId, accountId: claims.sub });
+      const user = await converge(ctx, trust, claims.sub, { account, user: found.user });
+      return { user: assertNotBanned(user, now), via: "email" };
     }
   }
 
@@ -91,8 +201,9 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
     // grant refused. Should the removal fail too, the leftover user has no linked account, so a
     // retry can't find it by `sub` and JIT refuses its email: it is never accepted half-provisioned.
     let membershipFailed = false;
+    let membership: MembershipOutcome | undefined;
     try {
-      await addJitMembership(ctx, trust, user, claims, now);
+      membership = await addJitMembership(ctx, trust, user, claims, now);
     } catch (e) {
       membershipFailed = true;
       ctx.context.logger.error(`[id-jag] JIT: adding the new user to organization ${trust.organizationId ?? ""} failed; removing the user and refusing`, e);
@@ -103,8 +214,9 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
       }
     }
     if (membershipFailed) refuse("subject_rejected", "JIT: organization membership failed");
-    await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });
-    return { user, via: "jit" };
+    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });
+    const winner = await converge(ctx, trust, claims.sub, { account, user, created: { membershipOrganizationId: membership === "added" ? trust.organizationId : undefined } });
+    return { user: assertNotBanned(winner, now), via: "jit" };
   }
 
   refuse("unknown_subject", claims.sub);
