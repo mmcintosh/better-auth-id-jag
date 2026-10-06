@@ -90,7 +90,7 @@ export function readBlock(row: Record<string, unknown>, now = Date.now()): Block
 }
 
 /** Whether a stored block applies to this exchange: every field it sets equals the request's. */
-export function blockMatches(b: BlockRecord, r: { userId: string; clientId: string; audience: string }): boolean {
+export function blockMatches(b: BlockRecord, r: { userId: string; clientId: string; audience: string | null }): boolean {
   if (!b.active) return false;
   if (b.userId === null && b.clientId === null && b.audience === null) return false;
   return (b.userId === null || b.userId === r.userId) && (b.clientId === null || b.clientId === r.clientId) && (b.audience === null || b.audience === r.audience);
@@ -99,28 +99,39 @@ export function blockMatches(b: BlockRecord, r: { userId: string; clientId: stri
 /**
  * Refuses (`blocked`, detail the block's id) when an active block matches. Three indexed
  * reads cover every combination: the user's blocks; any-user blocks of this client; any-user,
- * any-client blocks of this audience.
+ * any-client blocks of this audience. `audience: null` is checkBlocksWithoutAudience.
  */
-export async function checkBlocks(ctx: GenericEndpointContext, r: { userId: string; clientId: string; audience: string }, now = Date.now()): Promise<void> {
+export async function checkBlocks(ctx: GenericEndpointContext, r: { userId: string; clientId: string; audience: string | null }, now = Date.now()): Promise<void> {
   const adapter = ctx.context.adapter;
-  const queries = [
+  const queries: { field: string; value: string | null }[][] = [
     [{ field: "userId", value: r.userId }],
     [
       { field: "userId", value: null },
       { field: "clientId", value: r.clientId },
     ],
-    [
+  ];
+  // Audience-only blocks can't match a request for no audience.
+  if (r.audience !== null)
+    queries.push([
       { field: "userId", value: null },
       { field: "clientId", value: null },
       { field: "audience", value: r.audience },
-    ],
-  ];
+    ]);
   for (const where of queries) {
     const rows = await adapter.findMany<Record<string, unknown>>({ model: BLOCK_MODEL, where, limit: MAX_BLOCK_ROWS });
     if (rows.length >= MAX_BLOCK_ROWS) refuse("policy_denied", "too many blocks to evaluate");
     const hit = rows.map((row) => readBlock(row, now)).find((b) => blockMatches(b, r));
     if (hit) refuse("blocked", hit.id);
   }
+}
+
+/**
+ * The blocks for an issuance with no audience: a refresh token for a SAML assertion (D-B27). The
+ * (user), (user, client) and (client) blocks apply; a block that names an audience doesn't here
+ * (it applies when that refresh token is later exchanged for an ID-JAG for that audience).
+ */
+export function checkBlocksWithoutAudience(ctx: GenericEndpointContext, r: { userId: string; clientId: string }, now = Date.now()): Promise<void> {
+  return checkBlocks(ctx, { userId: r.userId, clientId: r.clientId, audience: null }, now);
 }
 
 /** Deletes blocks past their expiry (opportunistic, from the exchange's sweep). */

@@ -7,7 +7,7 @@ import type { BetterAuthPlugin } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { admin, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
-import { ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, type RefusedEvent, type IssuedEvent, type AdminChangedEvent, TOKEN_EXCHANGE_GRANT } from "../../src/core";
+import { ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, type RefusedEvent, type IssuedEvent, type AdminChangedEvent, type RefreshIssuedEvent, type ReasonCode, SAML2_TOKEN_TYPE, TOKEN_EXCHANGE_GRANT } from "../../src/core";
 import { type IdJagIssuerOptions, idJagIssuer } from "../../src/issuer";
 
 export const BASE = "http://localhost:3000";
@@ -32,6 +32,7 @@ export interface Recorded {
   issued: IssuedEvent[];
   refused: RefusedEvent[];
   admin: AdminChangedEvent[];
+  refreshIssued: RefreshIssuedEvent[];
 }
 
 export interface HostOptions {
@@ -47,10 +48,12 @@ export interface HostOptions {
   withoutIssuer?: boolean;
   baseURL?: string;
   extra?: BetterAuthPlugin[];
+  /** Plugins installed before the issuer (e.g. the stub SAML IdP: its init must run first). */
+  before?: BetterAuthPlugin[];
 }
 
 export async function createIssuerHost(o: HostOptions = {}) {
-  const recorded: Recorded = { issued: [], refused: [], admin: [] };
+  const recorded: Recorded = { issued: [], refused: [], admin: [], refreshIssued: [] };
   const alg = o.alg ?? "ES256";
   const pending = new Set<Promise<unknown>>();
   const provider = oauthProvider({
@@ -67,6 +70,7 @@ export async function createIssuerHost(o: HostOptions = {}) {
           ...o.issuer,
           events: {
             onIssued: (e) => void recorded.issued.push(e),
+            onRefreshIssued: (e) => void recorded.refreshIssued.push(e),
             onRefused: (e) => void recorded.refused.push(e),
             onAdminChanged: (e) => void recorded.admin.push(e),
           },
@@ -82,6 +86,7 @@ export async function createIssuerHost(o: HostOptions = {}) {
       jwt({ jwks: { keyPairConfig: KEY_CONFIG[alg], ...(o.keyPairConfigs ? { keyPairConfigs: o.keyPairConfigs.map((a) => KEY_CONFIG[a]) } : {}) }, ...o.jwt }),
       provider,
       admin() as unknown as BetterAuthPlugin,
+      ...(o.before ?? []),
       ...issuerPlugin,
       ...(o.extra ?? []),
     ],
@@ -301,4 +306,167 @@ export function takeReasons(host: IssuerHost): string[] {
   const reasons = host.recorded.refused.map((e) => e.reason);
   host.recorded.refused.length = 0;
   return reasons;
+}
+
+// ---------------------------------------------------------------------------------------------
+// A stub of better-auth-saml-idp's exchange capability (its SamlIdpExchange, version 1), for the
+// SAML subject-token paths. Not the real package: it puts a controllable fake on the context from
+// `init`, as the real plugin does. Its "assertions" are not real SAML: an XML-ish string carrying an
+// ID it recorded at issue(). It mimics the real verifier's order: shape, our record exists, time
+// window, SP → client mapping, then consume (single use).
+
+export const SAML_SP_ENTITY_ID = "https://agent.example/saml/sp";
+export const SAML_IDP_ENTITY_ID = `${ISSUER}/saml2/idp/metadata`;
+export const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
+
+/** Every code better-auth-saml-idp's verifyIssuedAssertion can throw, and the refusal it becomes here (D-B26). */
+export const CODE_MAP: [string, ReasonCode][] = [
+  ["MALFORMED", "invalid_subject_token"],
+  ["NOT_OURS", "invalid_subject_token"],
+  ["BAD_SIGNATURE", "invalid_subject_token"],
+  ["NOT_EXCHANGEABLE", "invalid_subject_token"],
+  ["WRONG_CLIENT", "invalid_subject_token"],
+  ["ACCOUNT_INACTIVE", "invalid_subject_token"],
+  ["ALREADY_EXCHANGED", "replay"],
+  ["EXPIRED", "subject_token_expired"],
+  ["NOT_YET_VALID", "not_yet_valid"],
+];
+
+export class FakeAssertionExchangeError extends Error {
+  constructor(
+    readonly code: string,
+    message?: string,
+  ) {
+    super(message ?? code);
+    this.name = "AssertionExchangeError";
+  }
+}
+
+interface FakeRecord {
+  id: string;
+  userId: string;
+  clientId: string;
+  spEntityId: string;
+  notBefore: Date;
+  notOnOrAfter: Date;
+  authnInstant: Date;
+  acr?: string | undefined;
+  consumed: boolean;
+}
+
+export class FakeSamlIdp {
+  readonly calls: { xml: string; clientId: string; now: Date | undefined }[] = [];
+  private readonly records = new Map<string, FakeRecord>();
+  /** When set, every verification throws: a code string (as an AssertionExchangeError), or this value itself. */
+  failWith: unknown = undefined;
+  /** When set, replaces verification entirely (e.g. a fake that accepts anything). */
+  override: ((xml: string, expected: { clientId: string; now?: Date }) => unknown) | undefined = undefined;
+  /** What the plugin puts on the context; replace before boot to test the startup check. */
+  capability: Record<string, unknown> = { version: 1, verifyIssuedAssertion: (_ctx: unknown, xml: string, expected: { clientId: string; now?: Date }) => this.verify(xml, expected) };
+
+  /** An assertion this "IdP" issued for the user, to the SP mapped to `clientId`. */
+  issue(o: { userId: string; clientId: string; spEntityId?: string; lifetimeSeconds?: number; authnInstant?: Date; notBefore?: Date; acr?: string; filler?: number }): { id: string; xml: string } {
+    const id = `_${crypto.randomUUID()}`;
+    const now = Date.now();
+    this.records.set(id, {
+      id,
+      userId: o.userId,
+      clientId: o.clientId,
+      spEntityId: o.spEntityId ?? SAML_SP_ENTITY_ID,
+      notBefore: o.notBefore ?? new Date(now - 60_000),
+      notOnOrAfter: new Date(now + (o.lifetimeSeconds ?? 300) * 1000),
+      authnInstant: o.authnInstant ?? new Date(Math.floor(now / 1000) * 1000 - 5000),
+      acr: o.acr,
+      consumed: false,
+    });
+    const xml = `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="${id}" Version="2.0"><saml:Issuer>${SAML_IDP_ENTITY_ID}</saml:Issuer><!--é ✓ ${"x".repeat(o.filler ?? 0)}--></saml:Assertion>`;
+    return { id, xml };
+  }
+
+  private async verify(xml: string, expected: { clientId: string; now?: Date }) {
+    this.calls.push({ xml, clientId: expected.clientId, now: expected.now });
+    if (this.override) return this.override(xml, expected);
+    if (this.failWith !== undefined) throw typeof this.failWith === "string" ? new FakeAssertionExchangeError(this.failWith, `forced ${this.failWith}`) : this.failWith;
+    const id = /^<saml:Assertion [^>]*ID="([^"]+)"/.exec(xml)?.[1];
+    if (!id) throw new FakeAssertionExchangeError("MALFORMED");
+    const r = this.records.get(id);
+    if (!r) throw new FakeAssertionExchangeError("NOT_OURS");
+    const now = expected.now ?? new Date();
+    if (now.getTime() < r.notBefore.getTime()) throw new FakeAssertionExchangeError("NOT_YET_VALID");
+    if (now.getTime() >= r.notOnOrAfter.getTime()) throw new FakeAssertionExchangeError("EXPIRED");
+    if (r.clientId !== expected.clientId) throw new FakeAssertionExchangeError("WRONG_CLIENT");
+    if (r.consumed) throw new FakeAssertionExchangeError("ALREADY_EXCHANGED");
+    r.consumed = true;
+    return this.verified(r);
+  }
+
+  /** The VerifiedAssertion for a record (also what an accept-anything override may return). */
+  verified(r: { id: string; userId: string; spEntityId?: string; authnInstant?: Date; notOnOrAfter?: Date; acr?: string | undefined }) {
+    return {
+      assertionId: r.id,
+      issuer: SAML_IDP_ENTITY_ID,
+      tenantId: null,
+      serviceProvider: { id: "sp-agent", entityId: r.spEntityId ?? SAML_SP_ENTITY_ID },
+      userId: r.userId,
+      nameId: `nameid-${r.userId}`,
+      nameIdFormat: PERSISTENT,
+      authnInstant: r.authnInstant ?? new Date(Date.now() - 5000),
+      ...(r.acr !== undefined ? { authnContextClassRef: r.acr } : {}),
+      notOnOrAfter: r.notOnOrAfter ?? new Date(Date.now() + 300_000),
+    };
+  }
+
+  plugin(): BetterAuthPlugin {
+    return { id: "saml-idp-stub", init: () => ({ context: { samlIdpExchange: this.capability } }) } as unknown as BetterAuthPlugin;
+  }
+}
+
+const b64Bytes = (bytes: Uint8Array) => {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s);
+};
+/** base64url without padding (RFC 8693 §3). */
+export const samlToken = (xml: string) => b64url(new TextEncoder().encode(xml));
+/** Standard base64 with padding (the draft's example). */
+export const samlTokenStd = (xml: string) => b64Bytes(new TextEncoder().encode(xml));
+
+/** A host with the stub SAML IdP installed before the issuer. Both paths on unless `saml` says otherwise. */
+export async function createSamlHost(o: HostOptions & { saml?: IdJagIssuerOptions["saml"] } = {}) {
+  const idp = new FakeSamlIdp();
+  const host = await createIssuerHost({ ...o, before: [idp.plugin(), ...(o.before ?? [])], issuer: { ...o.issuer, saml: o.saml ?? { subjectTokens: true, refreshTokens: {} } } });
+  return { ...host, idp };
+}
+export type SamlHost = Awaited<ReturnType<typeof createSamlHost>>;
+
+/** A user, and a confidential client allowed refresh_token and token exchange (scopes include offline_access). */
+export async function setupSaml(host: IssuerHost, o: { grantTypes?: string[]; clientExtra?: Record<string, unknown>; authMethod?: string } = {}) {
+  const owner = await signUp(host);
+  const client = await createClient(host, owner.browser, {
+    grantTypes: o.grantTypes ?? ["authorization_code", "refresh_token", TOKEN_EXCHANGE_GRANT],
+    ...(o.authMethod ? { authMethod: o.authMethod } : {}),
+    extra: { scope: "openid profile email offline_access", ...o.clientExtra },
+  });
+  const user = await signUp(host);
+  return { owner, client, user };
+}
+
+/** Path (a): a SAML assertion for an ID-JAG. */
+export const exchangeSaml = (host: IssuerHost, client: Partial<Client> | null, token: string, form: Record<string, string | string[] | undefined> = {}) =>
+  exchange(host, client, token, { subject_token_type: SAML2_TOKEN_TYPE, ...form });
+
+/** Path (b): a SAML assertion for a refresh token (draft -04 §4.5). */
+export const requestSamlRefresh = (host: IssuerHost, client: Partial<Client> | null, token: string, form: Record<string, string | string[] | undefined> = {}) =>
+  exchange(host, client, token, { requested_token_type: REFRESH_TOKEN_TYPE, subject_token_type: SAML2_TOKEN_TYPE, audience: undefined, scope: "openid offline_access", ...form });
+
+/** RFC 7009 revocation at the provider, as the client does it. */
+export async function revoke(host: IssuerHost, client: Client, token: string, hint = "refresh_token") {
+  const res = await host.auth.handler(
+    new Request(`${host.issuerUrl}/oauth2/revoke`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: basic(client) },
+      body: new URLSearchParams({ token, token_type_hint: hint }),
+    }),
+  );
+  return res.status;
 }

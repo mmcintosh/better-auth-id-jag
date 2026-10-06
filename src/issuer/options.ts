@@ -27,8 +27,13 @@ export interface PolicyClient {
  * `{ token_type, client_id, scope, iat, exp }` (never the token or its hash).
  */
 export interface SubjectTokenClaims {
-  /** Which kind of subject token was exchanged (its RFC 8693 token type URN). */
-  tokenType: "urn:ietf:params:oauth:token-type:id_token" | "urn:ietf:params:oauth:token-type:refresh_token";
+  /**
+   * Which kind of subject token was exchanged (its RFC 8693 token type URN). For a SAML assertion
+   * (`saml.subjectTokens`): `sub` is the user the SAML IdP issued it for, `auth_time` its
+   * AuthnInstant, `acr` its AuthnContextClassRef, no `amr`, and `raw` holds
+   * `{ issuer, spEntityId, nameIdFormat, assertionId, notOnOrAfter }` (never the assertion).
+   */
+  tokenType: "urn:ietf:params:oauth:token-type:id_token" | "urn:ietf:params:oauth:token-type:refresh_token" | "urn:ietf:params:oauth:token-type:saml2";
   sub: string;
   auth_time?: number | undefined;
   acr?: string | undefined;
@@ -139,10 +144,37 @@ export interface IdJagIssuerOptions extends AuditOptions {
   allowLoopbackHttpAudiences?: boolean | undefined;
   /** Seconds between opportunistic sweeps of expired jti and audit rows, per isolate. Default 3600; 0 never. */
   sweepIntervalSeconds?: number | undefined;
+  /**
+   * Experimental. SAML 2.0 assertions this IdP issued (better-auth-saml-idp >= 1.2.0, installed
+   * **before** this plugin) as subject tokens (D-B26). Setting it requires that plugin's exchange
+   * capability at startup.
+   */
+  saml?: SamlOptions | undefined;
+}
+
+/** Default allowed scopes of a refresh token issued for a SAML assertion. */
+export const DEFAULT_SAML_REFRESH_SCOPES = ["openid", "offline_access", "profile", "email"] as const;
+
+export interface SamlOptions {
+  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -04 §4.3.1). Default false. */
+  subjectTokens?: boolean | undefined;
+  /**
+   * Path (b): `subject_token_type=saml2` with `requested_token_type=refresh_token`, exchanged for
+   * a refresh token (draft -04 §4.5), which then yields ID-JAGs as a refresh-token subject.
+   * `scopes`: what such a refresh token may be granted (default openid, offline_access, profile,
+   * email; must contain openid and offline_access). Default off.
+   */
+  refreshTokens?: { scopes?: string[] | undefined } | false | undefined;
 }
 
 const fn = z.custom<(...args: never[]) => unknown>((v) => typeof v === "function", "must be a function");
 const intIn = (min: number, max: number) => z.number().int().min(min).max(max);
+/** An RFC 6749 §3.3 scope-token: printable ASCII except space, `"` and `\`. */
+const scopeToken = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[\x21\x23-\x5b\x5d-\x7e]+$/, "not a scope token");
 
 const optionsSchema = z.strictObject({
   authorize: fn.optional(),
@@ -161,9 +193,27 @@ const optionsSchema = z.strictObject({
   allowLoopbackHttpAudiences: z.boolean().optional(),
   sweepIntervalSeconds: intIn(0, 7 * 86_400).optional(),
   events: z
-    .strictObject({ onIssued: fn.optional(), onAccepted: fn.optional(), onRefused: fn.optional(), onAdminChanged: fn.optional() })
+    .strictObject({ onIssued: fn.optional(), onRefreshIssued: fn.optional(), onAccepted: fn.optional(), onRefused: fn.optional(), onAdminChanged: fn.optional() })
     .optional(),
   auditLog: z.strictObject({ retentionDays: intIn(1, 3650) }).optional(),
+  saml: z
+    .strictObject({
+      subjectTokens: z.boolean().optional(),
+      refreshTokens: z
+        .union([
+          z.literal(false),
+          z.strictObject({
+            scopes: z
+              .array(scopeToken)
+              .min(2)
+              .max(100)
+              .refine((s) => s.includes("openid") && s.includes("offline_access"), "must contain openid and offline_access")
+              .optional(),
+          }),
+        ])
+        .optional(),
+    })
+    .optional(),
 });
 
 /** Options after validation, with defaults filled in. */
@@ -175,6 +225,10 @@ export interface ResolvedIssuerOptions extends IdJagIssuerOptions {
   maxIdTokenAgeSeconds: number;
   registryEnabled: boolean;
   cacheSeconds: number;
+  /** Path (a) on. */
+  samlSubjectTokens: boolean;
+  /** Path (b)'s allowed scopes, or undefined when path (b) is off. */
+  samlRefreshScopes: string[] | undefined;
 }
 
 /** Validates the options (throws with every issue) and fills in defaults. */
@@ -193,5 +247,7 @@ export function resolveIssuerOptions(options: IdJagIssuerOptions = {}): Resolved
     maxIdTokenAgeSeconds: options.maxIdTokenAgeSeconds ?? DEFAULT_MAX_ID_TOKEN_AGE_SECONDS,
     registryEnabled: options.registry?.enabled === true,
     cacheSeconds: options.registry?.cacheSeconds ?? 60,
+    samlSubjectTokens: options.saml?.subjectTokens === true,
+    samlRefreshScopes: options.saml?.refreshTokens ? [...new Set(options.saml.refreshTokens.scopes ?? DEFAULT_SAML_REFRESH_SCOPES)] : undefined,
   };
 }

@@ -36,6 +36,23 @@ export interface IssuedEvent extends EventBase {
   organizationId?: string | undefined;
 }
 
+/**
+ * The issuer exchanged a SAML assertion it issued for a refresh token (draft -04 §4.5). Never the
+ * token or the assertion: the assertion's ID and the SP it was issued to identify it.
+ */
+export interface RefreshIssuedEvent extends EventBase {
+  type: "id-jag.refresh-issued";
+  userId: string;
+  /** The requesting client at this IdP: the refresh token's client. */
+  clientId: string;
+  /** The refresh token's scopes. */
+  scopes: string[];
+  /** The SAML SP (entity ID) the assertion was issued to. */
+  spEntityId: string;
+  /** The SAML assertion's ID. */
+  assertionId: string;
+}
+
 /** The receiver accepted an ID-JAG and issued an access token. */
 export interface AcceptedEvent extends EventBase {
   type: "id-jag.accepted";
@@ -75,11 +92,12 @@ export interface AdminChangedEvent extends EventBase {
   targetId: string;
 }
 
-export type IdJagEvent = IssuedEvent | AcceptedEvent | RefusedEvent | AdminChangedEvent;
+export type IdJagEvent = IssuedEvent | RefreshIssuedEvent | AcceptedEvent | RefusedEvent | AdminChangedEvent;
 export type EventInput = IdJagEvent extends infer E ? (E extends IdJagEvent ? Omit<E, keyof EventBase> : never) : never;
 
 export interface IdJagEventHandlers {
   onIssued?: (e: IssuedEvent) => unknown;
+  onRefreshIssued?: (e: RefreshIssuedEvent) => unknown;
   onAccepted?: (e: AcceptedEvent) => unknown;
   onRefused?: (e: RefusedEvent) => unknown;
   onAdminChanged?: (e: AdminChangedEvent) => unknown;
@@ -92,6 +110,7 @@ export interface AuditOptions {
 
 const HANDLER = {
   "id-jag.issued": "onIssued",
+  "id-jag.refresh-issued": "onRefreshIssued",
   "id-jag.accepted": "onAccepted",
   "id-jag.refused": "onRefused",
   "id-jag.admin": "onAdminChanged",
@@ -191,6 +210,9 @@ export function auditRow(event: IdJagEvent, retentionDays: number) {
     const v = (rest as Record<string, unknown>)[k];
     return typeof v === "string" ? v : null;
   };
+  // A refresh token from a SAML assertion: the assertion's Audience (the SP's entity ID) and its
+  // ID are what identify it, so they fill the audience and jti columns, and can be queried.
+  const refresh = type === "id-jag.refresh-issued";
   return {
     type,
     at,
@@ -199,8 +221,8 @@ export function auditRow(event: IdJagEvent, retentionDays: number) {
     userId: pick("userId"),
     clientId: pick("clientId"),
     iss: pick("iss"),
-    audience: pick("audience"),
-    jti: pick("jti"),
+    audience: pick(refresh ? "spEntityId" : "audience"),
+    jti: pick(refresh ? "assertionId" : "jti"),
     actorUserId: pick("actorUserId"),
     ipAddress: ipAddress ?? null,
     userAgent: userAgent ?? null,
