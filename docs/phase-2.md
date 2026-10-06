@@ -144,6 +144,19 @@ In this order, after the Phase 2 checkpoint:
 5. **A real MCP client through Okta** (Claude or VS Code against our MCP server). The outcome is recorded either
    way: "works", or the gap and why.
 
+## After Phase 3: the SCIM lifecycle (agreed with the maintainer, 2026-10-06)
+
+Provision → ID-JAG → deprovision, across the sibling packages:
+- **Provision:** `better-auth-scim-provisioning` on the IdP pushes users to the MCP server, which has inbound SCIM
+  (`@better-auth/scim`), so ID-JAGs find them without JIT. That covers the SAML users with no email that JIT can't
+  create.
+- **ID-JAG:** the receiver links the provisioned user to the ID-JAG's `sub`, probably through the SCIM `externalId`.
+  How `@better-auth/scim` stores it is to be checked first.
+- **Deprovision:** a deactivated user's next ID-JAG is refused at the MCP server, a second line behind the IdP's blocks
+  and revocation.
+
+The deliverables are an end-to-end test across the three packages and a documented integration. Not a core feature.
+
 ## Known loose ends
 
 - **Workers types:** `src/receiver/jwks.ts` doesn't typecheck against `@cloudflare/workers-types` (the DOM
