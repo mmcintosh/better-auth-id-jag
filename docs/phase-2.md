@@ -150,8 +150,16 @@ Provision → ID-JAG → deprovision, across the sibling packages:
 - **Provision:** `better-auth-scim-provisioning` on the IdP pushes users to the MCP server, which has inbound SCIM
   (`@better-auth/scim`), so ID-JAGs find them without JIT. That covers the SAML users with no email that JIT can't
   create.
-- **ID-JAG:** the receiver links the provisioned user to the ID-JAG's `sub`, probably through the SCIM `externalId`.
-  How `@better-auth/scim` stores it is to be checked first.
+- **ID-JAG:** the receiver links the provisioned user to the ID-JAG's `sub` through the SCIM `externalId`. Agreed
+  with the SCIM session, 2026-10-06:
+  - **The values line up.** Our issuer's `sub` is always the IdP's `user.id` (pairwise refused), which is
+    better-auth-scim-provisioning's default `externalId`. Overriding it with `mapUser` breaks the link, which goes in
+    the docs. Okta's `sub` is the Okta user id, so Okta's own SCIM must set `externalId` to that.
+  - **The link is configured, not inferred.** A trusted issuer gets `scim?: { connectionId }` (per tenant for a
+    multi-tenant entry). Resolution calls `@better-auth/scim`'s `acquireActiveSCIMUserLink({ connectionId,
+    externalId: sub })` before the account-by-`sub` step, and that only finds active links.
+  - **The link is required by default.** When `scim` is configured, a missing link is refused, so JIT can't re-create
+    a deprovisioned user.
 - **Deprovision:** a deactivated user's next ID-JAG is refused at the MCP server, a second line behind the IdP's blocks
   and revocation.
 
