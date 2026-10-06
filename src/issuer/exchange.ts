@@ -1,0 +1,253 @@
+// The token-exchange grant (RFC 8693) that issues ID-JAGs (draft -04 §4.3), plan §3.3:
+//   1. client  2. parameters  3. subject token  4. policy  5. mint  6. record, audit, respond.
+// Exported as a plain function too (`handleTokenExchange`), so a host, or a future core grant
+// that owns the token-exchange key, can compose it: two extensions can't share a grant key
+// (docs/phase-0.md).
+//
+// Every refusal is an IdJagRefusal, audited, then thrown as the APIError the token endpoint turns
+// into an RFC 6749 §5.2 body (a plain Error would be an empty 500). Errors the provider throws
+// itself during client authentication (a wrong secret, a client not registered for this grant)
+// are passed through as the provider shaped them.
+import type { GenericEndpointContext, User } from "better-auth";
+import { isAPIError } from "better-auth/api";
+import type { JwtOptions } from "better-auth/plugins";
+import { signJWT } from "better-auth/plugins";
+import type { OAuthExtensionGrantHandlerInput, OAuthTokenResponse } from "@better-auth/oauth-provider";
+import {
+  buildIdJag,
+  emit,
+  ID_JAG_TOKEN_TYPE,
+  ID_TOKEN_TOKEN_TYPE,
+  type IdJagClaims,
+  IdJagRefusal,
+  type IdJagSigner,
+  newJti,
+  recordJti,
+  refuse,
+  sweepAudit,
+  sweepJtis,
+  toApiError,
+} from "../core";
+import type { RegistryDirectory } from "./directory";
+import type { PolicyClient, ResolvedIssuerOptions, SubjectTokenClaims } from "./options";
+import { decide } from "./policy";
+import { verifyOwnIdToken } from "./subject/id-token";
+import { normalizeAudience } from "./url";
+
+/** What the plugin keeps per instance: resolved options, the registry directory, the sweep clock. */
+export interface IssuerState {
+  options: ResolvedIssuerOptions;
+  directory: RegistryDirectory | undefined;
+  lastSweep: number;
+}
+
+const MAX_SCOPE_LENGTH = 4096;
+/** Parameters that may appear at most once (RFC 6749 §3.2). `resource` may repeat (RFC 8707) but we take one. */
+const SINGLE = ["requested_token_type", "subject_token", "subject_token_type", "audience", "scope", "actor_token", "actor_token_type"] as const;
+
+type Form = Map<string, string[]>;
+
+/** The request's parameters, with repeats kept (the provider's body schema keeps the last one). */
+async function readForm(ctx: GenericEndpointContext): Promise<Form> {
+  const form: Form = new Map();
+  const request = ctx.request;
+  if (request && (request.headers.get("content-type") ?? "").toLowerCase().includes("application/x-www-form-urlencoded")) {
+    let text = "";
+    try {
+      text = await request.clone().text();
+    } catch {}
+    const params = new URLSearchParams(text);
+    for (const key of new Set(params.keys())) form.set(key, params.getAll(key));
+    if (form.size > 0) return form;
+  }
+  // A server-side call (auth.api) has a parsed body and no request.
+  for (const [key, value] of Object.entries((ctx.body ?? {}) as Record<string, unknown>)) {
+    if (typeof value === "string") form.set(key, [value]);
+    else if (Array.isArray(value)) form.set(key, value.filter((v): v is string => typeof v === "string"));
+  }
+  return form;
+}
+
+function hasClientCredentials(ctx: GenericEndpointContext, form: Form): boolean {
+  const authorization = ctx.request?.headers.get("authorization") ?? (ctx.headers?.get("authorization") || undefined);
+  return !!authorization || form.has("client_secret") || form.has("client_assertion");
+}
+
+const isBanned = (user: Record<string, unknown>, now: Date) => {
+  const banned = user.banned === true || user.banned === 1 || user.banned === "1" || user.banned === "true";
+  if (!banned) return false;
+  const exp = user.banExpires;
+  if (exp === null || exp === undefined) return true;
+  const t = exp instanceof Date ? exp.getTime() : new Date(exp as string | number).getTime();
+  return Number.isNaN(t) || t > now.getTime();
+};
+
+/** The jwt plugin's options (the host is checked at startup to have the plugin). */
+export function jwtOptionsOf(ctx: { getPlugin(id: string): unknown }): JwtOptions | undefined {
+  return (ctx.getPlugin("jwt") as { options?: JwtOptions } | null)?.options;
+}
+
+/** Our issuer identifier, as oauth-provider puts it in ID tokens and access tokens. */
+export const issuerOf = (ctx: GenericEndpointContext) => jwtOptionsOf(ctx.context as unknown as { getPlugin(id: string): unknown })?.jwt?.issuer ?? ctx.context.baseURL;
+
+function maybeSweep(ctx: GenericEndpointContext, state: IssuerState): void {
+  const interval = state.options.sweepIntervalSeconds * 1000;
+  const now = Date.now();
+  if (interval === 0 || now - state.lastSweep < interval) return;
+  state.lastSweep = now;
+  const adapter = ctx.context.adapter;
+  ctx.context.runInBackground(
+    (async () => {
+      try {
+        await sweepJtis(adapter);
+        if (state.options.auditLog) await sweepAudit(adapter);
+      } catch (e) {
+        ctx.context.logger.error("[id-jag] sweep failed", e);
+      }
+    })(),
+  );
+}
+
+/** The token-exchange grant handler. Returns the RFC 8693 response; throws APIError on refusal. */
+export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput, state: IssuerState): Promise<OAuthTokenResponse> {
+  const { ctx, opts, provider } = input;
+  const options = state.options;
+  // What the refusal event can say, filled in as the steps pass.
+  const seen: { authenticated: boolean; clientId?: string; userId?: string; audience?: string } = { authenticated: false };
+  const form = await readForm(ctx);
+  try {
+    // 1. Client. Confidential only unless the host opted in (S5); the provider also checks the
+    //    client is registered for this grant type (unauthorized_client).
+    const claimed = form.get("client_id")?.[0];
+    if (claimed !== undefined) seen.clientId = claimed;
+    let authenticated: Awaited<ReturnType<typeof provider.authenticateClient>>;
+    try {
+      authenticated = await provider.authenticateClient({ requireCredentials: !options.allowPublicClients });
+    } catch (e) {
+      if (isAPIError(e) && (e.body as { error?: string } | undefined)?.error === "invalid_client" && !hasClientCredentials(ctx, form) && claimed !== undefined)
+        throw new IdJagRefusal("public_client", "no client credentials");
+      throw e;
+    }
+    const client = authenticated.client;
+    if (!options.allowPublicClients && client.tokenEndpointAuthMethod === "none") refuse("public_client", "public client");
+    seen.authenticated = true;
+    seen.clientId = client.clientId;
+
+    // 2. Parameters.
+    for (const name of SINGLE) if ((form.get(name)?.length ?? 0) > 1) refuse(name === "audience" ? "invalid_audience" : "unsupported_parameter", `repeated ${name}`);
+    const one = (name: string) => form.get(name)?.[0];
+    const requestedTokenType = one("requested_token_type");
+    if (requestedTokenType !== ID_JAG_TOKEN_TYPE) refuse("unsupported_requested_token_type", requestedTokenType ?? "absent");
+    if (one("actor_token") !== undefined || one("actor_token_type") !== undefined) refuse("actor_token_unsupported");
+    const subjectToken = one("subject_token");
+    if (!subjectToken) refuse("missing_parameter", "subject_token");
+    const subjectTokenType = one("subject_token_type");
+    if (!subjectTokenType) refuse("missing_parameter", "subject_token_type");
+    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE) refuse("unsupported_subject_token_type", subjectTokenType);
+    const rawAudience = one("audience");
+    if (!rawAudience) refuse("missing_parameter", "audience");
+    const normalized = normalizeAudience(rawAudience, { allowLoopbackHttp: options.allowLoopbackHttpAudiences });
+    if (!normalized.ok) return refuse("invalid_audience", normalized.why);
+    const audience = normalized.audience;
+    seen.audience = audience;
+    const issuer = issuerOf(ctx);
+    if (audience === issuer) refuse("invalid_audience", "our own issuer");
+    const resources = form.get("resource") ?? [];
+    if (resources.length > 1) refuse("unsupported_parameter", "more than one resource");
+    const resource = resources[0];
+    const scopeParam = one("scope") ?? "";
+    if (scopeParam.length > MAX_SCOPE_LENGTH) refuse("unsupported_parameter", "scope too long");
+    const requestedScopes = [...new Set(scopeParam.split(" ").filter(Boolean))];
+
+    // 3. Subject token: an ID token this IdP issued to this client (S6).
+    const jwtOptions = jwtOptionsOf(ctx.context as unknown as { getPlugin(id: string): unknown });
+    // A pairwise client's ID tokens carry a per-client hash, not the user id: refused, not guessed.
+    if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("invalid_subject_token", "pairwise subject (not supported in v1)");
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await verifyOwnIdToken(ctx, subjectToken, { issuer, clientId: client.clientId, jwtOptions, now });
+    const user = (await ctx.context.internalAdapter.findUserById(idToken.sub)) as (User & Record<string, unknown>) | null;
+    if (!user || user.id !== idToken.sub) return refuse("unknown_subject");
+    seen.userId = user.id;
+    if (isBanned(user, new Date(now * 1000))) refuse("banned_user");
+
+    // 4. Policy.
+    const subject: SubjectTokenClaims = { sub: idToken.sub, auth_time: idToken.auth_time, acr: idToken.acr, amr: idToken.amr, raw: { ...idToken } };
+    const policyClient: PolicyClient = {
+      clientId: client.clientId,
+      name: client.name ?? undefined,
+      referenceId: client.referenceId ?? undefined,
+      metadata: typeof client.metadata === "string" ? safeJson(client.metadata) : (client.metadata as Record<string, unknown> | undefined),
+    };
+    const grant = await decide(options, state.directory, { ctx, user, client: policyClient, audience, resource, requestedScopes, subjectToken: subject });
+
+    // 5. Mint. buildIdJag checks the claims against the receiver's schema and the 900 s cap (S7).
+    const jti = newJti();
+    const exp = now + grant.lifetimeSeconds;
+    const email = grant.includeEmail && user.emailVerified === true && typeof user.email === "string" ? user.email : undefined;
+    const claims: IdJagClaims = {
+      iss: issuer,
+      sub: user.id,
+      aud: audience,
+      client_id: grant.clientIdAtResource,
+      jti,
+      iat: now,
+      exp,
+      ...(grant.resource !== undefined ? { resource: grant.resource } : {}),
+      ...(grant.scopes.length > 0 ? { scope: grant.scopes.join(" ") } : {}),
+      ...(idToken.auth_time !== undefined ? { auth_time: idToken.auth_time } : {}),
+      ...(idToken.acr !== undefined ? { acr: idToken.acr } : {}),
+      ...(idToken.amr !== undefined ? { amr: idToken.amr } : {}),
+      ...(email !== undefined ? { email } : {}),
+      ...(grant.tenant !== undefined ? { tenant: grant.tenant } : {}),
+    };
+    const signer: IdJagSigner = (payload, header) => signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
+    const token = await buildIdJag(claims, signer);
+
+    // 6. Record (audit, and the revoke-this-jti admin action), audit, respond.
+    if (!(await recordJti(ctx.context.adapter, { side: "issued", jti, iss: issuer, aud: audience, sub: user.id, clientId: client.clientId, exp, clockSkewSeconds: 0 }))) throw new Error("id-jag: jti collision");
+    emit(ctx, options, {
+      type: "id-jag.issued",
+      userId: user.id,
+      clientId: client.clientId,
+      clientIdAtResource: grant.clientIdAtResource,
+      audience,
+      resource: grant.resource,
+      scopes: grant.scopes,
+      jti,
+      expiresAt: new Date(exp * 1000),
+      organizationId: grant.tenant,
+    });
+    maybeSweep(ctx, state);
+    // RFC 8693 §2.2.1. Cache-Control: no-store comes from the token endpoint (metadata.noStore).
+    const response = {
+      issued_token_type: ID_JAG_TOKEN_TYPE,
+      access_token: token,
+      token_type: "N_A",
+      ...(grant.scopes.length > 0 ? { scope: grant.scopes.join(" ") } : {}),
+      expires_in: grant.lifetimeSeconds,
+    };
+    return response as unknown as OAuthTokenResponse;
+  } catch (e) {
+    if (!(e instanceof IdJagRefusal)) throw e;
+    emit(ctx, options, {
+      type: "id-jag.refused",
+      side: "issuer",
+      reason: e.reason,
+      authenticated: seen.authenticated,
+      clientId: seen.clientId,
+      userId: seen.userId,
+      audience: seen.audience,
+      detail: e.detail,
+    });
+    throw toApiError(e);
+  }
+}
+
+function safeJson(s: string): Record<string, unknown> | undefined {
+  try {
+    const v = JSON.parse(s) as unknown;
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}

@@ -1,0 +1,726 @@
+[
+ {
+  "name": "S1 no policy source = allow",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (!directory && !options.authorize) refuse(\"no_policy\", \"no policy source configured\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S1 policy ignores clientIds",
+  "file": "src/issuer/policy.ts",
+  "a": "      if (!c.clientIds.includes(r.client.clientId)) return false;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 subject users matches everyone",
+  "file": "src/issuer/policy.ts",
+  "a": "          return c.subjectRef.includes(r.user.id);",
+  "b": "          return true;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 subject role matches everyone",
+  "file": "src/issuer/policy.ts",
+  "a": "          return c.subjectRef.some((x) => roles.has(x));",
+  "b": "          return true;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 subject organization matches everyone",
+  "file": "src/issuer/policy.ts",
+  "a": "          return c.subjectRef.some((x) => orgs.has(x));",
+  "b": "          return true;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 organization resource server applies to non-members",
+  "file": "src/issuer/policy.ts",
+  "a": "  const applicable = entries.filter((e) => e.resourceServer.config.organizationId === undefined || orgs.has(e.resourceServer.config.organizationId));",
+  "b": "  const applicable = entries;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 two allowing resource servers not ambiguous",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (allowing.length > 1) refuse(\"policy_denied\"",
+  "b": "  if (false) refuse(\"policy_denied\"",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 hook deny ignored",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (v.decision !== \"allow\") return refuse(",
+  "b": "  if (false) return refuse(",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S1 hook throw allows",
+  "file": "src/issuer/policy.ts",
+  "a": "    return refuse(\"policy_denied\", \"authorize threw\");",
+  "b": "    return { scopes: [\"read\"], email: false };",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S1 malformed verdict allows",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (!parsed.success) return refuse(\"policy_denied\", \"authorize returned a malformed verdict\");",
+  "b": "  if (!parsed.success) return { scopes: [\"read\"], email: false };",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S1 disabled policy used",
+  "file": "src/issuer/directory.ts",
+  "a": "        if (p.enabled && p.config.resourceServerId === rs.id)",
+  "b": "        if (p.config.resourceServerId === rs.id)",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 disabled resource server used",
+  "file": "src/issuer/directory.ts",
+  "a": "      if (!rs.enabled) continue;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 invalid resource server row used",
+  "file": "src/issuer/directory.ts",
+  "a": "      if (!rs.valid || !rs.config) {",
+  "b": "      if (!rs.config) {",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 invalid policy row used",
+  "file": "src/issuer/directory.ts",
+  "a": "        if (!p.valid || !p.config) {",
+  "b": "        if (!p.config) {",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 cache never expires",
+  "file": "src/issuer/directory.ts",
+  "a": "if (hit && now - hit.at < this.o.cacheSeconds * 1000) return hit.entries;",
+  "b": "if (hit) return hit.entries;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S1 exact audience match dropped (collation)",
+  "file": "src/issuer/directory.ts",
+  "a": "rows.filter((r) => r.audience === audience)",
+  "b": "rows",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S5 public clients allowed",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (!options.allowPublicClients && client.tokenEndpointAuthMethod === \"none\") refuse(\"public_client\", \"public client\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S5 requireCredentials off (defence in depth below it)",
+  "file": "src/issuer/exchange.ts",
+  "a": "requireCredentials: !options.allowPublicClients",
+  "b": "requireCredentials: false",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S5 both public-client guards off",
+  "file": "src/issuer/exchange.ts",
+  "a": "requireCredentials: !options.allowPublicClients });",
+  "b": "requireCredentials: false });\n    if (Math.random() < 2) options.allowPublicClients = true;",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S6 iss not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (claims.iss !== expected.issuer) bad(\"issuer\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 signature not verified",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "    await compactVerify(token, publicKey, { algorithms: [alg] });\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 aud not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (!aud.includes(expected.clientId)) bad(\"audience is not the authenticated client\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 azp not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (aud.length > 1 && claims.azp !== expected.clientId) bad(\"azp\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 expired accepted",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (claims.exp <= expected.now) refuse(\"expired\", \"subject token\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 expiry with grace",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (claims.exp <= expected.now)",
+  "b": "  if (claims.exp + 60 <= expected.now)",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 iat in the future accepted",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (claims.iat !== undefined && claims.iat - IAT_SKEW_SECONDS > expected.now) bad(\"iat in the future\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 typ not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (header.typ !== undefined && (typeof header.typ !== \"string\" || header.typ.toLowerCase() !== \"jwt\")) bad(\"typ\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts",
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S6/S4 symmetric alg accepted",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (typeof header.alg !== \"string\" || !ASYMMETRIC.has(header.alg)) bad(\"alg\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts",
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S6 key alg not matched",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (alg !== header.alg) bad(\"alg differs from the key's\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 expired keys past grace kept",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  return (keys ?? []).filter((k) => !k.expiresAt || new Date(k.expiresAt).getTime() + grace > now * 1000);",
+  "b": "  return keys ?? [];",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
+  "name": "S6 pairwise not refused",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (client.subjectType === \"pairwise\" && opts.pairwiseSecret) refuse(\"invalid_subject_token\", \"pairwise subject (not supported in v1)\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S6 banned user accepted",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (isBanned(user, new Date(now * 1000))) refuse(\"banned_user\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S6 ban expiry ignored",
+  "file": "src/issuer/exchange.ts",
+  "a": "  return Number.isNaN(t) || t > now.getTime();",
+  "b": "  return true;",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S7 requested scopes not narrowed",
+  "file": "src/issuer/policy.ts",
+  "a": "r.requestedScopes.length > 0 ? r.requestedScopes.filter((s) => allowed.includes(s)) : allowed",
+  "b": "r.requestedScopes.length > 0 ? r.requestedScopes : allowed",
+  "paths": [
+   "test/issuer/exchange.test.ts",
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 sources not intersected",
+  "file": "src/issuer/policy.ts",
+  "a": "  for (const a of allows.slice(1)) allowed = allowed.filter((s) => a.scopes.includes(s));\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 policy scopes not limited to the resource server's",
+  "file": "src/issuer/policy.ts",
+  "a": "policies.flatMap((p) => p.config.scopes.filter((s) => rsScopes.has(s)))",
+  "b": "policies.flatMap((p) => p.config.scopes)",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 unregistered resource accepted",
+  "file": "src/issuer/policy.ts",
+  "a": "    if (resource !== undefined && !a.allowedResources.includes(resource)) refuse(\"unknown_resource\", resource);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 required resource not enforced",
+  "file": "src/issuer/policy.ts",
+  "a": "    if (resource === undefined && a.requireResource) refuse(\"unknown_resource\", \"this resource server requires a resource\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 hook may swap the requested resource",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (r.resource !== undefined && allows.some((a) => a.resource !== undefined && a.resource !== r.resource)) refuse(\"policy_denied\", \"a source named another resource\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S7 lifetime not capped",
+  "file": "src/issuer/policy.ts",
+  "a": "lifetimes.length ? Math.min(...lifetimes) : options.defaultLifetimeSeconds, MAX_LIFETIME_SECONDS)",
+  "b": "lifetimes.length ? Math.min(...lifetimes) : options.defaultLifetimeSeconds, 100000)",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "S7 longest policy lifetime wins",
+  "file": "src/issuer/policy.ts",
+  "a": "...(lifetimes.length ? { lifetimeSeconds: Math.min(...lifetimes) } : {}),",
+  "b": "...(lifetimes.length ? { lifetimeSeconds: Math.max(...lifetimes) } : {}),",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 empty grant when scopes requested",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (r.requestedScopes.length > 0 && scopes.length === 0) refuse(\"no_scope\", `requested ${r.requestedScopes.join(\" \")}`);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S7 email without opt-in (hook)",
+  "file": "src/issuer/policy.ts",
+  "a": "    includeEmail: allows.length > 0 && allows.every((a) => a.email),",
+  "b": "    includeEmail: true,",
+  "paths": [
+   "test/issuer/exchange.test.ts",
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 email without opt-in (registry)",
+  "file": "src/issuer/policy.ts",
+  "a": "    email: policies.some((p) => p.config.includeEmail),",
+  "b": "    email: true,",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S7 unverified email sent",
+  "file": "src/issuer/exchange.ts",
+  "a": " && user.emailVerified === true",
+  "b": "",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "S7 policy scopes beyond the resource server's accepted at write",
+  "file": "src/issuer/registry.ts",
+  "a": "    if (extra.length) throw fail(",
+  "b": "    if (false) throw fail(",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "D-004 client_id is always the IdP id",
+  "file": "src/issuer/exchange.ts",
+  "a": "      client_id: grant.clientIdAtResource,",
+  "b": "      client_id: client.clientId,",
+  "paths": [
+   "test/issuer/exchange.test.ts",
+   "test/issuer/registry.test.ts",
+   "test/issuer/rs256.test.ts"
+  ]
+ },
+ {
+  "name": "D-004 registry mapping ignored",
+  "file": "src/issuer/policy.ts",
+  "a": "    ...(e.resourceServer.config.clientIdsAtResource[r.client.clientId] !== undefined ? { clientIdAtResource: e.resourceServer.config.clientIdsAtResource[r.client.clientId] } : {}),",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S8 no_policy answered as no_scope",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (entries.length === 0) refuse(\"no_policy\", \"no resource server for this audience\");",
+  "b": "  if (entries.length === 0) refuse(\"no_scope\", \"no resource server for this audience\");",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "S8 unknown_resource before the policy decides",
+  "file": "src/issuer/policy.ts",
+  "a": "  const entries = await directory.lookup(r.ctx, r.audience);",
+  "b": "  if (r.resource && r.resource.includes(\"other\")) refuse(\"unknown_resource\");\n  const entries = await directory.lookup(r.ctx, r.audience);",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "Req requested_token_type not checked",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (requestedTokenType !== ID_JAG_TOKEN_TYPE) refuse(\"unsupported_requested_token_type\", requestedTokenType ?? \"absent\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req actor_token accepted",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (one(\"actor_token\") !== undefined || one(\"actor_token_type\") !== undefined) refuse(\"actor_token_unsupported\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req subject_token_type not checked",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE) refuse(\"unsupported_subject_token_type\", subjectTokenType);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req repeated parameters accepted",
+  "file": "src/issuer/exchange.ts",
+  "a": "    for (const name of SINGLE) if ((form.get(name)?.length ?? 0) > 1) refuse(",
+  "b": "    for (const name of []) if ((form.get(name)?.length ?? 0) > 1) refuse(",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req several resources accepted",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (resources.length > 1) refuse(\"unsupported_parameter\", \"more than one resource\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req own issuer as audience",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (audience === issuer) refuse(\"invalid_audience\", \"our own issuer\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Req http audiences",
+  "file": "src/issuer/url.ts",
+  "a": "  if (u.protocol !== \"https:\" && !loopbackHttp) return { ok: false, why: \"not https\" };",
+  "b": "  if (u.protocol !== \"https:\" && u.protocol !== \"http:\") return { ok: false, why: \"not https\" };",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/fuzz.test.ts"
+  ]
+ },
+ {
+  "name": "Req audience fragment",
+  "file": "src/issuer/url.ts",
+  "a": "  if (value.includes(\"#\")) return { ok: false, why: \"fragment\" };",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts",
+   "test/issuer/fuzz.test.ts"
+  ]
+ },
+ {
+  "name": "Req audience path rewritten",
+  "file": "src/issuer/url.ts",
+  "a": "${hasPath ? u.pathname : \"\"}",
+  "b": "${u.pathname}",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "Rec jti not recorded",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (!(await recordJti(ctx.context.adapter, {",
+  "b": "    if (!(true || await recordJti(ctx.context.adapter, {",
+  "paths": [
+   "test/issuer/exchange.test.ts",
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "Audit authenticated never set",
+  "file": "src/issuer/exchange.ts",
+  "a": "    seen.authenticated = true;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "Audit refusal not emitted",
+  "file": "src/issuer/exchange.ts",
+  "a": "      type: \"id-jag.refused\",\n      side: \"issuer\",",
+  "b": "      type: \"id-jag.admin\" as \"id-jag.refused\",\n      side: \"issuer\",",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "S10 outbound fetch",
+  "file": "src/issuer/exchange.ts",
+  "a": "    // 3. Subject token: an ID token this IdP issued to this client (S6).",
+  "b": "    try { await fetch(\"https://example.invalid/\"); } catch {}\n    // 3. Subject token: an ID token this IdP issued to this client (S6).",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "Start disableJwtPlugin accepted",
+  "file": "src/issuer/plugin.ts",
+  "a": "  if (provider.options?.disableJwtPlugin)\n",
+  "b": "  if (false)\n",
+  "paths": [
+   "test/issuer/startup.test.ts"
+  ]
+ },
+ {
+  "name": "Start remote keys accepted",
+  "file": "src/issuer/plugin.ts",
+  "a": "  if (o?.jwt?.sign || o?.jwks?.remoteUrl)\n",
+  "b": "  if (false)\n",
+  "paths": [
+   "test/issuer/startup.test.ts"
+  ]
+ },
+ {
+  "name": "Start S4 alg outside the allow-list",
+  "file": "src/issuer/plugin.ts",
+  "a": "  if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))\n",
+  "b": "  if (false)\n",
+  "paths": [
+   "test/issuer/startup.test.ts"
+  ]
+ },
+ {
+  "name": "Start signingAlgorithm ignored",
+  "file": "src/issuer/exchange.ts",
+  "a": "...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {})",
+  "b": "",
+  "paths": [
+   "test/issuer/signing-algorithm.test.ts"
+  ]
+ },
+ {
+  "name": "Start public-client warning dropped",
+  "file": "src/issuer/plugin.ts",
+  "a": "    ctx.logger.warn(\"[id-jag] allowPublicClients is on",
+  "b": "    void (\"[id-jag] allowPublicClients is on",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "API impersonation allowed",
+  "file": "src/issuer/registry.ts",
+  "a": "  if (s.session.impersonatedBy) throw fail(\"FORBIDDEN\", \"NOT_ALLOWED\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API canManage truthy allows",
+  "file": "src/issuer/registry.ts",
+  "a": "    allowed = (await canManage({ user, session: s.session })) === true;",
+  "b": "    allowed = !!(await canManage({ user, session: s.session }));",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API canManage throw allows",
+  "file": "src/issuer/registry.ts",
+  "a": "    ctx.context.logger.error(\"[id-jag] registry.canManage threw; denied\", e);",
+  "b": "    allowed = true;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API banned admin allowed",
+  "file": "src/issuer/registry.ts",
+  "a": "  if (!user || isBanned(user)) throw fail(",
+  "b": "  if (!user) throw fail(",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API session user trusted, no re-read (sensitiveSessionMiddleware still on)",
+  "file": "src/issuer/registry.ts",
+  "a": "  const user = (await ctx.context.internalAdapter.findUserById(s.user.id)) as (User & Record<string, unknown>) | null;",
+  "b": "  const user = s.user as unknown as (User & Record<string, unknown>) | null;",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API resource server with policies deleted",
+  "file": "src/issuer/registry.ts",
+  "a": "      if (policies.length > 0) throw fail(\"CONFLICT\", \"HAS_POLICIES\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API policy moved to another resource server",
+  "file": "src/issuer/registry.ts",
+  "a": "          if (config.resourceServerId !== row.resourceServerId) throw fail(",
+  "b": "          if (false) throw fail(",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API unknown jti revoked",
+  "file": "src/issuer/registry.ts",
+  "a": "      if (!(await hasJti(ctx.context.adapter, \"issued\", issuerOf(ctx), ctx.body.jti))) throw fail(\"NOT_FOUND\", \"NOT_FOUND\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API change not emitted",
+  "file": "src/issuer/registry.ts",
+  "a": "    emit(ctx, state.options, { type: \"id-jag.admin\", actorUserId: actorId, action, target, targetId });",
+  "b": "",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API lookupKey field-level unique dropped (named index remains)",
+  "file": "src/issuer/schema.ts",
+  "a": "        lookupKey: { type: \"string\", required: true, unique: true, input: false },",
+  "b": "        lookupKey: { type: \"string\", required: true, input: false },",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "API stored lookupKey not re-validated",
+  "file": "src/issuer/records.ts",
+  "a": "    if ((await lookupKeyOf(parsed.data.organizationId, parsed.data.audience)) !== row.lookupKey) issues.push(",
+  "b": "    if (false) issues.push(",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ }
+]
