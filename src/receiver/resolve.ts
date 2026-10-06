@@ -238,6 +238,10 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
       // their password still signs in. As Better Auth's own linking (requireLocalEmailVerified).
       // Refused, not passed on to JIT, which refuses an existing email anyway.
       if (found.user.emailVerified !== true) refuse("unknown_subject", "email fallback: the local user's email is not verified");
+      // The host's own account-linking settings apply too (D-A32): email fallback is implicit
+      // linking, so a host that turned linking off, or implicit linking off, gets no email fallback.
+      const linking = (ctx.context.options as { account?: { accountLinking?: { enabled?: boolean; disableImplicitLinking?: boolean } } }).account?.accountLinking;
+      if (linking?.enabled === false || linking?.disableImplicitLinking === true) refuse("unknown_subject", "email fallback: the host disabled implicit account linking");
       assertNotBanned(found.user, now);
       const account = await internal.linkAccount({ userId: found.user.id, providerId: key.providerId, accountId: key.accountId });
       const user = await converge(ctx, key, { account, user: found.user });

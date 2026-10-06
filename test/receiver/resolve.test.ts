@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import type { GenericEndpointContext } from "better-auth";
 import type { IdJagClaims, IdJagRefusal } from "../../src/core";
 import { type IdJagGrantOptions, resolveReceiverOptions, resolveSubject, type StaticTrustedIssuer, type SubjectResolution } from "../../src/receiver";
-import { createClient, linkedUser, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
+import { createClient, type HostOptions, linkedUser, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
 
-async function host(o: { trust?: Partial<StaticTrustedIssuer>; receiver?: Partial<IdJagGrantOptions>; admin?: boolean } = {}) {
+async function host(o: { trust?: Partial<StaticTrustedIssuer>; receiver?: Partial<IdJagGrantOptions>; admin?: boolean; account?: HostOptions["account"] } = {}) {
   const idp = await testIdp();
   const net = network(idp);
   const rec = recorder();
-  const h = await receiverHost("mcp", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, ...o.trust }], fetch: net.fetch, ...o.receiver }, recorder: rec, ...(o.admin ? { admin: true } : {}) });
+  const h = await receiverHost("mcp", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, ...o.trust }], fetch: net.fetch, ...o.receiver }, recorder: rec, ...(o.admin ? { admin: true } : {}), ...(o.account ? { account: o.account } : {}) });
   const client = await createClient(h);
   const providerId = `id-jag:${idp.issuer}`;
   const attempt = async (over: Record<string, unknown>) => {
@@ -156,6 +156,20 @@ describe("subject resolution: the email fallback needs a verified local email (D
     expect(await s.attempt({ sub, email })).toMatchObject({ reason: "accepted", userId: u.id });
     expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toMatchObject({ userId: u.id });
   });
+});
+
+describe("subject resolution: the host's account-linking settings (D-A32)", () => {
+  for (const [name, account] of [["linking disabled", { accountLinking: { enabled: false } }], ["implicit linking disabled", { accountLinking: { disableImplicitLinking: true } }]] as const) {
+    it(`${name}: no email fallback, even to a verified local user`, async () => {
+      const s = await host({ trust: { emailFallback: { domains: ["corp.example"] } }, account });
+      const email = uniqueEmail("corp.example");
+      await s.h.ctx.internalAdapter.createUser({ email, name: "V", emailVerified: true }, { method: "admin" });
+      const sub = crypto.randomUUID();
+      expect((await s.attempt({ sub, email })).reason).toBe("unknown_subject");
+      expect(s.rec.refused.at(-1)?.detail).toBe("email fallback: the host disabled implicit account linking");
+      expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toBeNull();
+    });
+  }
 });
 
 describe("subject resolution: JIT provisioning", () => {

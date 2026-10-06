@@ -119,6 +119,17 @@ describe("JIT membership: static entries", () => {
     expect((await t.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("accepted");
     expect(await membersOf(t.h, org)).toHaveLength(0);
   });
+
+  it("an expired invitation doesn't count (review D-014 #6): the membership is added", async () => {
+    const org = newOrgId();
+    const t = await host({ trust: { organizationId: org } });
+    await createOrganization(t.h, org);
+    const email = uniqueEmail();
+    const inviter = await t.h.ctx.internalAdapter.createUser({ email: uniqueEmail(), name: "Inviter" }, { method: "admin" });
+    await t.h.ctx.adapter.create({ model: "invitation", data: { organizationId: org, email, role: "admin", status: "pending", expiresAt: new Date(Date.now() - 60_000), inviterId: inviter.id, createdAt: new Date() } });
+    expect((await t.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("accepted");
+    expect(await membersOf(t.h, org)).toHaveLength(1);
+  });
 });
 
 describe("JIT membership: sso rows and table rows", () => {

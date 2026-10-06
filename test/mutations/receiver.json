@@ -1324,7 +1324,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the unknown_subject audit detail (§9.6)",
+  "name": "R3-S7 the NameID in the unknown_subject audit detail (\u00a79.6)",
   "file": "src/receiver/resolve.ts",
   "a": "`sub_id at ${key.providerId}`",
   "b": "`sub_id ${key.accountId} at ${key.providerId}`",
@@ -1333,7 +1333,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the not-authorized audit detail (§9.6)",
+  "name": "R3-S7 the NameID in the not-authorized audit detail (\u00a79.6)",
   "file": "src/receiver/resolve.ts",
   "a": "JSON.stringify({ issuer: s.issuer,",
   "b": "JSON.stringify({ nameid: s.nameid, issuer: s.issuer,",
@@ -1451,6 +1451,24 @@
   "b": "const rows = (await linkedAccounts(ctx, key.providerId, key.accountId)).slice(0, key.from === \"sub_id\" ? 1 : undefined);",
   "paths": [
    "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-014 #6: an expired invitation still blocks membership",
+  "file": "src/receiver/membership.ts",
+  "a": "      { field: \"expiresAt\", value: now, operator: \"gt\" },\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A32: the host's accountLinking settings ignored",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (linking?.enabled === false || linking?.disableImplicitLinking === true) refuse",
+  "b": "if (false) refuse",
+  "paths": [
+   "test/receiver/resolve.test.ts"
   ]
  }
 ]

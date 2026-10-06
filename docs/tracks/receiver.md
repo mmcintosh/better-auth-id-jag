@@ -425,3 +425,16 @@ S6 is the issuer's. S9 is covered by the property tests above. S11: the receiver
    +}
    ```
    Not needed for correctness: the catch in `subjectKey` does the same.
+
+## D-A32: email fallback respects the host's account-linking settings (2026-10-06)
+
+The Phase 2 review's item 1, second half. Email fallback is implicit account linking, so it is refused (`unknown_subject`,
+detail "email fallback: the host disabled implicit account linking") when the host sets
+`account.accountLinking.enabled: false` or `account.accountLinking.disableImplicitLinking: true`. Better Auth's
+`requireLocalEmailVerified` (deprecated; about to become unconditional) is already met unconditionally, which is
+stricter (D-A23).
+- **Caught while writing the test:** the first version read `options.accountLinking`, but Better Auth keeps it at
+  `options.account.accountLinking`, so the check could never fire.
+- **Also from the review:** item 6, a test that an expired invitation doesn't block JIT membership (the `expiresAt`
+  condition had no test).
+- **Evidence:** both mutations caught.

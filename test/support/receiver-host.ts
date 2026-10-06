@@ -147,6 +147,8 @@ export interface HostOptions {
   resources?: string[];
   /** Better Auth's `databaseHooks` (the concurrency tests hold inserts at a barrier with them). */
   databaseHooks?: BetterAuthOptions["databaseHooks"];
+  /** Better Auth's `account` options (account linking). */
+  account?: BetterAuthOptions["account"];
   /** The organization plugin's options (custom roles, dynamic access control). */
   organizationOptions?: Parameters<typeof organization>[0];
 }
@@ -179,6 +181,7 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
     ...(logs ? { logger: { level: "warn" as const, log: (level: string, message: string) => void logs.push(`${level}: ${message}`) } } : {}),
     ...(rec ? { advanced: { backgroundTasks: { handler: rec.backgroundTasks } } } : {}),
     ...(o.databaseHooks ? { databaseHooks: o.databaseHooks } : {}),
+    ...(o.account ? { account: o.account } : {}),
   });
   const ctx = await auth.$context;
   await (await getMigrations(ctx.options)).runMigrations();
