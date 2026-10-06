@@ -39,7 +39,7 @@ export const REASONS = {
   disallowed_alg: { error: "invalid_grant", public: true, description: "The assertion's signature algorithm is not accepted." },
   missing_kid: { error: "invalid_grant", public: true, description: "The assertion has no kid." },
   missing_claim: { error: "invalid_grant", public: true, description: "The assertion is missing a required claim." },
-  unsupported_claim: { error: "invalid_grant", public: true, description: "The assertion carries a claim this server does not support (authorization_details, act)." },
+  unsupported_claim: { error: "invalid_grant", public: true, description: "The assertion carries a claim this server does not support (authorization_details, cnf)." },
   invalid_claim: { error: "invalid_grant", public: true, description: "The assertion has an invalid claim." },
   lifetime_too_long: { error: "invalid_grant", public: true, description: "The assertion's lifetime is too long." },
   expired: { error: "invalid_grant", public: true, description: "The assertion has expired." },

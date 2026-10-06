@@ -1111,5 +1111,23 @@
   "paths": [
    "test/issuer/blocks.test.ts"
   ]
+ },
+ {
+  "name": "D-012: ID tokens checked against the normalised issuer",
+  "file": "src/issuer/exchange.ts",
+  "a": "{ issuer: idTokenIssuer, clientId",
+  "b": "{ issuer, clientId",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-012: iss from a copy of the issuer logic, not getIssuer",
+  "file": "src/issuer/exchange.ts",
+  "a": "  return getIssuer(ctx, provider.options);",
+  "b": "  return `${(ctx.context as unknown as { baseURL: string }).baseURL}${Math.random() > 2 ? \"\" : \"/\"}`.replace(/\\/$/, (provider.options as { disableJwtPlugin?: boolean }).disableJwtPlugin ? \"\" : \"/\");",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
  }
 ]

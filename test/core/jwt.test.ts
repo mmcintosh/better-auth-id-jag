@@ -108,6 +108,7 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
       ["invalid_claim", sign(k, claims({ iss: "https://idp.example\n" }))],
       ["lifetime_too_long", sign(k, claims({ iat: T, exp: T + 901 }))],
       ["unsupported_claim", sign(k, claims({ authorization_details: [{ type: "x", actions: ["read"] }] }))],
+      ["unsupported_claim", sign(k, claims({ cnf: { jkt: "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I" } }))],
       ["invalid_claim", sign(k, claims({ act: { sub_profile: "ai_agent" } as never }))],
       ["invalid_claim", sign(k, claims({ act: "agent" as never }))],
       ["invalid_claim", sign(k, claims({ act: { sub: "a1", act: { sub: "a2", act: { sub: "a3", act: { sub: "a4", act: { sub: "a5" } } } } } }))],
@@ -209,6 +210,7 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
     await expect(buildIdJag(claims({ iat: T, exp: T + 901 }), s)).rejects.toThrow(/lifetime/);
     await expect(buildIdJag({ ...claims(), client_id: "" }, s)).rejects.toThrow(/client_id/);
     await expect(buildIdJag(claims({ authorization_details: [{ type: "x" }] }), s)).rejects.toThrow(/authorization_details/);
+    await expect(buildIdJag(claims({ cnf: { jkt: "x" } }), s)).rejects.toThrow(/cnf/);
     await expect(buildIdJag(claims(), s, { maxLifetimeSeconds: Number.NaN })).rejects.toThrow(/id-jag: /);
   });
 });
@@ -233,7 +235,7 @@ describe("parseIdJag: properties (S9)", () => {
     const valid = { header: HEADER, payload: claims({ jti: "fixed-jti" }) };
     const anyValue = fc.oneof(fc.string(), fc.integer(), fc.double(), fc.boolean(), fc.constant(null), fc.array(fc.string(), { maxLength: 3 }), fc.constant(undefined), fc.object({ maxDepth: 1 }));
     const headerField = fc.constantFrom("alg", "kid", "typ", "crit");
-    const claimField = fc.constantFrom("iss", "sub", "aud", "client_id", "jti", "exp", "iat", "nbf", "scope", "resource", "authorization_details", "act", "sub_id", "amr");
+    const claimField = fc.constantFrom("iss", "sub", "aud", "client_id", "jti", "exp", "iat", "nbf", "scope", "resource", "authorization_details", "act", "cnf", "sub_id", "amr");
     const change = fc.oneof(fc.record({ where: fc.constant("header" as const), field: headerField, value: anyValue }), fc.record({ where: fc.constant("payload" as const), field: claimField, value: anyValue }));
     let parsedCount = 0;
     fc.assert(
@@ -256,6 +258,7 @@ describe("parseIdJag: properties (S9)", () => {
         expect(parsed.claims.exp - parsed.claims.iat).toBeGreaterThan(0);
         expect(parsed.claims.exp - parsed.claims.iat).toBeLessThanOrEqual(900);
         expect(parsed.claims.authorization_details).toBeUndefined();
+        expect(parsed.claims.cnf).toBeUndefined();
         if (parsed.claims.act !== undefined) expect(typeof parsed.claims.act.sub).toBe("string");
         // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting their absence.
         for (const k of ["iss", "sub", "client_id", "jti"] as const) expect(parsed.claims[k]).not.toMatch(/[\u0000-\u001f]/);

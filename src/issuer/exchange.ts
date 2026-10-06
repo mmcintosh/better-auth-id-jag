@@ -12,7 +12,7 @@ import type { GenericEndpointContext, User } from "better-auth";
 import { isAPIError } from "better-auth/api";
 import type { JwtOptions } from "better-auth/plugins";
 import { signJWT } from "better-auth/plugins";
-import type { OAuthExtensionGrantHandlerInput, OAuthTokenResponse } from "@better-auth/oauth-provider";
+import { getIssuer, type OAuthExtensionGrantHandlerInput, type OAuthTokenResponse } from "@better-auth/oauth-provider";
 import {
   buildIdJag,
   emit,
@@ -92,7 +92,16 @@ export function jwtOptionsOf(ctx: { getPlugin(id: string): unknown }): JwtOption
 }
 
 /** Our issuer identifier, as oauth-provider puts it in ID tokens and access tokens. */
-export const issuerOf = (ctx: GenericEndpointContext) => jwtOptionsOf(ctx.context as unknown as { getPlugin(id: string): unknown })?.jwt?.issuer ?? ctx.context.baseURL;
+/**
+ * The ID-JAG's `iss`: exactly the issuer identifier the provider publishes in its RFC 8414
+ * metadata, from the provider's own getIssuer (D-012). Not a copy of its logic, which could
+ * drift: Authelia shipped `iss` = its access-token issuer and had to fix it (authelia/oauth2-provider#834).
+ */
+export const issuerOf = (ctx: GenericEndpointContext) => {
+  const provider = (ctx.context as unknown as { getPlugin(id: string): { options: Parameters<typeof getIssuer>[1] } | null }).getPlugin("oauth-provider");
+  if (!provider) throw new Error("id-jag: idJagIssuer requires oauthProvider()");
+  return getIssuer(ctx, provider.options);
+};
 
 function maybeSweep(ctx: GenericEndpointContext, state: IssuerState): void {
   const interval = state.options.sweepIntervalSeconds * 1000;
@@ -170,7 +179,10 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     // Its refresh tokens too: the ID-JAG's sub is the user id, which the client could read (D-B14).
     if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("invalid_subject_token", "pairwise subject (not supported in v1)");
     const now = Math.floor(Date.now() / 1000);
-    const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer, clientId: client.clientId, jwtOptions, now });
+    // Our ID tokens carry the provider's raw issuer (jwt.issuer ?? baseURL), which getIssuer may
+    // normalise (https, no trailing slash): check them against what the provider actually signs.
+    const idTokenIssuer = jwtOptions?.jwt?.issuer ?? ctx.context.baseURL;
+    const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer: idTokenIssuer, clientId: client.clientId, jwtOptions, now });
     const user = (await ctx.context.internalAdapter.findUserById(subject.sub)) as (User & Record<string, unknown>) | null;
     if (!user || user.id !== subject.sub) return refuse("unknown_subject");
     seen.userId = user.id;

@@ -22,11 +22,15 @@ const nonEmpty = z.string().min(1).max(2048).refine(noControls, "control charact
 const seconds = z.number().int().nonnegative().max(2 ** 40);
 
 /**
- * Claims this package cannot honour yet. The draft says a receiver MUST process
- * `authorization_details` (RFC 9396); accepting it while ignoring it could grant more than the IdP
- * authorised, so it's refused (v1). `act` is supported: see actSchema (D-010).
+ * Claims this package cannot honour yet, refused rather than ignored:
+ * - `authorization_details` (RFC 9396): the draft says a receiver MUST process it; ignoring it
+ *   could grant more than the IdP authorised.
+ * - `cnf`: a key-bound ID-JAG (§9.8.1.2). Without a matching DPoP proof the receiver MUST reject
+ *   it, and DPoP isn't supported yet, so it's always refused (D-012). Issuing a bearer token for
+ *   it would strip the binding the IdP asked for.
+ * `act` is supported: see actSchema (D-010).
  */
-export const UNSUPPORTED_CLAIMS = ["authorization_details"] as const;
+export const UNSUPPORTED_CLAIMS = ["authorization_details", "cnf"] as const;
 
 /** How deep a delegation chain (`act` inside `act`) may go. */
 export const MAX_ACT_DEPTH = 4;

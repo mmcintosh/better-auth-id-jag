@@ -404,5 +404,14 @@
   "paths": [
    "test/core"
   ]
+ },
+ {
+  "name": "jwt: cnf accepted (D-012)",
+  "file": "src/core/jwt.ts",
+  "a": "export const UNSUPPORTED_CLAIMS = [\"authorization_details\", \"cnf\"] as const;",
+  "b": "export const UNSUPPORTED_CLAIMS = [\"authorization_details\"] as const;",
+  "paths": [
+   "test/core"
+  ]
  }
 ]

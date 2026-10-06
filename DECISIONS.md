@@ -202,3 +202,62 @@ Also decided for Phase 2:
   from more than one module copy. Detection now uses Better Auth's `isAPIError`.
 - **Issuer:** an expired ID token now has its own public reason, `subject_token_expired`.
 - **Each guard broken once:** three new mutations, all caught.
+
+## D-010: `act` accepted — found live against Okta Cross App Access (2026-10-06)
+
+Okta's ID-JAG for an AI agent always carries `act: { sub: <the agent's Okta client id>, sub_profile: "ai_agent web_app" }`.
+D-007 refused `act` (with `authorization_details`), so the receiver refused every Okta ID-JAG. `act` records who acts
+on the user's behalf (RFC 8693 §4.1) and widens nothing, so the core now accepts it: an object with a string `sub`,
+optional `sub_profile`, nested prior actors up to 4 deep, anything else `invalid_claim`. The receiver carries it into
+the access token as `act`, so the resource server sees that an agent acts for the user. `authorization_details` stays
+refused (the draft says it MUST be processed; nothing sends it yet). `buildIdJag` may now mint `act`; our issuer
+doesn't yet (it has no agent identity to name). After the fix, the whole flow passed live: `docs/interop.md`.
+
+## D-011: Phase 2 merged (2026-10-06)
+
+- **Issuer** (`docs/tracks/issuer.md`, D-B14–D-B21):
+  - **Refresh tokens this provider issued** are accepted as subject tokens. They must belong to the authenticated
+    client, not be revoked or rotated, carry no sender constraint, include `openid`, and be unexpired. The exchange
+    never touches the stored token.
+  - **"Revoke" is replaced by blocks:** user, client and/or audience, with an optional expiry, checked first on
+    every exchange, with their own admin endpoints. A block stops new ID-JAGs at once; ones already issued live out
+    their 5–15 minutes.
+  - **Core change requests 4–6 made:** `REFRESH_TOKEN_TOKEN_TYPE` in `urns.ts`, a non-public `blocked` reason, and
+    `block` as an admin-event target (`revoke` and `jti` removed).
+- **Receiver** (`docs/tracks/receiver.md`, D-A18–D-A22):
+  - **JIT adds organization membership** with the sso row's `organizationProvisioning` role, or `jitRole`. It's
+    only done at creation and is idempotent. A failed membership deletes the new user and refuses the grant.
+  - **`requireResourceClaim`** (default off) refuses an ID-JAG without `resource`, as the public `missing_claim`,
+    before trust.
+- **Interop** (`docs/interop.md`):
+  - **Verified:** our issuer → our receiver (in CI), → Keycloak 26.8.0, → node-oauth2-server PR #462; **Okta
+    Cross App Access → our receiver live**.
+  - **Not possible yet:** Authelia (no release ships ID-JAG).
+  - **Weekly CI:** `.github/workflows/interop.yml`.
+- **Examples:** `examples/workers/`: an enterprise IdP and an MCP server on Workers and D1, verified over HTTP on
+  deployed Workers. They are up on the demo account through Phase 2.
+- **Merge:** one conflict (both sides appended to `test/mutations/receiver.json`); kept both.
+
+## D-012: `cnf` refused; the ID-JAG's `iss` from the provider's getIssuer (2026-10-06) — agent's choices, from a review note
+
+Two gaps, found by reviewing an external reference note on ID-JAG for Better Auth.
+- **`cnf` (draft §9.8.1.2).** An ID-JAG bound to a key must be refused unless the client presents a matching DPoP
+  proof, which is a MUST. We ignored `cnf`, so a key-bound ID-JAG got a plain bearer token, stripping the binding the
+  IdP asked for. Until DPoP is supported, `cnf` is refused like `authorization_details` (public `unsupported_claim`),
+  and `buildIdJag` won't mint it.
+- **`iss`.** The issuer computed `iss` as `jwt.issuer ?? baseURL`, a copy of the provider's logic without its
+  normalisation. It now uses the provider's own `getIssuer()`, the function that publishes `issuer` in the RFC 8414
+  metadata. Authelia shipped this trap and fixed it (authelia/oauth2-provider#834).
+  - **Found while fixing it:** `getIssuer()` normalises (https, no trailing slash) but the provider signs its ID
+    tokens with the raw value. So our own ID tokens are verified against the raw issuer, while the ID-JAG carries the
+    metadata's normal form. A test covers a trailing-slash `jwt.issuer`.
+- **Evidence:** each guard broken once, three new mutations, all caught. 594 tests pass, plus two new ones per
+  runtime.
+
+**Also from that note, decided by the maintainer:**
+- **Version 0.1.0** ships both plugins, with the issuer marked **experimental**.
+- **Better Auth issue #8023** (token exchange in core, open, assigned) gets a comment, drafted for approval and
+  **not posted**.
+
+**Open:** single use versus reuse until `exp` (oauth-wg issue #130). The agent recommends keeping single use as the
+default (every receiver tested enforces it) and adding an `allowReuseUntilExp` option for §4.4.3 clients.

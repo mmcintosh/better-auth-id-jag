@@ -203,3 +203,32 @@ describe("the ID-JAG header", () => {
     expect(jwks.keys.map((k) => k.kid)).toContain(header.kid);
   });
 });
+
+describe("the ID-JAG's iss (D-012)", () => {
+  it("is exactly the issuer the provider's metadata publishes", async () => {
+    const { createIssuerHost, setup, exchange } = await import("../support/issuer-host");
+    const { decodeJwt } = await import("jose");
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read"] }) } });
+    const { client, idToken } = await setup(host);
+    const r = await exchange(host, client, idToken);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const meta = (await (await host.auth.handler(new Request(`${host.base}/.well-known/oauth-authorization-server/api/auth`))).json()) as { issuer: string };
+    expect(decodeJwt((r.body as { access_token: string }).access_token).iss).toBe(meta.issuer);
+  });
+});
+
+describe("the ID-JAG's iss when the jwt issuer isn't in normal form (D-012)", () => {
+  it("ID tokens with the raw issuer still verify; the ID-JAG carries the metadata's normal form", async () => {
+    const { createIssuerHost, setup, exchange, ISSUER } = await import("../support/issuer-host");
+    const { decodeJwt } = await import("jose");
+    // A trailing slash: the provider signs ID tokens with it, and publishes the issuer without it.
+    const host = await createIssuerHost({ jwt: { jwt: { issuer: `${ISSUER}/` } }, issuer: { authorize: () => ({ decision: "allow", scopes: ["read"] }) } } as never);
+    const { client, idToken } = await setup(host);
+    expect(decodeJwt(idToken).iss).toBe(`${ISSUER}/`);
+    const r = await exchange(host, client, idToken);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const meta = (await (await host.auth.handler(new Request(`${host.base}/.well-known/oauth-authorization-server/api/auth`))).json()) as { issuer: string };
+    expect(meta.issuer).toBe(ISSUER);
+    expect(decodeJwt((r.body as { access_token: string }).access_token).iss).toBe(ISSUER);
+  });
+});
