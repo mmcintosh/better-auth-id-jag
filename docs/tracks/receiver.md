@@ -32,7 +32,7 @@ audience-restricted to the MCP resource.
 idJagGrant({
   trustedIssuers?: [{ issuer, jwksUri? | discoveryUri?, organizationId?, allowedClientIds?, tenant?,
                       accountProviderId?, emailFallback?: { domains }, jitProvisioning?: boolean | { trustEmailVerified? },
-                      jitRole? }],                                        // needs organizationId; default "member"
+                      jitRole? }],              // needs organizationId; default "member"; checked against the organization plugin's roles (D-A26)
   sso?: boolean | { providerIds?, emailFallback?, jitProvisioning?, allowedClientIds? },   // default off
   trustedIssuerTable?: boolean,                                                           // default off
   resolveSubject?: (input) => { action: "link", userId } | { action: "continue" } | { action: "reject" },
@@ -42,7 +42,8 @@ idJagGrant({
   requireResourceClaim?: boolean,    // default false (D-A06, D-A21)
   clockSkewSeconds?, maxLifetimeSeconds?,                 // validated by the core: [0, 300], [1, 900]
   fetch?: (url, init) => Promise<Response>,               // the only fetch the receiver uses
-  jwks?: { timeoutMs = 5000, maxBytes = 65536, cacheTtlSeconds = 600, minRefetchIntervalSeconds = 60 },
+  jwks?: { timeoutMs = 5000, maxBytes = 65536, cacheTtlSeconds = 600, minRefetchIntervalSeconds = 60,
+           maxStaleSeconds = 3600 },                      // D-A25: integer >= 0
   events?, auditLog?: { retentionDays },                  // core/audit.ts
   clock?: () => Date,                                     // for tests
 })
@@ -96,6 +97,7 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
   - For sso rows it needs `domainVerified === true` (sso's `domainVerification` must be enabled); the row's `domain` may be a comma-separated list.
   - It never takes a user who already has an account at the same issuer under another `sub`.
   - It never re-links an orphaned account row.
+  - It links only a local user whose `emailVerified` is true (D-A23).
 - **D-A10: JIT.**
   - Needs an `email` claim.
   - Refused if a user with that email exists: only the email fallback may match existing users.
@@ -108,6 +110,7 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
   - Concurrent lookups share one in-flight fetch.
   - 64 KiB cap, checked from `content-length` and again while streaming. A 5 s deadline races the whole exchange and aborts the signal, so a fetch that ignores the signal still loses.
   - At most 100 keys; `use: "enc"` keys dropped. An empty set is `jwks_unavailable` (S1).
+  - Cached keys outlive a failing JWKS by at most `maxStaleSeconds` past the TTL (D-A25).
 - **D-A12: the `idJagTrustedIssuer` table** is a third source, opt-in (`trustedIssuerTable: true`, which also adds the table to the schema).
   - Read-only in Phase 1. Rows are written by the host; there is **no admin API**.
   - List columns (`allowedClientIds`, `emailDomains`) are JSON strings.
@@ -144,6 +147,76 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
   - **At startup:** a warning for static entries with JIT and an `organizationId`.
   - **At request time:** a warning each time JIT skips a membership for that reason. sso and table rows aren't known at startup.
   - In both cases the user is still created, without a membership. That's the brief's choice: the entry's organization can't be honoured, but the host chose JIT.
+
+### After the independent review (D-A23–D-A26)
+
+Four defects, each reproduced by the reviewer; each got a failing test first, which was seen to fail, then the fix.
+
+- **D-A23: the email fallback took over unverified local accounts (security).**
+  - **Defect.** Someone self-registers `victim@corp.example` with a password and never verifies it. The victim's ID-JAG (email fallback) was then linked to that account, and the attacker's password still signed in. `resolve.ts` never looked at the local user's `emailVerified`. Better Auth's own account linking requires it by default (`requireLocalEmailVerified`).
+  - **Fix.** The email fallback links only a local user whose `emailVerified` is `true`. Otherwise it refuses with `unknown_subject` (non-public; detail `email fallback: the local user's email is not verified`). It does **not** fall through to JIT, and JIT still refuses an existing email (D-A10).
+  - **Evidence.** `resolve.test.ts`, "an unverified local account is never taken over…": before the fix, `accepted`. After it: refused with the generic body, no account linked, no user created even with JIT on, the user's only account is still `credential`, and `signInEmail` with the password still works. "a verified local user is linked" covers the positive case. The tests whose fixtures made users without `emailVerified` and then expected the email fallback to link them now create verified users.
+- **D-A24: two first-use grants at once locked the user out (availability).**
+  - **Defect.** Reproduced on workerd/D1 with the email fallback: concurrent first-use requests all returned 200 and each wrote an `account` row for (accountProviderId, `sub`). Every later grant for that user was then an **empty HTTP 500**, unaudited, because Better Auth's `findAccountOwnerByKey` throws "Multiple accounts match". With JIT, the requests that lost the user's UNIQUE email insert were empty 500s. Node's synchronous SQLite hid this. The suite's only concurrency test covered the jti insert.
+  - **Fix** (`resolve.ts`):
+    - **Lookups tolerate duplicates.** Lookups by (providerId, accountId) are our own `findMany`. They are sorted deterministically (oldest `createdAt`, then lowest `id`) and never throw on duplicates. A missing or unparsable `createdAt` sorts last.
+    - **Convergence after linking.** After linking (email fallback or JIT), the request re-reads the matching rows.
+      - If there is more than one, the oldest wins.
+      - Whoever sees exact duplicates of the winner's link (same user) deletes them. That covers the interleaving no barrier can force: a request that saw only its own row and returned, before an older row arrived.
+      - A request whose own row lost deletes its account row. For JIT it also deletes the membership it added and the user it created. Then it continues with the winner's user.
+      - A failed cleanup is logged, and the grant continues with the winner. Leftovers don't break lookups.
+      - A warning is logged whenever duplicates are seen.
+    - **No empty 500s.** `resolveSubject` now throws only `IdJagRefusal`. Anything else (a lost UNIQUE race, a database error) is logged (`subject resolution failed unexpectedly`) and refused as `subject_rejected` (non-public), so it is audited. This also covers an `APIError` thrown by a host's user-creation hook, which was passed through as the provider's own error before.
+    - **Residual.** Two JIT requests that carry *different* emails for one `sub`, interleaved so that the loser has already returned before the winner's row appears, can leave two users. Lookups still pick one deterministically, and the leftover can be removed by hand. Same-email JIT can't produce this, because the email is UNIQUE.
+  - **Evidence** (`test/receiver/concurrency.test.ts`, both runtimes, two auth instances on one database, 6 parallel requests with distinct valid ID-JAGs for one new subject):
+    - **Each scenario runs twice:** as the requests come, and held at the same step by a barrier in Better Auth's `databaseHooks` (`barrier()` in `receiver-host.ts`). The barrier makes the race happen on Node too, and so in the mutation runner.
+    - **Before the fix,** the held runs failed on Node and every run failed on workerd: 6 account rows then a 500 later (email); empty 500s (JIT); 6 users and accounts (JIT, different emails); a 500 with seeded duplicates.
+    - **After the fix:**
+      - email fallback: one row, a later grant 200;
+      - JIT: no 500, one user, one account, one membership, a later grant 200; the held run's losers refused as `subject_rejected`;
+      - JIT with different emails: all 200 for one user, the losers' users, memberships and accounts gone;
+      - two seeded rows: the older `createdAt` wins, then the lower id on a tie; never an error;
+      - two unit tests (a late duplicate of the same user removed by the winner; a losing JIT request deleting its own account and membership even when deleting the user cascades nothing);
+      - an adapter that throws: `subject_rejected`, logged.
+- **D-A25: stale IdP keys accepted indefinitely while the JWKS fetch failed.**
+  - **Defect.** With the JWKS down, the first request each minute failed `jwks_unavailable`, and every other request verified against the old cached keys. That was still true 30 simulated days past the 10-minute TTL, so a key the IdP had withdrawn kept working while its JWKS was unreachable.
+  - **Fix.** New option `jwks.maxStaleSeconds`, default 3600, validated as an integer ≥ 0. Once `now ≥ fetchedAt + cacheTtl + maxStale`, the cached keys are discarded. Every request is then `jwks_unavailable` until a fetch succeeds, still at most one fetch per `minRefetchIntervalSeconds`. Within the window, behaviour is as before: the request that triggers a failed refetch is refused, and the others use the cached keys.
+  - **Evidence** (`jwks.test.ts`, injected clock):
+    - **Unit, within the window:** the old keys still work while the JWKS is down, up to the last millisecond.
+    - **Unit, past it:** refused, fetched or not, and still refused 30 days on. Recovery once the JWKS answers again.
+    - **Unit, `maxStale 0`:** no stale use at all.
+    - **Through the grant:** the default (an hour) and `maxStaleSeconds: 120`. Before the fix, the cache tests got `ok` past the window.
+    - **Options:** negative, fractional and infinite values are refused; 0 is accepted.
+- **D-A26: `jitRole` checked against the organization plugin's roles** (the review's Question 2, accepted).
+  - **Startup.** With the organization plugin installed, a static entry's `jitRole` must name its roles. Those are the built-in `owner`, `admin` and `member`, plus the keys of its `roles` option, exactly as the plugin validates a member's role in `crud-members`. A comma-separated value (the plugin's multi-role form) is checked part by part. An unknown role is a startup error naming it, the issuer, and the known roles.
+    - With `dynamicAccessControl.enabled`, an organization can define more roles, so the startup check is skipped and the role is checked at provisioning.
+    - Without the organization plugin there is nothing to check (and no membership, D-A22).
+  - **Provisioning.** sso rows (`defaultRole`, `getRole`) and table rows (`jitRole`) can only be checked when a user is provisioned. Static entries are checked there too, which is cheap. With dynamic access control, the organization's own `organizationRole` rows also count. An unknown role goes down the D-A20 failure path: the error is logged with the role named (the log line now includes the error message), the new user is removed, and the grant is refused with `subject_rejected`.
+  - **Evidence** (`membership.test.ts`):
+    - **Startup:** `superuser` fails with the role named; the three built-in roles and `admin,member` pass; no plugin, no check.
+    - **Custom roles:** `auditor` (custom `roles`) is accepted and used; `auditr` fails.
+    - **Provisioning:** a table row's `superuser`, and an sso `defaultRole` of `superuser` or a `getRole` returning `ghost`, are each refused with a log line, and the user is removed.
+    - **Dynamic access control:** an organization's own role is refused until its `organizationRole` row exists, then used.
+  - **New exports:** `BUILT_IN_ORGANIZATION_ROLES`, `organizationRoles`, `unknownRoles`, `OrganizationRoles`.
+
+**Run on 2026-10-06, after these fixes:**
+- **`pnpm typecheck` and `pnpm lint`:** clean.
+- **`pnpm test`:** 642 passed, 28 skipped. That is 321 per runtime, Node and workerd.
+- **The receiver's own tests:** 134 per runtime, in 10 files (111 before).
+- **`python3 scripts/mutate.py test/mutations/receiver.json`:** 121 entries; 117 caught, 4 expected survivors, 0 problems, exit 0.
+  - **Stale patterns updated (3):** "not called from JIT", "account linked before the membership" and "existing user found by email is added too". The code they target was rewritten.
+  - **New entries (29):**
+    - D-A23: 2;
+    - D-A24: 15;
+    - D-A25: 5;
+    - D-A26: 7.
+  - **The four expected survivors, each with its reason in the list:**
+    - `emailVerified === false` instead of `!== true` is equivalent: the field is a required boolean.
+    - Two defensive refusals in `converge` are equivalent: the wrapper refuses the same way.
+    - A failed cleanup aborting the grant affects availability only, and nothing injects a failing delete.
+  - **Two first-run survivors, now caught:** "the loser keeps its JIT membership" and "the loser keeps its account row". Deleting the user cascaded both on SQLite. The unit test with a non-cascading `deleteUser` now catches them.
+
+`JwksSettings` (exported) has a new required `maxStaleMs`. `test/support/receiver-host.ts` gained `databaseHooks`, `organizationOptions` and `barrier()`.
 
 ## Evidence
 
