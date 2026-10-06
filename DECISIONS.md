@@ -259,5 +259,8 @@ Two gaps, found by reviewing an external reference note on ID-JAG for Better Aut
 - **Better Auth issue #8023** (token exchange in core, open, assigned) gets a comment, drafted for approval and
   **not posted**.
 
-**Open:** single use versus reuse until `exp` (oauth-wg issue #130). The agent recommends keeping single use as the
-default (every receiver tested enforces it) and adding an `allowReuseUntilExp` option for §4.4.3 clients.
+**Decided by the maintainer:**
+- **Single use stays, with no reuse option** (oauth-wg issue #130). Every receiver tested (Keycloak, node-oauth2-server,
+  Authelia's library) enforces single use too. The README must state this position and link #130.
+- **The #8023 comment is on hold.** The draft needs work, and as written it would commit us to building things. It is
+  not to be posted, or reworked into a commitment, without the maintainer.

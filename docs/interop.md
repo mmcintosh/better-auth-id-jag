@@ -20,7 +20,7 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | Authelia issuer | Our receiver | **Not possible yet**, for the same reason. |
 | Our issuer | node-oauth2-server receiver | **Verified** 2026-10-06 against the unreleased pull request [node-oauth/node-oauth2-server#462](https://github.com/node-oauth/node-oauth2-server/pull/462) at commit `0b7844f83f552d3acf50e13aca27f03c214fd825`. ES256 and RS256 accepted. **Differs:** EdDSA is refused (see below). |
 | Our receiver | Keycloak issuer | **Not possible**, because Keycloak doesn't issue ID-JAGs. Its guide lists the issuer side as "Not Yet Implemented". |
-| Our receiver | Okta Cross App Access | Not run yet (live, by hand, in Phase 2). |
+| Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). |
 
 ## Our issuer → our receiver
 
@@ -135,6 +135,51 @@ Keycloak's rules above are from its source at the 26.8.0 tag:
 `services/…/broker/jwtauthorizationgrant/JWTAuthorizationGrantConfig.java`. The feature is `IDENTITY_ASSERTION_JWT`
 (experimental) in `common/src/main/java/org/keycloak/common/Profile.java`, first released in 26.7.0. Guide:
 <https://www.keycloak.org/securing-apps/identity-assertion-jwt-authorization-grant>.
+
+## Okta Cross App Access → our receiver
+
+Live, by hand, against the example MCP server (`examples/workers/mcp-server`) deployed on Workers, with
+`examples/workers/okta-agent.mjs` playing the AI agent:
+
+1. The user signed in at Okta (authorization code + PKCE) to the agent's Okta app: an ID token.
+2. The agent exchanged it at Okta's token endpoint (RFC 8693, `requested_token_type` id-jag,
+   `audience` = our receiver's issuer, `resource` = our `/mcp`, `scope=read`). Okta checked the agent's
+   resource connection and returned `issued_token_type` id-jag, `token_type` `N_A`, `expires_in` 300.
+3. The agent redeemed the ID-JAG at our receiver with the client id and secret **our receiver issued**
+   (Okta's model, D-004): an access token for `/mcp`.
+4. The agent called the MCP server's tool with it: 200.
+
+What Okta's ID-JAG carries:
+
+| Header / claim | Value |
+|---|---|
+| `typ`, `alg`, `kid` | `oauth-id-jag+jwt`, `RS256`, a key from the org's `/oauth2/v1/keys` |
+| `iss` | the Okta org itself (`https://<org>.okta.com`), not a custom authorization server |
+| `aud` | exactly the issuer URL entered on the resource app's XAA settings (our `…/api/auth`) |
+| `client_id` | the agent's client id **at our receiver**, as entered in Okta's resource connection |
+| `sub`, `sub_profile` | the Okta user id, `user` |
+| `resource`, `scope` | as configured on the connection (`…/mcp`, `read`) |
+| `email` | the user's email |
+| `act` | `{ "sub": "<the agent's Okta client id>", "sub_profile": "ai_agent web_app" }` |
+| `exp - iat` | 300 s; `jti` prefixed `IDAAG.` |
+
+**Found:** the first attempt was refused by our receiver with `unsupported_claim`: after the core review
+(D-007) the core refused any ID-JAG with `act`, and Okta always sends it for an AI agent. `act` records who
+acts for the user (RFC 8693 delegation) and widens nothing, so it is now accepted, shape-checked (an object
+with `sub`, at most 4 nested actors) and carried into the access token (D-010). `authorization_details`
+stays refused. Without the live test the receiver would have refused every Okta ID-JAG.
+
+Setting it up in Okta (Admin Console, 2026.09):
+- The **resource app** is an OIDC web app. On its **Machine Assignments** tab, **Resource server access**,
+  enable **Cross-app access (XAA)** and set its **Issuer URL** to the receiver's `issuer`, exactly as the
+  receiver's `/.well-known/oauth-authorization-server/...` publishes it (path included). There is no org-wide
+  feature toggle.
+- The **AI agent** is registered under **Directory > AI agents** (manually), with Okta-generated client
+  credentials (a client secret); its app needs the Authorization Code, Refresh Token and Token Exchange grants.
+- Its **resource connection** (Application > App configured for AI Agent access) takes the resource app, the
+  **resource indicator** (our `/mcp`), the **agent's client id registered at our receiver**, and the scopes.
+- Subject mapping: the receiver provisioned the user just in time from the verified `email` claim; Okta's `sub`
+  is then linked, so later ID-JAGs find the same user.
 
 ## Authelia: not possible yet
 
