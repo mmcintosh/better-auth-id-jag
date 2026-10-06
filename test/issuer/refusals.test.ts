@@ -72,6 +72,8 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     const { client, idToken } = await setup(host);
     expect((await exchange(host, client, idToken, { audience: "http://localhost:4000/api/auth" })).status).toBe(200);
     await refused(host, await exchange(host, client, idToken, { audience: "http://rs.example/api/auth" }), "invalid_audience", "invalid_target");
+    // Our own issuer (http://localhost here) is refused as an audience even then.
+    await refused(host, await exchange(host, client, idToken, { audience: ISSUER }), "invalid_audience", "invalid_target");
   });
 
   it("a repeated parameter, two resources, an over-long scope: unsupported_parameter", async () => {

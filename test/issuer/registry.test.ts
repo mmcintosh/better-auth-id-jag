@@ -63,11 +63,23 @@ describe("registry: policy evaluation", () => {
     expect(parsed.claims).toMatchObject({ scope: "write", client_id: "agent-at-rs", resource: RESOURCE });
   });
 
-  it("the client id at the resource defaults to the client's own id", async () => {
+  it("the client id at the resource defaults to the client's own id; no email unless a policy opts in", async () => {
+    const h = await host();
+    const { client, idToken, user } = await setup(h);
+    await registered(h, client);
+    await h.ctx.adapter.update({ model: "user", where: [{ field: "id", value: user.id }], update: { emailVerified: true } });
+    const claims = decodeJwt((await exchange(h, client, idToken)).body.access_token as string);
+    expect(claims.client_id).toBe(client.client_id);
+    expect(claims.email).toBeUndefined();
+  });
+
+  it("a scope the resource server no longer allows is dropped from its policies' grants", async () => {
     const h = await host();
     const { client, idToken } = await setup(h);
-    await registered(h, client);
-    expect(decodeJwt((await exchange(h, client, idToken)).body.access_token as string).client_id).toBe(client.client_id);
+    const { admin, rsId } = await registered(h, client);
+    expect((await exchange(h, client, idToken)).body.scope).toBe("read write");
+    expect((await api(admin.browser, "/resource-servers/update", { id: rsId, resourceServer: rsConfig({ scopes: ["read"] }) })).status).toBe(200);
+    expect((await exchange(h, client, idToken)).body.scope).toBe("read");
   });
 
   it("no resource server for the audience: no_policy; one with no policy for this client: policy_denied (one body)", async () => {
@@ -182,6 +194,8 @@ describe("registry: policy evaluation", () => {
     const h = await host({ auth: { logger: { level: "warn", log: (_l: string, m: string) => void logs.push(m) } } });
     const { client, idToken } = await setup(h);
     const { admin, rsId, policyId } = await registered(h, client);
+    const original = await h.ctx.adapter.findOne<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }] });
+    // While the policy is invalid, a resource server that is still used answers policy_denied; one that isn't, no_policy.
     await h.ctx.adapter.update({ model: POLICY_MODEL, where: [{ field: "id", value: policyId }], update: { scopes: "not json" } });
     await exchange(h, client, idToken);
     expect(takeReasons(h)).toEqual(["policy_denied"]);
@@ -192,7 +206,11 @@ describe("registry: policy evaluation", () => {
     const rs = (await api(admin.browser, `/resource-servers/get?id=${rsId}`)).body.resourceServer;
     expect(rs.valid).toBe(false);
     expect(rs.issues.join(" ")).toMatch(/normalised|lookupKey/);
-    await h.ctx.adapter.update({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }], update: { audience: AUDIENCE, scopes: JSON.stringify(["bad scope"]) } });
+    // A lookup key changed by hand (it decides uniqueness): the row is not used.
+    await h.ctx.adapter.update({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }], update: { audience: AUDIENCE, lookupKey: "edited" } });
+    await exchange(h, client, idToken);
+    expect(takeReasons(h)).toEqual(["no_policy"]);
+    await h.ctx.adapter.update({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }], update: { lookupKey: original?.lookupKey, scopes: JSON.stringify(["bad scope"]) } });
     await exchange(h, client, idToken);
     expect(takeReasons(h)).toEqual(["no_policy"]);
   });
@@ -207,6 +225,48 @@ describe("registry: policy evaluation", () => {
     await registered(a, client);
     expect((await exchange(fresh, client, idToken)).status).toBe(200);
     expect((await exchange(cached, client, idToken)).status).toBe(400); // a cached miss, documented
+  });
+
+  it("cache: an entry expires after cacheSeconds", async () => {
+    const db = await database();
+    const a = await host({ database: db });
+    const short = await host({ database: db, registry: { cacheSeconds: 1 } });
+    const { client, idToken } = await setup(a);
+    expect((await exchange(short, client, idToken)).status).toBe(400); // the miss is cached
+    await registered(a, client);
+    expect((await exchange(short, client, idToken)).status).toBe(400);
+    await new Promise((r) => setTimeout(r, 1100));
+    expect((await exchange(short, client, idToken)).status).toBe(200);
+  });
+
+  it("audiences match exactly, even if the database's collation folds case", async () => {
+    const h = await host();
+    const { client, idToken } = await setup(h);
+    // Another audience that only a case-insensitive collation would confuse with ours.
+    const upper = AUDIENCE.replace("/api/auth", "/API/AUTH");
+    await registered(h, client, { rs: { audience: upper } });
+    const findMany = h.ctx.adapter.findMany.bind(h.ctx.adapter);
+    h.ctx.adapter.findMany = (async (args: { model: string; where?: { field: string; value: unknown }[] }) => {
+      const w = args.where?.[0];
+      if (args.model === RESOURCE_SERVER_MODEL && w?.field === "audience" && typeof w.value === "string") {
+        const all = await findMany<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, limit: 1000 });
+        return all.filter((r) => String(r.audience).toLowerCase() === (w.value as string).toLowerCase());
+      }
+      return findMany(args as never);
+    }) as typeof h.ctx.adapter.findMany;
+    await exchange(h, client, idToken);
+    h.ctx.adapter.findMany = findMany;
+    expect(takeReasons(h)).toEqual(["no_policy"]);
+  });
+
+  it("S8: an unregistered resource without an allowing policy is the generic refusal, not unknown_resource", async () => {
+    const h = await host();
+    const { client, idToken } = await setup(h);
+    const other = await setup(h);
+    await registered(h, other.client);
+    const r = await exchange(h, client, idToken, { resource: "https://other.example/mcp" });
+    expect(takeReasons(h)).toEqual(["policy_denied"]);
+    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
   });
 });
 
@@ -254,7 +314,10 @@ describe("registry API: records", () => {
       expect(r.status, JSON.stringify(over)).toBe(400);
     }
     const ok = await api(admin.browser, "/policies/create", policy({}));
-    expect((await api(admin.browser, "/policies/update", { id: ok.body.policy.id, policy: policy({ resourceServerId: "other" }).policy })).status).toBe(400);
+    const second = (await api(admin.browser, "/resource-servers/create", { resourceServer: rsConfig({ audience: `${AUDIENCE}/second` }) })).body.resourceServer;
+    const moved = await api(admin.browser, "/policies/update", { id: ok.body.policy.id, policy: policy({ resourceServerId: second.id }).policy });
+    expect(moved.status).toBe(400);
+    expect(moved.body.issues.join(" ")).toMatch(/can't be changed/);
   });
 
   it("an audience is unique per organization: duplicates 409, concurrent creates decided by the UNIQUE key", async () => {

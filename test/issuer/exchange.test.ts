@@ -158,9 +158,24 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect((await verifyWithHostJwks(host, r.body.access_token as string, { issuer: iss })).claims.iss).toBe(iss);
   });
 
-  it("the plain-function handler is what the extension runs", async () => {
-    const { handleTokenExchange } = await import("../../src/issuer");
-    expect(handleTokenExchange).toBeTypeOf("function");
+  it("S10: the exchange makes no outbound request at all", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allowRead } });
+    const { client, idToken } = await setup(host);
+    const original = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input instanceof Request ? input.url : input));
+      throw new Error("no outbound requests");
+    }) as typeof fetch;
+    try {
+      const r = await exchange(host, client, idToken, { scope: "read", resource: RESOURCE });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      // A refused one too: a token that fails verification is never "checked" elsewhere.
+      expect((await exchange(host, client, `${idToken.slice(0, idToken.lastIndexOf("."))}.AAAA`)).status).toBe(400);
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(calls).toEqual([]);
   });
 });
 
