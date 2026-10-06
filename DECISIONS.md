@@ -54,7 +54,7 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
     reads: noise, not a failure.
 - **CI now:** `ci.yml` (typecheck, lint, both test projects, build; Better Auth 1.7.5 and latest-1.7, every
   `@better-auth/*` switched with it; Node 22 and 24; gitleaks), `dependencies.yml` (runtime audit, dependency review;
-  OSV skipped while the repository is private, since code scanning needs Advanced Security there), Dependabot.
+  dependency review and OSV skipped while the repository is private, since both need Advanced Security there), Dependabot.
   **Wired but dormant:** `release.yml` (tags and manual dry runs only) and `tag-release.yml` (does nothing while
   `package.json` is `"private": true`). **Later:** CodeQL and Scorecard when the repository is public; adapters,
   runtimes and the example jobs when there is code for them.

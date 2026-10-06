@@ -20,8 +20,9 @@ jobs:
         with: { node-version: 24 }
       - run: pnpm audit --prod --audit-level low
 
+  # Needs GitHub Advanced Security on a private repository: runs once the repository is public.
   review:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
