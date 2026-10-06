@@ -40,7 +40,7 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 | Public clients holding ID-JAGs | Confidential clients only, unless `allowPublicClients` (S5; a startup warning). |
 | An agent reaching more than intended | Code policy, registry policy or both; with both, both must allow and the narrower result wins (scopes ∩, shortest lifetime). Audiences are https and normalised; ambiguous resource servers are refused, and there are no wildcard client ids. |
 | A user who should have lost access | Banned users (the admin plugin) are refused. Blocks refuse new ID-JAGs by user, client and audience, at once. The user is re-read from the database at each exchange. |
-| An old sign-in minting ID-JAGs for hours | An ID token names no session and the provider's live 10 hours, so an ID token older than `maxIdTokenAgeSeconds` (by `iat`; an hour by default) is refused even before it expires. An ID token that carries `sid` is refused once that session is gone. A refresh token stops working as a subject token once it is revoked or rotated. |
+| An old sign-in minting ID-JAGs for hours | An ID token usually names no session, and the provider's live 10 hours, so an ID token older than `maxIdTokenAgeSeconds` (by `iat`; an hour by default) is refused even before it expires. An ID token that carries `sid` is refused once that session is gone. A refresh token stops working as a subject token once it is revoked or rotated. |
 | Leaking an email the user didn't verify | `email` goes into the ID-JAG only when the policy opts in **and** the email is verified. |
 
 ### Receiver (`idJagGrant()`)

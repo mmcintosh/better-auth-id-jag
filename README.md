@@ -164,7 +164,7 @@ With both `authorize` and `registry`, both must allow. Without a `canManage` its
 
 A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an ID-JAG this issuer minted: from its `jti` row while that lasts (until a few minutes after the token expires), then from its `id-jag.issued` audit row, so blocking from a `jti` seen in the audit log needs `auditLog`. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
 
-**What stops an exchange:** a ban, a block, an ID token older than `maxIdTokenAgeSeconds` (an hour by default), an ID token whose session has ended (only for clients whose ID tokens carry `sid`: those with `enable_end_session` or a back-channel logout URI), and revoking the refresh token at `/oauth2/revoke`. Signing out alone doesn't stop an ID token without `sid` until the age cap, and doesn't stop an `offline_access` refresh token at all.
+**What stops an exchange:** a ban, a block, an ID token older than `maxIdTokenAgeSeconds` (an hour by default), an ID token whose session has ended (only for clients whose ID tokens carry `sid`: those with `enable_end_session` or a back-channel logout URI), and revoking the refresh token at `/oauth2/revoke`. Signing out alone doesn't stop an ID token without `sid` (it works until the age cap), nor an `offline_access` refresh token (revoke it, or block the user).
 
 ## 🔑 Receiver: `idJagGrant()`
 
