@@ -242,6 +242,31 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
 
 ## Evidence
 
+### Phase 2 (refresh-token subjects, blocks), 2026-10-06
+
+- **Tests.** `pnpm test`: 542 passed, 0 failed, 271 per runtime (Node with node:sqlite, workerd with D1). Issuer:
+  116 per runtime (89 before). New are `refresh-token.test.ts` (14) and `blocks.test.ts` (12). `registry.test.ts`
+  lost the revoke test and gained two: that `/issued/revoke` is gone, and a registry policy applied identically to a
+  refresh-token subject. `client.test.ts` now also covers the blocks calls. `pnpm typecheck` and `pnpm lint` are
+  clean.
+- **Refresh tokens are real.** Every refresh token in the tests comes from authorization_code with `offline_access`,
+  through `/oauth2/authorize`. Revocation goes through the provider's `/oauth2/revoke`. Non-rotation is proven three
+  ways: the row is unchanged after two exchanges, the same token then refreshes at `/oauth2/token`, and after that
+  rotation the old token is refused while the new one works.
+- **Fixed on the way.** `cache: an entry expires after cacheSeconds` failed once under full-suite load. Its middle
+  assertion assumed under 1 s between two exchanges, so it is now only checked when that held. The expiry assertion
+  that the cache mutation needs is unchanged.
+- **Each guard broken once.** `python3 scripts/mutate.py test/mutations/issuer.json` ran the whole list: **117
+  mutations, 112 caught, 5 expected survivors (the five above, unchanged), 0 problems, exit 0.**
+  - **Added:** 36 mutations to the 82 already there (79 from Phase 1, 3 from D-009). 17 are on refresh-token
+    subjects (S6r, plus the two-edit S8r "expiry before the client check"), and 19 are on blocks (B, one of them a
+    two-edit pair).
+  - **Updated:** 3 stale patterns (`S6 expired accepted`, stale since D-009's `subject_token_expired`;
+    `Req subject_token_type not checked`; `S10 outbound fetch`).
+  - **Removed:** `API unknown jti revoked`, replaced by `B unknown jti blocked (create-from-jti)`.
+  - **One new survivor, now caught.** On the first run of the new mutations, "pairwise guard skipped for refresh
+    tokens" survived. A pairwise refresh-token test was added, and it is caught.
+
 **Tests.** `pnpm test` (2026-10-06): 298 passed, 0 failed, both projects. Issuer: 89 per runtime (178 in total) in
 `test/issuer/` (exchange 16, refusals 26, registry 27, id-token 6, startup 8, fuzz 3, client 1, rs256 1,
 signing-algorithm 1). The other 60 per runtime are the core and Phase 0 tests, unchanged. `pnpm typecheck` and
