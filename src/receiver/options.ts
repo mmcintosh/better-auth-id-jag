@@ -86,7 +86,11 @@ export interface IdJagGrantOptions extends AuditOptions {
   maxLifetimeSeconds?: number;
   /** The only fetch the receiver uses (JWKS and discovery of trusted issuers). Default: global fetch. */
   fetch?: FetchLike;
-  jwks?: { timeoutMs?: number; maxBytes?: number; cacheTtlSeconds?: number; minRefetchIntervalSeconds?: number };
+  /**
+   * JWKS fetching and caching. `maxStaleSeconds` (default 3600): while the issuer's JWKS can't be
+   * fetched, cached keys are used for at most this long past `cacheTtlSeconds`; then refused.
+   */
+  jwks?: { timeoutMs?: number; maxBytes?: number; cacheTtlSeconds?: number; minRefetchIntervalSeconds?: number; maxStaleSeconds?: number };
   /** The receiver's clock. For tests. */
   clock?: () => Date;
 }
@@ -142,6 +146,7 @@ const optionsSchema = z.strictObject({
       maxBytes: z.number().int().min(1024).max(1024 * 1024).optional(),
       cacheTtlSeconds: z.number().int().min(0).max(86_400).optional(),
       minRefetchIntervalSeconds: z.number().int().min(1).max(3600).optional(),
+      maxStaleSeconds: z.number().int().min(0).optional(),
     })
     .optional(),
   clock: fn.optional(),
@@ -227,6 +232,7 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
     maxBytes: options.jwks?.maxBytes ?? 64 * 1024,
     cacheTtlMs: (options.jwks?.cacheTtlSeconds ?? 600) * 1000,
     minRefetchMs: (options.jwks?.minRefetchIntervalSeconds ?? 60) * 1000,
+    maxStaleMs: (options.jwks?.maxStaleSeconds ?? 3600) * 1000,
   };
   const clock = options.clock ?? (() => new Date());
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));

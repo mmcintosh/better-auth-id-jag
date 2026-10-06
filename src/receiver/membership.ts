@@ -10,14 +10,58 @@
 //
 // Outcomes: a membership is added, or there is nothing to do (no organization on the entry, no
 // organization plugin, sso provisioning disabled, already a member, an invitation pending). Anything
-// else (the organization doesn't exist, `getRole` throws or returns no role, the insert fails)
-// throws: the caller removes the new user and refuses the grant (D-A20).
+// else (the organization doesn't exist, `getRole` throws or returns no role, the role isn't one the
+// organization plugin knows, the insert fails) throws: the caller removes the new user and refuses
+// the grant (D-A20, D-A26).
 import type { GenericEndpointContext, User } from "better-auth";
 import { z } from "zod";
 import type { IdJagClaims } from "../core";
 import type { TrustEntry } from "./options";
 
 export const DEFAULT_JIT_ROLE = "member";
+
+/** The organization plugin's built-in roles (its `defaultRoles`); its `roles` option adds to them. */
+export const BUILT_IN_ORGANIZATION_ROLES = ["owner", "admin", "member"] as const;
+
+const organizationOptionsSchema = z.looseObject({
+  roles: z.record(z.string(), z.unknown()).optional().nullable(),
+  dynamicAccessControl: z.looseObject({ enabled: z.boolean().optional() }).optional().nullable(),
+});
+
+/** The roles the organization plugin knows statically, and whether organizations may define more (dynamic access control). */
+export interface OrganizationRoles {
+  known: Set<string>;
+  dynamic: boolean;
+}
+
+/** Read from the organization plugin as it validates a member's role (crud-members: defaultRoles plus `roles`). */
+export function organizationRoles(plugin: { options?: unknown } | null | undefined): OrganizationRoles {
+  const parsed = organizationOptionsSchema.safeParse(plugin?.options ?? {});
+  const options = parsed.success ? parsed.data : {};
+  return { known: new Set<string>([...BUILT_IN_ORGANIZATION_ROLES, ...Object.keys(options.roles ?? {})]), dynamic: options.dynamicAccessControl?.enabled === true };
+}
+
+/** The parts of a role (the organization plugin stores several as "a,b") that aren't statically known. */
+export function unknownRoles(memberRole: string, roles: OrganizationRoles): string[] {
+  return memberRole.split(",").map((r) => r.trim()).filter((r) => !roles.known.has(r));
+}
+
+/** Throws unless every part of the role is the organization plugin's, or (dynamic access control) the organization's own. */
+async function assertKnownRole(ctx: GenericEndpointContext, organizationId: string, memberRole: string): Promise<void> {
+  const roles = organizationRoles(ctx.context.getPlugin("organization") as { options?: unknown } | null);
+  let unknown = unknownRoles(memberRole, roles);
+  if (unknown.length > 0 && roles.dynamic) {
+    const defined = await ctx.context.adapter.findMany<{ role: string }>({
+      model: "organizationRole",
+      where: [
+        { field: "organizationId", value: organizationId },
+        { field: "role", value: unknown, operator: "in" },
+      ],
+    });
+    unknown = unknown.filter((r) => !defined.some((d) => d.role === r));
+  }
+  if (unknown.length > 0) throw new Error(`role ${unknown.map((r) => JSON.stringify(r)).join(", ")} is not a role of the organization plugin${roles.dynamic ? ` or of organization ${organizationId}` : ""}`);
+}
 
 export type MembershipOutcome = "added" | "no-organization" | "no-organization-plugin" | "provisioning-disabled" | "already-member" | "invitation-pending";
 
@@ -68,6 +112,8 @@ export async function addJitMembership(ctx: GenericEndpointContext, trust: Trust
   }
   const memberRole = trust.source === "sso" ? await ssoRole(ctx, trust, user, claims) : (trust.jitRole ?? DEFAULT_JIT_ROLE);
   if (memberRole === null) return "provisioning-disabled";
+  // Static entries are checked at startup too; sso and table rows can only be checked here (D-A26).
+  await assertKnownRole(ctx, organizationId, memberRole);
   const { adapter } = ctx.context;
   const organization = await adapter.findOne<Record<string, unknown>>({ model: "organization", where: [{ field: "id", value: organizationId }] });
   if (!organization) throw new Error(`organization ${organizationId} does not exist`);

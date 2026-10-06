@@ -6,6 +6,7 @@ import type { BetterAuthPlugin } from "better-auth";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
 import { auditSchema, ID_JAG_GRANT_PROFILE, JWT_BEARER_GRANT, jtiSchema, RECEIVER_METADATA_FIELD, warnIfReplayUnsafe } from "../core";
 import { handleIdJagGrant, registeredResources } from "./grant";
+import { organizationRoles, unknownRoles } from "./membership";
 import { type IdJagGrantOptions, type ResolvedReceiverOptions, resolveReceiverOptions } from "./options";
 import { trustedIssuerSchema } from "./schema";
 
@@ -32,6 +33,17 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
       const orgEntries = resolved.trustedIssuers.filter((t) => t.jit && t.organizationId !== undefined);
       if (orgEntries.length > 0 && !ctx.hasPlugin("organization"))
         ctx.logger.warn(`[id-jag] JIT provisioning for ${orgEntries.map((t) => t.issuer).join(", ")} names an organization, but the organization plugin is not installed: users will be created without a membership.`);
+      // A static entry's jitRole must be one the organization plugin knows (D-A26). With dynamic access
+      // control an organization may define more, so those are checked when a user is provisioned.
+      if (ctx.hasPlugin("organization")) {
+        const roles = organizationRoles(ctx.getPlugin("organization") as { options?: unknown } | null);
+        for (const t of resolved.trustedIssuers) {
+          if (t.jitRole === undefined || roles.dynamic) continue;
+          const unknown = unknownRoles(t.jitRole, roles);
+          if (unknown.length > 0)
+            throw new Error(`id-jag receiver: jitRole ${JSON.stringify(t.jitRole)} for ${t.issuer} is not a role of the organization plugin (unknown: ${unknown.join(", ")}; known: ${[...roles.known].join(", ")})`);
+        }
+      }
       if (resolved.defaultResource !== undefined) {
         const provider = ctx.getPlugin("oauth-provider") as { options?: Parameters<typeof registeredResources>[0] } | null;
         if (provider?.options && !registeredResources(provider.options).includes(resolved.defaultResource)) throw new Error(`id-jag receiver: defaultResource ${resolved.defaultResource} is not a registered resource`);

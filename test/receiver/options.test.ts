@@ -29,6 +29,9 @@ describe("options are validated when the plugin is built", () => {
     ["a non-boolean requireResourceClaim", { requireResourceClaim: 1 }],
     ["an empty jitRole", { trustedIssuers: [{ ...TRUST[0], organizationId: "org", jitRole: "" }] }],
     ["a jitRole without organizationId", { trustedIssuers: [{ ...TRUST[0], jitRole: "admin" }] }],
+    ["a negative jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: -1 } }],
+    ["a fractional jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: 1.5 } }],
+    ["an infinite jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: Number.POSITIVE_INFINITY } }],
   ];
   for (const [what, options] of bad) {
     it(`refuses ${what}`, () => {
@@ -45,7 +48,7 @@ describe("options are validated when the plugin is built", () => {
         requireResourceClaim: true,
         clockSkewSeconds: 30,
         maxLifetimeSeconds: 300,
-        jwks: { timeoutMs: 2000, maxBytes: 32768, cacheTtlSeconds: 300, minRefetchIntervalSeconds: 60 },
+        jwks: { timeoutMs: 2000, maxBytes: 32768, cacheTtlSeconds: 300, minRefetchIntervalSeconds: 60, maxStaleSeconds: 0 },
         auditLog: { retentionDays: 30 },
         events: { onRefused: () => {} },
       }),

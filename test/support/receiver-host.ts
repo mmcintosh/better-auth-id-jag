@@ -5,7 +5,7 @@
 import { exportJWK, generateKeyPair, type JWK, type JWTPayload, SignJWT } from "jose";
 import type { CryptoKey } from "jose";
 import { betterAuth } from "better-auth";
-import type { BetterAuthPlugin } from "better-auth";
+import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { admin, jwt, organization } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
@@ -145,6 +145,10 @@ export interface HostOptions {
   fetchClientMetadata?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   /** oauthProvider() only: its resources. */
   resources?: string[];
+  /** Better Auth's `databaseHooks` (the concurrency tests hold inserts at a barrier with them). */
+  databaseHooks?: BetterAuthOptions["databaseHooks"];
+  /** The organization plugin's options (custom roles, dynamic access control). */
+  organizationOptions?: Parameters<typeof organization>[0];
 }
 
 /** `@better-auth/sso`'s `organizationProvisioning` option. */
@@ -171,9 +175,10 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
     telemetry: { enabled: false },
     database: (o.database ?? (await database())) as never,
     emailAndPassword: { enabled: true },
-    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), ...(o.organization ? [organization() as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
+    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), ...(o.organization ? [organization(o.organizationOptions) as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
     ...(logs ? { logger: { level: "warn" as const, log: (level: string, message: string) => void logs.push(`${level}: ${message}`) } } : {}),
     ...(rec ? { advanced: { backgroundTasks: { handler: rec.backgroundTasks } } } : {}),
+    ...(o.databaseHooks ? { databaseHooks: o.databaseHooks } : {}),
   });
   const ctx = await auth.$context;
   await (await getMigrations(ctx.options)).runMigrations();
@@ -230,6 +235,32 @@ export async function linkedUser(h: ReceiverHost, providerId: string, sub: strin
   const user = await h.ctx.internalAdapter.createUser({ email, name: "Linked", emailVerified: true }, { method: "admin" });
   await h.ctx.internalAdapter.linkAccount({ userId: user.id, providerId, accountId: sub });
   return user;
+}
+
+/**
+ * A barrier for `n` arrivals: each `wait()` resolves once `n` have arrived (or after `timeoutMs`, so
+ * a test that sends fewer can't hang). The concurrency tests use it in database hooks to hold every
+ * request at the same step, so a race happens on every run and runtime, not only when D1 is slow.
+ */
+export function barrier(n: number, timeoutMs = 5000) {
+  let arrived = 0;
+  let release: () => void = () => {};
+  const open = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    arrived: () => arrived,
+    async wait() {
+      arrived += 1;
+      if (arrived === 1) timer = setTimeout(release, timeoutMs);
+      if (arrived >= n) {
+        clearTimeout(timer);
+        release();
+      }
+      await open;
+    },
+  };
 }
 
 export function tokenRequest(form: Record<string, string>, basic?: { id: string; secret: string }) {

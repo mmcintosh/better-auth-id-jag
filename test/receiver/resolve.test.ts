@@ -78,7 +78,7 @@ describe("subject resolution: email fallback", () => {
   it("on for listed domains only; links the account; case-insensitive; never takes a user linked to another sub", async () => {
     const s = await host({ trust: { emailFallback: { domains: ["Corp.Example"] } } });
     const email = uniqueEmail("corp.example");
-    const u = await s.h.ctx.internalAdapter.createUser({ email, name: "E" }, { method: "admin" });
+    const u = await s.h.ctx.internalAdapter.createUser({ email, name: "E", emailVerified: true }, { method: "admin" });
     const sub = crypto.randomUUID();
     expect(await s.attempt({ sub, email: email.toUpperCase() })).toMatchObject({ reason: "accepted", userId: u.id });
     expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toMatchObject({ userId: u.id });
@@ -87,7 +87,7 @@ describe("subject resolution: email fallback", () => {
     // A subdomain or another domain: not listed.
     for (const domain of ["eu.corp.example", "corp.example.evil", "other.example"]) {
       const e = uniqueEmail(domain);
-      await s.h.ctx.internalAdapter.createUser({ email: e, name: "X" }, { method: "admin" });
+      await s.h.ctx.internalAdapter.createUser({ email: e, name: "X", emailVerified: true }, { method: "admin" });
       expect((await s.attempt({ sub: crypto.randomUUID(), email: e })).reason).toBe("unknown_subject");
     }
   });
@@ -95,7 +95,7 @@ describe("subject resolution: email fallback", () => {
   it("a banned user found by email is refused, and not linked", async () => {
     const s = await host({ admin: true, trust: { emailFallback: { domains: ["corp.example"] } } });
     const email = uniqueEmail("corp.example");
-    const u = await s.h.ctx.internalAdapter.createUser({ email, name: "E" }, { method: "admin" });
+    const u = await s.h.ctx.internalAdapter.createUser({ email, name: "E", emailVerified: true }, { method: "admin" });
     await s.h.ctx.internalAdapter.updateUser(u.id, { banned: true });
     const sub = crypto.randomUUID();
     expect((await s.attempt({ sub, email })).reason).toBe("banned_user");
@@ -109,11 +109,12 @@ describe("subject resolution: email fallback", () => {
     const trust = o.trustedIssuers[0]!;
     const linked: unknown[] = [];
     const internalAdapter = {
-      findAccountOwnerByKey: async () => ({ kind: "orphaned", account: { userId: "gone" } }),
-      findUserByEmail: async () => ({ user: { id: "someone", email: "a@corp.example" }, accounts: [] }),
+      findUserById: async () => null,
+      findUserByEmail: async () => ({ user: { id: "someone", email: "a@corp.example", emailVerified: true }, accounts: [] }),
       linkAccount: async (a: unknown) => void linked.push(a),
     };
-    const ctx = { context: { ...s.h.ctx, internalAdapter } } as unknown as GenericEndpointContext;
+    const adapter = { ...s.h.ctx.adapter, findMany: async () => [{ id: "acc-1", userId: "gone", createdAt: new Date() }] };
+    const ctx = { context: { ...s.h.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
     const claims = s.idp.claims({ email: "a@corp.example" }) as unknown as IdJagClaims;
     const outcome = await resolveSubject(ctx, o, trust, claims, "c").then(
       () => "accepted",
@@ -121,6 +122,39 @@ describe("subject resolution: email fallback", () => {
     );
     expect(outcome).toBe("unknown_subject");
     expect(linked).toHaveLength(0);
+  });
+});
+
+describe("subject resolution: the email fallback needs a verified local email (D-A23)", () => {
+  it("an unverified local account is never taken over: refused, nothing linked, its password still works; not JIT either", async () => {
+    // The attack: someone self-registers victim@corp.example with a password and never verifies it.
+    // The victim's ID-JAG must not be linked to that account (Better Auth's own account linking
+    // requires a verified local email the same way: requireLocalEmailVerified).
+    const s = await host({ trust: { emailFallback: { domains: ["corp.example"] }, jitProvisioning: true } });
+    const email = uniqueEmail("corp.example");
+    const squatter = await s.h.auth.api.signUpEmail({ body: { email, password: "attacker-password-1", name: "Squatter" } });
+    expect(squatter.user.emailVerified).toBe(false);
+    const sub = crypto.randomUUID();
+    const r = await s.attempt({ sub, email });
+    expect(r.reason).toBe("unknown_subject");
+    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(s.rec.refused.at(-1)?.detail).toBe("email fallback: the local user's email is not verified");
+    expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toBeNull();
+    // Not JIT-provisioned instead: still exactly the one local user with that email, and its only account is the password one.
+    const found = await s.h.ctx.internalAdapter.findUserByEmail(email, { includeAccounts: true });
+    expect(found?.user.id).toBe(squatter.user.id);
+    expect(found?.accounts.map((a) => a.providerId)).toEqual(["credential"]);
+    const signIn = await s.h.auth.api.signInEmail({ body: { email, password: "attacker-password-1" } });
+    expect(signIn.user.id).toBe(squatter.user.id);
+  });
+
+  it("a verified local user is linked", async () => {
+    const s = await host({ trust: { emailFallback: { domains: ["corp.example"] } } });
+    const email = uniqueEmail("corp.example");
+    const u = await s.h.ctx.internalAdapter.createUser({ email, name: "V", emailVerified: true }, { method: "admin" });
+    const sub = crypto.randomUUID();
+    expect(await s.attempt({ sub, email })).toMatchObject({ reason: "accepted", userId: u.id });
+    expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toMatchObject({ userId: u.id });
   });
 });
 

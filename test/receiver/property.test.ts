@@ -6,7 +6,7 @@ import { IdJagRefusal } from "../../src/core";
 import { JwksCache } from "../../src/receiver";
 import { testIdp } from "../support/receiver-host";
 
-const SETTINGS = { timeoutMs: 1000, maxBytes: 8 * 1024, cacheTtlMs: 0, minRefetchMs: 0 };
+const SETTINGS = { timeoutMs: 1000, maxBytes: 8 * 1024, cacheTtlMs: 0, minRefetchMs: 0, maxStaleMs: 0 };
 
 async function outcome(p: Promise<unknown>): Promise<string> {
   try {
