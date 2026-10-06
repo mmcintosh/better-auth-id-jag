@@ -153,3 +153,14 @@ caught. Of the 43 in the first run, two survived:
 - `no_scope` made public: a test now pins the public reasons.
 - The handler receiving the original object: harmless once the row is written first, so the defensive copy was
   removed, along with that mutation.
+
+## D-008: Phase 1 merged (2026-10-06)
+
+Track A (receiver, `docs/tracks/receiver.md`, D-A01–D-A17) and Track B (issuer, `docs/tracks/issuer.md`, D-B01–D-B13)
+merged into main, each re-checked independently first (typecheck, lint, full suite, only its own files changed).
+Merge-time changes by the orchestrating session: `src/index.ts` exports the core, issuer and receiver;
+`better-auth-id-jag/client` exports the issuer's client plugin; the build script rewrites nested and directory
+declaration imports for NodeNext consumers (it only handled top-level files); `.claude/` (agent worktrees) is ignored;
+`test/merge/both-plugins.test.ts` proves both plugins on one host share one jti table and one audit table. Evidence,
+the agents' decisions to review, the open questions and the core change requests: `docs/phase-1.md`. Phase 2 does not
+start without the maintainer's go.
