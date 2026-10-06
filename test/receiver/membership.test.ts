@@ -3,12 +3,14 @@
 // is the entry's `jitRole` (default "member") or, for sso rows, sso's `organizationProvisioning`.
 // Users found any other way are left alone. A failed membership removes the new user and refuses.
 import type { GenericEndpointContext, User } from "better-auth";
+import { defaultAc, memberAc } from "better-auth/plugins/organization/access";
 import { describe, expect, it } from "vitest";
 import type { IdJagClaims, IdJagRefusal } from "../../src/core";
 import { addJitMembership, type IdJagGrantOptions, resolveReceiverOptions, resolveSubject, type StaticTrustedIssuer, TRUSTED_ISSUER_MODEL } from "../../src/receiver";
 import {
   createClient,
   createOrganization,
+  type HostOptions,
   linkedUser,
   membersOf,
   network,
@@ -29,6 +31,7 @@ interface Setup {
   organization?: boolean;
   sso?: { organizationProvisioning?: SsoOrganizationProvisioning };
   logs?: string[];
+  organizationOptions?: HostOptions["organizationOptions"];
 }
 
 async function host(o: Setup = {}) {
@@ -41,6 +44,7 @@ async function host(o: Setup = {}) {
     organization: o.organization ?? true,
     ...(o.sso ? { sso: o.sso } : {}),
     ...(o.logs ? { logs: o.logs } : {}),
+    ...(o.organizationOptions ? { organizationOptions: o.organizationOptions } : {}),
   });
   const client = await createClient(h);
   const attempt = async (over: Record<string, unknown> = {}) => {
@@ -268,5 +272,70 @@ describe("JIT membership: without the organization plugin, and when it fails", (
     expect(await addJitMembership(ctx, trust, user, claims, new Date())).toBe("added");
     expect(await addJitMembership(ctx, trust, user, claims, new Date())).toBe("already-member");
     expect(await membersOf(s.h, org)).toMatchObject([{ userId: user.id, role: "admin" }]);
+  });
+});
+
+/** The organization plugin's options; its access-control types don't survive exactOptionalPropertyTypes. */
+const orgOptions = (o: Record<string, unknown>) => o as HostOptions["organizationOptions"];
+
+describe("JIT roles are checked against the organization plugin's roles (D-A26)", () => {
+  it("a static entry's unknown jitRole is a startup error naming it; the default roles are fine", async () => {
+    await expect(host({ trust: { organizationId: newOrgId(), jitRole: "superuser" } })).rejects.toThrow(/jitRole "superuser".*not a role of the organization plugin/);
+    for (const role of ["owner", "admin", "member", "admin,member"]) await expect(host({ trust: { organizationId: newOrgId(), jitRole: role } })).resolves.toBeDefined();
+    // Without the organization plugin there is nothing to check against (and no membership: D-A22).
+    await expect(host({ organization: false, trust: { organizationId: newOrgId(), jitRole: "superuser" } })).resolves.toBeDefined();
+  });
+
+  it("custom roles from the organization plugin's options are accepted, and used", async () => {
+    const org = newOrgId();
+    const s = await host({ trust: { organizationId: org, jitRole: "auditor" }, organizationOptions: orgOptions({ ac: defaultAc, roles: { auditor: memberAc } }) });
+    await createOrganization(s.h, org);
+    const r = await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() });
+    expect(r.reason).toBe("accepted");
+    expect(await membersOf(s.h, org)).toMatchObject([{ userId: r.userId, role: "auditor" }]);
+    await expect(host({ trust: { organizationId: newOrgId(), jitRole: "auditr" }, organizationOptions: orgOptions({ ac: defaultAc, roles: { auditor: memberAc } }) })).rejects.toThrow(/"auditr"/);
+  });
+
+  it("a table row's unknown jitRole is refused at provisioning: subject_rejected, logged, the user removed", async () => {
+    const logs: string[] = [];
+    const s = await host({ trust: null, receiver: { trustedIssuerTable: true }, logs });
+    const org = await createOrganization(s.h);
+    await s.h.ctx.adapter.create({
+      model: TRUSTED_ISSUER_MODEL,
+      data: { issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, enabled: true, jitProvisioning: true, jitTrustEmailVerified: false, organizationId: org, jitRole: "superuser", createdAt: new Date(), updatedAt: new Date() },
+    });
+    const email = uniqueEmail();
+    const r = await s.attempt({ sub: crypto.randomUUID(), email });
+    expect(r.reason).toBe("subject_rejected");
+    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(logs.some((l) => l.startsWith("error") && l.includes("superuser"))).toBe(true);
+    expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
+    expect(await membersOf(s.h, org)).toHaveLength(0);
+  });
+
+  it("an sso row's role (defaultRole or getRole) that the organization plugin doesn't know is refused the same way", async () => {
+    for (const organizationProvisioning of [{ defaultRole: "superuser" }, { getRole: async () => "ghost" }] as unknown as SsoOrganizationProvisioning[]) {
+      const logs: string[] = [];
+      const s = await host({ trust: null, receiver: { sso: { jitProvisioning: true } }, sso: { organizationProvisioning }, logs });
+      const org = await createOrganization(s.h);
+      await ssoRow(s.h, s.idp, org);
+      const email = uniqueEmail();
+      expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_rejected");
+      expect(logs.some((l) => l.startsWith("error") && /superuser|ghost/.test(l))).toBe(true);
+      expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
+    }
+  });
+
+  it("with dynamic access control, a role not known at startup is checked against the organization's own roles", async () => {
+    const organizationOptions = orgOptions({ ac: defaultAc, dynamicAccessControl: { enabled: true } });
+    const org = newOrgId();
+    const s = await host({ trust: { organizationId: org, jitRole: "contractor" }, organizationOptions });
+    await createOrganization(s.h, org);
+    // Not one of the organization's roles yet: refused at provisioning.
+    expect((await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() })).reason).toBe("subject_rejected");
+    await s.h.ctx.adapter.create({ model: "organizationRole", data: { organizationId: org, role: "contractor", permission: JSON.stringify({}), createdAt: new Date(), updatedAt: new Date() } });
+    const r = await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() });
+    expect(r.reason).toBe("accepted");
+    expect(await membersOf(s.h, org)).toMatchObject([{ userId: r.userId, role: "contractor" }]);
   });
 });

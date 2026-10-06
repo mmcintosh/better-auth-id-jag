@@ -206,7 +206,7 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
       membership = await addJitMembership(ctx, trust, user, claims, now);
     } catch (e) {
       membershipFailed = true;
-      ctx.context.logger.error(`[id-jag] JIT: adding the new user to organization ${trust.organizationId ?? ""} failed; removing the user and refusing`, e);
+      ctx.context.logger.error(`[id-jag] JIT: adding the new user to organization ${trust.organizationId ?? ""} failed (${e instanceof Error ? e.message : "error"}); removing the user and refusing`, e);
       try {
         await internal.deleteUser(user.id);
       } catch (e2) {
