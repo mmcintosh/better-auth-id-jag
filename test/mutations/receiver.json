@@ -576,6 +576,277 @@
   ]
  },
  {
+  "name": "requireResourceClaim: check removed",
+  "file": "src/receiver/grant.ts",
+  "a": "    if (o.requireResourceClaim && parsed.claims.resource === undefined) refuse(\"missing_claim\", \"resource\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "requireResourceClaim: always on (default no longer D-A06)",
+  "file": "src/receiver/grant.ts",
+  "a": "if (o.requireResourceClaim && parsed.claims.resource",
+  "b": "if (true && parsed.claims.resource",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "requireResourceClaim: option not resolved",
+  "file": "src/receiver/options.ts",
+  "a": "requireResourceClaim: options.requireResourceClaim === true,",
+  "b": "requireResourceClaim: false,",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "S8 requireResourceClaim: checked after trust and signature (untrusted issuers answer differently, keys fetched)",
+  "edits": [
+   {
+    "file": "src/receiver/grant.ts",
+    "a": "    if (o.requireResourceClaim && parsed.claims.resource === undefined) refuse(\"missing_claim\", \"resource\");\n",
+    "b": ""
+   },
+   {
+    "file": "src/receiver/grant.ts",
+    "a": "    const claims = verified.claims;\n",
+    "b": "    const claims = verified.claims;\n    if (o.requireResourceClaim && claims.resource === undefined) refuse(\"missing_claim\", \"resource\");\n"
+   }
+  ],
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "requireResourceClaim: checked after the jti is recorded (refused token burns its jti)",
+  "edits": [
+   {
+    "file": "src/receiver/grant.ts",
+    "a": "    if (o.requireResourceClaim && parsed.claims.resource === undefined) refuse(\"missing_claim\", \"resource\");\n",
+    "b": ""
+   },
+   {
+    "file": "src/receiver/grant.ts",
+    "a": "    if (!first) refuse(\"replay\", claims.jti);\n",
+    "b": "    if (!first) refuse(\"replay\", claims.jti);\n    if (o.requireResourceClaim && claims.resource === undefined) refuse(\"missing_claim\", \"resource\");\n"
+   }
+  ],
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: never added",
+  "file": "src/receiver/membership.ts",
+  "a": "  await adapter.create({ model: \"member\"",
+  "b": "  if (Math) return \"added\";\n  await adapter.create({ model: \"member\"",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: not called from JIT",
+  "file": "src/receiver/resolve.ts",
+  "a": "      await addJitMembership(ctx, trust, user, claims, now);",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: jitRole ignored",
+  "file": "src/receiver/membership.ts",
+  "a": "(trust.jitRole ?? DEFAULT_JIT_ROLE)",
+  "b": "DEFAULT_JIT_ROLE",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: static jitRole not resolved",
+  "file": "src/receiver/options.ts",
+  "a": "      jitRole: t.jitRole,\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: table jitRole not read",
+  "file": "src/receiver/trust.ts",
+  "a": "      jitRole: orUndef(r.jitRole),\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: sso rows use jitRole instead of sso's organizationProvisioning",
+  "file": "src/receiver/membership.ts",
+  "a": "trust.source === \"sso\" ? await ssoRole(ctx, trust, user, claims) :",
+  "b": "false ? await ssoRole(ctx, trust, user, claims) :",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: sso organizationProvisioning.disabled ignored",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (provisioning?.disabled === true) return null;\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: sso getRole ignored",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (provisioning?.getRole) {",
+  "b": "  if (provisioning?.getRole && false) {",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: sso getRole result not validated",
+  "file": "src/receiver/membership.ts",
+  "a": "    if (!chosen.success) throw new Error(\"sso organizationProvisioning.getRole returned no role\");\n    return chosen.data;",
+  "b": "    return chosen.success ? chosen.data : DEFAULT_JIT_ROLE;",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: sso defaultRole ignored",
+  "file": "src/receiver/membership.ts",
+  "a": "return provisioning?.defaultRole ?? DEFAULT_JIT_ROLE;",
+  "b": "return DEFAULT_JIT_ROLE;",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: organization plugin presence not checked",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (!ctx.context.hasPlugin(\"organization\")) {",
+  "b": "  if (false) {",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: request-time warning without the organization plugin removed",
+  "file": "src/receiver/membership.ts",
+  "a": "    ctx.context.logger.warn(`[id-jag] JIT: trust entry",
+  "b": "    void (`[id-jag] JIT: trust entry",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: startup warning without the organization plugin removed",
+  "file": "src/receiver/plugin.ts",
+  "a": "      if (orgEntries.length > 0 && !ctx.hasPlugin(\"organization\"))",
+  "b": "      if (false)",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: missing organization not detected",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (!organization) throw new Error(`organization ${organizationId} does not exist`);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: existing membership duplicated",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (existing) return \"already-member\";\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: pending invitation preempted",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (invitation) return \"invitation-pending\";\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: failure swallowed (half-provisioned user accepted)",
+  "file": "src/receiver/resolve.ts",
+  "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: the new user not removed on failure",
+  "file": "src/receiver/resolve.ts",
+  "a": "        await internal.deleteUser(user.id);",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership: account linked before the membership (a failed removal leaves a findable user)",
+  "edits": [
+   {
+    "file": "src/receiver/resolve.ts",
+    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n",
+    "b": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n"
+   },
+   {
+    "file": "src/receiver/resolve.ts",
+    "a": "    let membershipFailed = false;\n",
+    "b": "    await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    let membershipFailed = false;\n"
+   }
+  ],
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership (D-A19): an existing user found by account is added too",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (owner?.kind === \"owned\") return { user: assertNotBanned(owner.user, now), via: \"account\" };",
+  "b": "  if (owner?.kind === \"owned\") {\n    await addJitMembership(ctx, trust, owner.user, claims, now);\n    return { user: assertNotBanned(owner.user, now), via: \"account\" };\n  }",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "JIT membership (D-A19): an existing user found by email is added too",
+  "file": "src/receiver/resolve.ts",
+  "a": "      return { user: found.user, via: \"email\" };",
+  "b": "      await addJitMembership(ctx, trust, found.user, claims, now);\n      return { user: found.user, via: \"email\" };",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "options: jitRole without organizationId accepted",
+  "file": "src/receiver/options.ts",
+  "a": "  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, \"jitRole needs organizationId\");",
+  "b": ";",
+  "paths": [
+   "test/receiver/options.test.ts",
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
   "name": "receiver: act not carried into the access token",
   "file": "src/receiver/grant.ts",
   "a": ", ...(claims.act ? { act: claims.act } : {}) },",

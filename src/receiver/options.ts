@@ -15,7 +15,10 @@ export interface StaticTrustedIssuer {
   jwksUri?: string;
   /** Its OpenID / RFC 8414 metadata document (https); its `issuer` must equal `issuer` exactly. */
   discoveryUri?: string;
-  /** Recorded on the accepted event and passed to `resolveSubject`. */
+  /**
+   * Recorded on the accepted event and passed to `resolveSubject`. With JIT provisioning and the
+   * organization plugin, a user JIT creates becomes a member of it (with `jitRole`).
+   */
   organizationId?: string;
   /** If set, only these clients (their id here) may present this issuer's ID-JAGs. */
   allowedClientIds?: string[];
@@ -27,6 +30,8 @@ export interface StaticTrustedIssuer {
   emailFallback?: { domains: string[] };
   /** Create a user for an unknown subject. Off by default. */
   jitProvisioning?: boolean | { trustEmailVerified?: boolean };
+  /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
+  jitRole?: string;
 }
 
 /** Trust the OIDC providers registered in `@better-auth/sso` (opt-in). */
@@ -75,6 +80,8 @@ export interface IdJagGrantOptions extends AuditOptions {
   allowPublicClients?: boolean;
   /** Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. Default false. */
   allowEmptyScope?: boolean;
+  /** Refuse an ID-JAG without a `resource` claim (public `missing_claim`). Default false (D-A06). */
+  requireResourceClaim?: boolean;
   clockSkewSeconds?: number;
   maxLifetimeSeconds?: number;
   /** The only fetch the receiver uses (JWKS and discovery of trusted issuers). Default: global fetch. */
@@ -107,8 +114,10 @@ const staticIssuer = z
     accountProviderId: id.optional(),
     emailFallback: z.strictObject({ domains: z.array(z.string().min(1).max(253)).min(1) }).optional(),
     jitProvisioning: jit.optional(),
+    jitRole: z.string().min(1).max(256).optional(),
   })
-  .refine((t) => t.jwksUri !== undefined || t.discoveryUri !== undefined, "jwksUri or discoveryUri is required");
+  .refine((t) => t.jwksUri !== undefined || t.discoveryUri !== undefined, "jwksUri or discoveryUri is required")
+  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, "jitRole needs organizationId");
 
 const optionsSchema = z.strictObject({
   trustedIssuers: z.array(staticIssuer).optional(),
@@ -123,6 +132,7 @@ const optionsSchema = z.strictObject({
   defaultResource: id.optional(),
   allowPublicClients: z.boolean().optional(),
   allowEmptyScope: z.boolean().optional(),
+  requireResourceClaim: z.boolean().optional(),
   clockSkewSeconds: z.number().optional(),
   maxLifetimeSeconds: z.number().optional(),
   fetch: fn.optional(),
@@ -148,6 +158,8 @@ export interface TrustEntry extends TrustedIssuerView {
   /** Email fallback domains (lowercase); null = no email fallback. */
   emailDomains: string[] | null;
   jit: false | { trustEmailVerified: boolean };
+  /** The role for JIT membership (static and table entries); sso entries use sso's own setting. */
+  jitRole?: string | undefined;
 }
 
 export interface ResolvedSsoTrust {
@@ -166,6 +178,7 @@ export interface ResolvedReceiverOptions {
   maxLifetimeSeconds: number;
   allowPublicClients: boolean;
   allowEmptyScope: boolean;
+  requireResourceClaim: boolean;
   defaultResource?: string | undefined;
   resolveSubject?: IdJagGrantOptions["resolveSubject"];
   audit: AuditOptions;
@@ -205,6 +218,7 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
       accountProviderId: t.accountProviderId ?? defaultAccountProviderId(t.issuer),
       emailDomains: t.emailFallback ? t.emailFallback.domains.map((d) => d.toLowerCase()) : null,
       jit: jitOption(t.jitProvisioning),
+      jitRole: t.jitRole,
     };
   });
   const sso = options.sso === undefined || options.sso === false ? null : options.sso === true ? {} : options.sso;
@@ -225,6 +239,7 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
     maxLifetimeSeconds,
     allowPublicClients: options.allowPublicClients === true,
     allowEmptyScope: options.allowEmptyScope === true,
+    requireResourceClaim: options.requireResourceClaim === true,
     defaultResource: options.defaultResource,
     resolveSubject: options.resolveSubject,
     audit: { ...(options.events ? { events: options.events } : {}), ...(options.auditLog ? { auditLog: options.auditLog } : {}) },
