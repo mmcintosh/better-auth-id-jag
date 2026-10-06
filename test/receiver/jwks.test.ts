@@ -5,7 +5,7 @@ import { IdJagRefusal } from "../../src/core";
 import { JwksCache, type JwksSettings } from "../../src/receiver";
 import { createClient, linkedUser, network, receiverHost, recorder, redeem, testIdp } from "../support/receiver-host";
 
-const SETTINGS: JwksSettings = { timeoutMs: 200, maxBytes: 64 * 1024, cacheTtlMs: 600_000, minRefetchMs: 60_000 };
+const SETTINGS: JwksSettings = { timeoutMs: 200, maxBytes: 64 * 1024, cacheTtlMs: 600_000, minRefetchMs: 60_000, maxStaleMs: 3_600_000 };
 
 async function reasonOf(p: Promise<unknown>): Promise<string> {
   try {
@@ -198,6 +198,51 @@ describe("JwksCache: caching and refetch (S4)", () => {
     expect(net.calls).toHaveLength(2);
   });
 
+  it("stale keys while the JWKS is down: used up to maxStale past the TTL, then refused until a fetch succeeds (D-A25)", async () => {
+    const idp = await testIdp();
+    const net = network(idp);
+    const c = clock();
+    const cache = new JwksCache(net.fetch, SETTINGS, c.now);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    idp.override = () => new Response("down", { status: 503 });
+    // Past the TTL: the refetch fails (that request is refused), then the cached keys answer.
+    c.advance(SETTINGS.cacheTtlMs);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    // The last moment of the stale window: still the cached keys (after that minute's failed refetch).
+    c.advance(SETTINGS.maxStaleMs - 1);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    // Past it: the cached keys are discarded; every request is jwks_unavailable, fetched or not.
+    c.advance(1);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("jwks_unavailable: no keys (a recent fetch failed)");
+    c.advance(SETTINGS.minRefetchMs);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("jwks_unavailable: no keys (a recent fetch failed)");
+    // 30 days on, still down: still refused.
+    c.advance(30 * 86_400_000);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/^jwks_unavailable/);
+    // The JWKS is back: the next fetch (after the interval) restores it.
+    idp.override = undefined;
+    c.advance(SETTINGS.minRefetchMs);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+  });
+
+  it("maxStale 0: no stale keys at all past the TTL", async () => {
+    const idp = await testIdp();
+    const c = clock();
+    const cache = new JwksCache(network(idp).fetch, { ...SETTINGS, maxStaleMs: 0 }, c.now);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    idp.override = () => new Response("down", { status: 503 });
+    c.advance(SETTINGS.cacheTtlMs - 1);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    c.advance(1);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/^jwks_unavailable/);
+  });
+
   it("concurrent lookups share one fetch", async () => {
     const idp = await testIdp();
     const net = network(idp);
@@ -263,6 +308,41 @@ describe("through the grant", () => {
     await s.rec.settle();
     expect(s.rec.refused.map((e) => e.reason)).toEqual(["bad_signature", "bad_signature", "bad_signature"]);
     expect(s.net.calls).toHaveLength(1);
+  });
+
+  it("the IdP's JWKS down: stale keys for an hour past the 10-minute TTL by default, then jwks_unavailable; jwks.maxStaleSeconds changes it (D-A25)", async () => {
+    for (const maxStaleSeconds of [undefined, 120]) {
+      let t = Date.now();
+      const idp = await testIdp();
+      const rec = recorder();
+      const h = await receiverHost("mcp", {
+        receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch, clock: () => new Date(t), ...(maxStaleSeconds === undefined ? {} : { jwks: { maxStaleSeconds } }) },
+        recorder: rec,
+      });
+      const client = await createClient(h);
+      const sub = crypto.randomUUID();
+      await linkedUser(h, `id-jag:${idp.issuer}`, sub);
+      const attempt = async () => {
+        const iat = Math.floor(t / 1000);
+        const r = await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id, iat, exp: iat + 300 })));
+        await rec.settle();
+        return r.status === 200 ? "ok" : rec.refused.at(-1)?.reason;
+      };
+      const stale = (maxStaleSeconds ?? 3600) * 1000;
+      expect(await attempt()).toBe("ok");
+      idp.override = () => new Response("down", { status: 503 });
+      t += 600_000 + stale - 1000;
+      expect(await attempt()).toBe("jwks_unavailable");
+      expect(await attempt()).toBe("ok");
+      t += 1000;
+      expect(await attempt()).toBe("jwks_unavailable");
+      t += 60_000;
+      expect(await attempt()).toBe("jwks_unavailable");
+      expect(await attempt()).toBe("jwks_unavailable");
+      idp.override = undefined;
+      t += 60_000;
+      expect(await attempt()).toBe("ok");
+    }
   });
 
   it("an algorithm the issuer's JWKS doesn't publish is bad_signature (S8: not the public disallowed_alg)", async () => {

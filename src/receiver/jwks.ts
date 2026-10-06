@@ -5,7 +5,9 @@
 //   workerd refuses `redirect: "error"` (docs/phase-0.md finding 1);
 // - a response size cap and a timeout covering the whole exchange;
 // - keys cached per issuer by `kid`; an unknown `kid` causes at most one refetch per interval per
-//   issuer, so a caller can't make us hammer an issuer's JWKS; a failed fetch counts too.
+//   issuer, so a caller can't make us hammer an issuer's JWKS; a failed fetch counts too;
+// - while the JWKS is unreachable, cached keys keep working for at most `maxStaleMs` past the TTL
+//   (D-A25); after that they are discarded, so a key the IdP withdrew can't live on indefinitely.
 // Every problem is `jwks_unavailable`; an empty key set is a problem, not "trust nothing" (S1).
 import { createLocalJWKSet, type JSONWebKeySet, type JWK } from "jose";
 import { z } from "zod";
@@ -18,6 +20,8 @@ export interface JwksSettings {
   maxBytes: number;
   cacheTtlMs: number;
   minRefetchMs: number;
+  /** How long past the TTL cached keys may still be used while refetches fail. */
+  maxStaleMs: number;
 }
 
 /** Where an issuer's keys come from. */
@@ -82,6 +86,8 @@ export class JwksCache {
       else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs) await this.refresh(entry, source);
       // else: refetched too recently; use what we have (an unknown kid then fails as a bad signature).
     }
+    // Too stale to use (the refetches failed): discard the keys until a fetch succeeds.
+    if (entry.keys !== null && this.now() - entry.fetchedAt >= this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;
     if (!entry.keys) refuse("jwks_unavailable", "no keys (a recent fetch failed)");
     return toIssuerKeys(entry.keys);
   }
