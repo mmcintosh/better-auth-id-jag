@@ -22,6 +22,10 @@ export function trustedIssuerSchema() {
         jitTrustEmailVerified: { type: "boolean", required: true, defaultValue: false, input: false },
         /** The organization role of a user JIT creates for this row's organizationId; null = "member". */
         jitRole: { type: "string", required: false, input: false },
+        /** JSON array of SAML NameID `sub_id` mappings (the `samlSubjects` option's shape), or null for none. */
+        samlSubjects: { type: "string", required: false, input: false },
+        /** Refuse ID-JAGs without a SAML NameID `sub_id` (needs samlSubjects); null = false. */
+        requireSubId: { type: "boolean", required: false, input: false },
         tenant: { type: "string", required: false, input: false },
         organizationId: { type: "string", required: false, input: false },
         enabled: { type: "boolean", required: true, defaultValue: true, input: false },

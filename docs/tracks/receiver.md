@@ -14,7 +14,7 @@ audience-restricted to the MCP resource.
 | `src/receiver/options.ts` | The options types, their zod schema (strict: unknown keys refused) and `resolveReceiverOptions()`, which validates the options and builds the state: JWKS cache, clock, sweep throttle. |
 | `src/receiver/trust.ts` | `findTrustedIssuer`: static config, `@better-auth/sso` OIDC rows and the `idJagTrustedIssuer` table, combined. |
 | `src/receiver/jwks.ts` | `JwksCache`: JWKS and discovery fetches under the S10 network rules, with a cache by kid and a refetch rate limit. |
-| `src/receiver/resolve.ts` | `resolveSubject`: the host hook, then the linked account, then the email fallback, then JIT. |
+| `src/receiver/resolve.ts` | `resolveSubject`: the host hook, then the subject's key (`subjectKey`: `sub`, or a mapped SAML NameID `sub_id`, D-A27–D-A31), then the linked account, then the email fallback, then JIT. |
 | `src/receiver/membership.ts` | `addJitMembership`: a JIT-created user joins the trust entry's organization (Phase 2, D-A18–D-A20). |
 | `src/receiver/schema.ts` | The `idJagTrustedIssuer` table. |
 | `src/receiver/index.ts` | The public API (below). `src/index.ts` is not wired; that happens at merge. |
@@ -32,7 +32,9 @@ audience-restricted to the MCP resource.
 idJagGrant({
   trustedIssuers?: [{ issuer, jwksUri? | discoveryUri?, organizationId?, allowedClientIds?, tenant?,
                       accountProviderId?, emailFallback?: { domains }, jitProvisioning?: boolean | { trustEmailVerified? },
-                      jitRole? }],              // needs organizationId; default "member"; checked against the organization plugin's roles (D-A26)
+                      jitRole?,                 // needs organizationId; default "member"; checked against the organization plugin's roles (D-A26)
+                      samlSubjects?: [{ issuer, spNameQualifier?, nameQualifier?, nameIdFormats?, accountProviderId }],
+                      requireSubId? }],         // needs samlSubjects; default false (D-A27)
   sso?: boolean | { providerIds?, emailFallback?, jitProvisioning?, allowedClientIds? },   // default off
   trustedIssuerTable?: boolean,                                                           // default off
   resolveSubject?: (input) => { action: "link", userId } | { action: "continue" } | { action: "reject" },
@@ -63,7 +65,7 @@ The order is D-007's, as the Phase 1 brief corrected it.
 | 6. Scopes (moved before the subject, D-007) | `grant.ts` | Granted = ID-JAG `scope` ∩ the request's `scope` (if sent) ∩ the client's registered scopes ∩ the resource's scopes. The resource's scopes are its `allowedScopes`, or else the provider's advertised or configured scopes. `openid` and `offline_access` are always removed. Empty → `no_scope`. |
 | 7. Resource | `grant.ts` | Picked from the claim, or else the request's `resource`, or else `defaultResource`, or else the only registered one. It must be in `opts.resources`; for `mcp()` that includes its `resource`. Otherwise `unknown_resource` (`invalid_target`). Plan §3.4 step 9. |
 | 8. `jti` | core | `recordJti(adapter, { side: "accepted", ..., exp, clockSkewSeconds })`; `false` → `replay`. |
-| 9. Subject | `resolve.ts` | Plan step 10: the hook, then the account (`providerId` = the entry's account provider id, `accountId` = `sub`), then the email fallback (opt-in, listed or verified domains), then JIT (opt-in). Banned users are refused. A JIT user joins the trust entry's organization (D-A18–D-A20). |
+| 9. Subject | `resolve.ts` | Plan step 10: the hook, then the subject's key (D-A28: `sub`, or for an entry with `samlSubjects` the mapped SAML NameID of `sub_id`), then the account (`providerId` = the entry's account provider id, `accountId` = `sub`; or the mapping's `accountProviderId` and the NameID), then the email fallback (opt-in, listed or verified domains), then JIT (opt-in). Banned users are refused. A JIT user joins the trust entry's organization (D-A18–D-A20). |
 | 10. Issue | `grant.ts` | `provider.issueTokens({ client, user, scopes, resources: [resource], accessTokenClaims: { idjag: { iss, jti, tenant? } }, authTime, tokenResponse: {} })`. With no `offline_access` there is no refresh token, and with no `openid` no ID token. `id-jag.accepted` is emitted. |
 
 Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown as `toApiError(...)`.
@@ -218,6 +220,92 @@ Four defects, each reproduced by the reviewer; each got a failing test first, wh
 
 `JwksSettings` (exported) has a new required `maxStaleMs`. `test/support/receiver-host.ts` gained `databaseHooks`, `organizationOptions` and `barrier()`.
 
+### Phase 3: SAML NameID `sub_id` (task T8, D-A27–D-A31)
+
+The design's receiver part (phase-3 design §2, rows R3-S1 to R3-S8), draft -04 §3.1, §3.2.1–§3.2.2, §4.4.1, §9.5 and §9.6. The core's `SAML_NAMEID_SUB_ID_FORMAT`, `samlNameIdSubIdSchema` and `parseSamlNameIdSubId()` are used as they are. Nothing in `src/core/**` changed.
+
+- **D-A27: options and table columns.**
+  - A static trust entry takes `samlSubjects?: [{ issuer, spNameQualifier?, nameQualifier?, nameIdFormats?, accountProviderId }]` and `requireSubId?: boolean` (default false).
+  - The `idJagTrustedIssuer` table has two new nullable columns: `samlSubjects`, a JSON string in the same shape (like the table's other list columns), and `requireSubId`, a boolean where null means false. The table is still read-only (D-A12).
+  - **Validation.** Both go through zod (`samlSubjectSchema`, strict). The SAML values are non-empty, at most 2048 characters, with no C0/C1 controls (the core refuses those in `sub_id`, so a configured value with them could never match). `nameIdFormats` is non-empty and can't contain the transient format. A list has between 1 and 100 entries. `requireSubId` needs `samlSubjects`.
+  - **Checks across one entry's mappings** (`normaliseSamlSubjects`, run for static entries and for table rows):
+    - A SAML namespace, meaning (issuer, spNameQualifier, nameQualifier) with absent and `null` counted as the same, can't be listed twice.
+    - Two namespaces can't share an `accountProviderId`. Identical NameIDs from different IdP connections would otherwise become one user.
+    - A mapping can't use the entry's own `sub` account provider id. NameIDs and `sub`s would then share one key space.
+  - **Checks across static entries:** an `accountProviderId` names exactly one namespace. That is one SAML namespace, which several entries may share (two ID-JAG issuers relaying one SAML IdP), or one entry's `sub`s.
+  - A static defect is a startup error that names the issuer and the problem. A table row with a defect is ignored with a warning, as for its other columns. Overlaps between sources (static, table, sso) aren't checked: they are only known at request time.
+  - **Left out, as the design says:** `sso.samlSubjects` for sso-trusted issuers. It is a follow-up; sso trust entries ignore `sub_id` for now.
+    - **[uncertain] in the design, resolved by reading sso 1.7.6:** an SAML `ssoProvider` row's `issuer` is the registrant's `body.issuer` (`z.string().url()`). It isn't checked against the IdP metadata's entity ID when the row is registered. At sign-in, sso uses `idp.entityMeta.getEntityID()`, so the two can differ. Inferring a mapping from the row's `issuer` would therefore be wrong. A follow-up could derive it with sso's exported `deriveSAMLIdentityProviderEntityID(samlConfig)`.
+- **D-A28: the order, and what is compared** (`subjectKey` in `resolve.ts`, exported).
+  - **Where:** after the host's `resolveSubject` hook, which sees the raw claims, `sub_id` included, and can still link, continue or reject. It comes before any account lookup.
+    - Step 9 runs only after trust by `iss`, the signature, `aud`, `client_id`, scopes, the resource and `jti`. Only the mappings of the trust entry that matched are read, so `sub_id.issuer` never selects or establishes trust (§9.5).
+  - **No `samlSubjects`:** `sub_id` is ignored and the key is (accountProviderId, `sub`), as before. A malformed `sub_id` isn't refused either (R3-S5).
+  - **With `samlSubjects`, and a `sub_id` whose `format` is `saml-nameid`:**
+    1. It is parsed with the core's strict schema. If that fails, the result is `subject_rejected` with the detail `sub_id malformed (...)`.
+       - The core throws its public `invalid_claim`. It is re-thrown as the non-public `subject_rejected`, because draft §3.2.2 says `invalid_grant`. The public body would also tell a caller which issuers resolve by `sub_id`.
+       - It is never a fallback to `sub`.
+    2. A transient `nameid_format` is refused, whatever the mappings say, and before any mapping is matched.
+    3. The mapping must match the `issuer` exactly, and `sp_name_qualifier` and `name_qualifier` null-safely: a value missing from the configuration must also be missing from the `sub_id`. There is no case folding and no trailing-slash normalisation. With no match: `subject_rejected` ("sub_id not authorized for this issuer").
+    4. If the mapping lists `nameIdFormats`, `nameid_format` must be present and listed.
+    5. The key is (mapping.accountProviderId, `nameid`).
+  - **`sub_id` absent or of another format:** with `requireSubId`, `subject_rejected` ("sub_id required: …"). Without it, the `sub` key, as before.
+    - A `sub_id` that isn't an object with a non-empty string `format` is already refused by the core's parse in step 2 (the public `invalid_claim`, before trust). That ordering is unchanged.
+  - **What isn't part of the key:**
+    - `sp_provided_id` isn't compared. The draft requires comparing the members "that are part of the set of identifier fields it uses", and we don't use it.
+    - `nameid_format` is an allow-list, not part of the key, because sso doesn't store it on the account (`{ providerId, accountId: extract.nameID }`, confirmed in `@better-auth/sso` dist `index.mjs`, around lines 3001–3045).
+- **D-A29: lookups and links use the key.**
+  - **Linked account:** the same duplicate-tolerant lookup (D-A24) under the key. An owned account gives that user. An orphaned one is `unknown_subject`, never re-linked by email.
+  - **Email fallback:** unchanged rules.
+    - It needs the entry's `emailDomains`, and it keeps D-A23: only a local user whose `emailVerified` is `true`. Otherwise `unknown_subject`, not JIT.
+    - A user who already has an account under the key's provider id (another NameID of the same SAML namespace) is refused.
+    - It links (accountProviderId, nameid).
+  - **JIT:** links with the mapping key, not `sub`. xaa.dev warns that `sub` may be an "opaque, Auth Server-local identifier that changes on server restart". A later ID-JAG with another `sub` and the same `sub_id` finds the same user.
+  - **Known gap:** JIT still needs an `email` claim, because Better Auth users must have one. xaa.dev's persistent-NameID runs carry no `email`, so they get a clean `unknown_subject` (generic body, nothing created) unless an account is already linked or the host's hook resolves them. sso itself falls back to the NameID as the email at SAML sign-in. We don't, because a NameID isn't a verified address.
+  - **Audit details (§9.6):** a NameID can be an email address or an enterprise id, so it never appears in a refusal detail. "Not authorized" and "format not allowed" record the log-safe members instead: `issuer`, `sp_name_qualifier`, `name_qualifier` and `nameid_format`. That is the "observe mode" the design asks for, for configuring xaa.dev from its first refused run. `unknown_subject` records `sub_id at <accountProviderId>`.
+- **D-A30: one account provider id per namespace** (the R3-S7 rule, enforced at configuration time by D-A27). With two mappings and two `accountProviderId`s, the same NameID from two IdP connections gives two users (xaa.dev's test).
+- **D-A31: concurrent first use converges under the new key too** (D-A24). `converge` now takes the key, (providerId, accountId), instead of the trust entry and `sub`. So the oldest-row-wins re-read, the cleanup of duplicates and of the loser's JIT user and membership, and the no-500 wrapper all apply to links under a mapping key unchanged.
+
+**Evidence** (run on 2026-10-06; see "Phase 3 evidence" below).
+
+| Item | Test (`test/receiver/sub-id.test.ts` unless noted; both runtimes) |
+|---|---|
+| R3-S1 | "a sub_id mapped only under another trust entry is refused…": entry A maps only Y and B maps X. A's ID-JAG with X's `sub_id`, while A's `sub` is linked, gives `subject_rejected` and the generic body; the detail has X's issuer and not the NameID. B's ID-JAG resolves the X-linked user. "an untrusted iss with a valid-looking sub_id": `untrusted_issuer`, with no fetch. |
+| R3-S2 | `sp_name_qualifier` mismatched, absent when configured, or present when not configured; the issuer with a trailing slash or upper-cased: each refused, while the exact match is accepted. The same for `name_qualifier`, with an explicit `null` in the configuration. `nameIdFormats`: an unlisted or absent format is refused; no list accepts any non-transient format. |
+| R3-S3 | An unknown member, an empty `nameid`, a control character in `nameid` or `issuer`, a missing `issuer`, a non-string member, an empty `nameid_format`: each `subject_rejected` with the generic body, while the `sub` is linked, so a fallback would have been accepted. |
+| R3-S4 | `requireSubId`: absent, and `format: "email"`, are refused even with the `sub` linked; a mapped `sub_id` is accepted. Without it, both fall back to `sub`. Table rows: `requireSubId` is honoured. |
+| R3-S5 | No mappings: a `sub_id` naming an existing SAML-linked account gives `unknown_subject`; a malformed `sub_id` with a linked `sub` is accepted. `subjectKey` returns the `sub` key. |
+| R3-S6 | Transient: refused (exact detail) even with an account linked for that NameID and no format list, and before mapping (an unmapped issuer gets the transient detail). Listing it in `nameIdFormats` is a startup error (here and in `options.test.ts`). |
+| R3-S7 | JIT links (accountProviderId, nameid), and nothing under `sub`. Another `sub` with the same `sub_id` gives the same user, with or without `email`. **xaa.dev's case:** the same NameID under two mappings with two `accountProviderId`s gives two users, each found again by its own link. An account stored as sso stores a SAML sign-in is found. Persistent NameID, no `email`, JIT: a clean `unknown_subject`, nothing linked (the known gap). A banned user is refused; an orphaned link isn't re-linked by email (unit level, and the lookup uses the mapping key). |
+| R3-S8 | The email fallback under `sub_id`: an unverified self-registered account is refused (D-A23's detail), with nothing linked, no JIT, and its only account still `credential`. A verified user is linked under (accountProviderId, nameid) and not under `sub`. Another NameID with the same email is refused. |
+| Hook | It runs first, sees `sub_id`, and its `link` wins over a `sub_id` that would be refused. |
+| Table | The `samlSubjects` JSON and `requireSubId` are used; null columns behave as before. Rows with invalid JSON, an empty list, an unknown key, an empty issuer, a namespace listed twice, two namespaces under one provider id, a mapping under the row's own provider id, or `requireSubId` without mappings are ignored with a warning. |
+| Options (`options.test.ts`) | 16 refusals (an empty list, an empty issuer, no `accountProviderId`, an unknown key, a control character, an empty qualifier, empty `nameIdFormats`, transient, a namespace listed twice, two namespaces under one provider id, the entry's own or default provider id, another entry's `sub` provider id, one provider id for two namespaces across entries, `requireSubId` without mappings, a non-boolean `requireSubId`). Accepted and normalised: a full mapping, and two entries sharing one namespace. |
+| D-A31 (`concurrency.test.ts`) | Two instances on one database, 6 parallel requests with distinct ID-JAGs, **one `sub_id` and 6 different `sub`s**. Each scenario runs as the requests come and held by `barrier()`. The email fallback (held at the account insert): one row under the mapping key, none under any `sub`, a later grant with a new `sub` gets 200. JIT (held at the user insert): no 500, one user, one row, one membership, the held run's losers `subject_rejected`. JIT with 6 different emails, held at the account insert: all 200 for one user, and the losers' users and rows removed. |
+
+**Phase 3 evidence, run on 2026-10-06:**
+- **`pnpm typecheck` and `pnpm lint`:** clean.
+- **`pnpm test`:** 768 passed and 28 skipped, which is 384 per runtime, on Node (node:sqlite) and workerd (D1).
+  - The receiver's own tests: 184 per runtime, in 11 files (134 before). The new ones are `sub-id.test.ts` (28), `options.test.ts` (+17) and `concurrency.test.ts` (+5).
+- **`python3 scripts/mutate.py test/mutations/receiver.json`:** 157 entries; 153 caught, 4 expected survivors (the same four as D-A23/D-A24), 0 problems, exit 0.
+  - **Stale patterns updated (6),** because the code they target now uses the subject key: "email fallback takes a user linked to another subject", "account linked before the membership", "jitRole without organizationId accepted", and D-A24's "findAccountOwnerByKey", "email fallback: no convergence" and "JIT: no convergence".
+  - **New entries (36):**
+    - R3-S1: 2;
+    - R3-S2: 6;
+    - R3-S3: 2;
+    - R3-S4: 5;
+    - R3-S5: 1;
+    - R3-S6: 2;
+    - R3-S7: 6, including the hook order and the NameID kept out of two audit details;
+    - R3-S8: 2;
+    - options and table: 9;
+    - D-A31: 1.
+  - **The first run had two survivors,** "two SAML namespaces under one accountProviderId accepted" and "a mapping under the entry's own sub provider id accepted". For static entries they are equivalent, because the across-entries check refuses both configurations too. Table rows rely on the within-entry check alone. Two table-row tests were added, and both mutants are now caught.
+  - **"D-A24 for D-A27: no convergence for links under the mapping key"** fails exactly the two barrier-held SAML runs: the email fallback held at the account insert, and JIT with different emails. Rerun by hand on Node, to see which tests fail. So the barrier really forces the race for the new key.
+- **Still open:**
+  - the exact `sub_id.issuer` and `sp_name_qualifier` values xaa.dev sends (design [uncertain]). The refusal detail records them for the observe-mode first run (T10);
+  - `sso.samlSubjects` (follow-up);
+  - JIT without `email` (known gap, D-A29).
+
 ## Evidence
 
 Run on 2026-10-06, Better Auth 1.7.6 (D-002).
@@ -324,3 +412,16 @@ S6 is the issuer's. S9 is covered by the property tests above. S11: the receiver
    The receiver would then catch the provider's `APIError` from `authenticateClient`, emit the refusal and rethrow the provider's error unchanged. That keeps the provider's `WWW-Authenticate` behaviour.
 2. **`verifyIdJag` accepting an already-parsed token** (`verifyParsedIdJag(parsed, token, key, expected)`), to save the second `parseIdJag` and `checkTimes` the receiver now causes. Not needed for correctness; the double parse costs microseconds.
 3. **Schema overlap at merge.** Both plugins declare `idJagJti` (and `idJagAudit`). A host with both installs the same model twice. Better Auth merges plugin schemas by model name and the fields are identical, so it should be harmless, but nothing has tested it yet. A Phase 2 host with both plugins should. If it isn't harmless, the core should export one "core tables" plugin both depend on.
+4. **(Phase 3, optional) `parseSamlNameIdSubId` without the public refusal.** It throws the public `invalid_claim`, which the receiver catches and re-throws as `subject_rejected` (D-A28). A non-throwing variant would make that explicit:
+   ```diff
+   --- a/src/core/jwt.ts
+   +++ b/src/core/jwt.ts
+   @@
+   +/** As parseSamlNameIdSubId, without throwing: the issues' paths when malformed. */
+   +export function safeParseSamlNameIdSubId(subId: unknown): { ok: true; value: SamlNameIdSubId | undefined } | { ok: false; issues: string } {
+   +  if (subId === undefined || (typeof subId === "object" && subId !== null && (subId as { format?: unknown }).format !== "saml-nameid")) return { ok: true, value: undefined };
+   +  const parsed = samlNameIdSubIdSchema.safeParse(subId);
+   +  return parsed.success ? { ok: true, value: parsed.data } : { ok: false, issues: parsed.error.issues.map((i) => i.path.join(".") || i.code).join(",") };
+   +}
+   ```
+   Not needed for correctness: the catch in `subjectKey` does the same.

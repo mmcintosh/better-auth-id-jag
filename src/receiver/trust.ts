@@ -10,7 +10,7 @@
 import type { GenericEndpointContext } from "better-auth";
 import { z } from "zod";
 import { type IdJagClaims, refuse } from "../core";
-import { defaultAccountProviderId, type ResolvedReceiverOptions, type TrustEntry } from "./options";
+import { defaultAccountProviderId, normaliseSamlSubjects, type ResolvedReceiverOptions, samlSubjectSchema, type TrustEntry } from "./options";
 import { TRUSTED_ISSUER_MODEL } from "./schema";
 
 const MAX_ROWS = 10;
@@ -53,6 +53,20 @@ const tableRowSchema = z.looseObject({
   jitProvisioning: z.union([z.boolean(), z.number()]).transform(Boolean),
   jitTrustEmailVerified: z.union([z.boolean(), z.number()]).transform(Boolean).optional(),
   jitRole: z.string().min(1).max(256).nullable().optional(),
+  samlSubjects: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((s, ctx) => {
+      if (s === null || s === undefined) return null;
+      try {
+        return z.array(samlSubjectSchema).min(1).max(100).parse(JSON.parse(s));
+      } catch {
+        ctx.addIssue({ code: "custom", message: "not a JSON array of samlSubjects mappings" });
+        return z.NEVER;
+      }
+    }),
+  requireSubId: z.union([z.boolean(), z.number()]).nullable().optional().transform((v) => v === true || v === 1),
   tenant: z.string().nullable().optional(),
   organizationId: z.string().nullable().optional(),
 });
@@ -120,6 +134,12 @@ async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions
     }
     const r = row.data;
     if (r.issuer !== iss) continue;
+    const accountProviderId = orUndef(r.ssoProviderId) ?? defaultAccountProviderId(iss);
+    const samlSubjects = r.samlSubjects ? normaliseSamlSubjects(r.samlSubjects, accountProviderId) : null;
+    if (typeof samlSubjects === "string" || (r.requireSubId && !samlSubjects)) {
+      ctx.context.logger.warn(`[id-jag] ignoring an invalid ${TRUSTED_ISSUER_MODEL} row (${typeof samlSubjects === "string" ? samlSubjects : "requireSubId needs samlSubjects"})`);
+      continue;
+    }
     out.push({
       source: "table",
       id: r.id,
@@ -129,10 +149,12 @@ async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions
       organizationId: orUndef(r.organizationId),
       allowedClientIds: r.allowedClientIds ?? undefined,
       tenant: orUndef(r.tenant),
-      accountProviderId: orUndef(r.ssoProviderId) ?? defaultAccountProviderId(iss),
+      accountProviderId,
       emailDomains: r.emailDomains ? r.emailDomains.map((d) => d.toLowerCase()) : null,
       jit: r.jitProvisioning ? { trustEmailVerified: r.jitTrustEmailVerified === true } : false,
       jitRole: orUndef(r.jitRole),
+      samlSubjects,
+      requireSubId: r.requireSubId,
     });
   }
   return out;

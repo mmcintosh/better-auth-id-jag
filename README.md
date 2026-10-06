@@ -230,6 +230,24 @@ idJagGrant({
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
 
+### SAML NameID subjects (`sub_id`)
+
+When your users sign in through SAML (`@better-auth/sso`), the IdP can put the SAML NameID it would send you in the ID-JAG's `sub_id` (draft §3.2, format `saml-nameid`). A static trust entry with `samlSubjects` then resolves users by that NameID instead of `sub`. The account key becomes `providerId` = the mapping's `accountProviderId` and `accountId` = the NameID. That is the same key `@better-auth/sso` stores for a SAML sign-in, so set `accountProviderId` to the sso SAML provider's `providerId`. This applies to steps 2–4 above. The hook still runs first. Mappings are only read from the trust entry that `iss` matched, so `sub_id.issuer` never makes an issuer trusted. A mapping matches when `issuer` is equal and `spNameQualifier` and `nameQualifier` are equal, with "not configured" meaning "must be absent". It also checks `nameIdFormats` if you list any. A malformed `sub_id`, a transient NameID, or one with no matching mapping is refused (`subject_rejected`), never resolved by `sub` instead. With `requireSubId: true`, an ID-JAG without a SAML `sub_id` is refused as well. Without `requireSubId`, such an ID-JAG falls back to `sub`. A trust entry without `samlSubjects` ignores `sub_id`. Each SAML namespace needs its own `accountProviderId`, so the same NameID from two IdP connections gives two users. JIT still needs an `email` claim, because Better Auth users have an email address. The `idJagTrustedIssuer` table has the same two settings, as a `samlSubjects` JSON column and a `requireSubId` column.
+
+```ts
+trustedIssuers: [{
+  issuer: "https://acme.okta.com/oauth2/default",
+  jwksUri: "https://acme.okta.com/oauth2/default/v1/keys",
+  samlSubjects: [{
+    issuer: "http://www.okta.com/exk123",                 // the SAML IdP entity ID (sub_id.issuer)
+    spNameQualifier: "https://mcp.example.com/saml/sp",   // omit if the IdP sends none
+    nameIdFormats: ["urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"],
+    accountProviderId: "acme-saml",                       // the @better-auth/sso SAML providerId
+  }],
+  requireSubId: true,
+}],
+```
+
 ## 🗄️ Database tables
 
 | Table | Side | When |

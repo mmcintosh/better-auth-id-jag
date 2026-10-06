@@ -32,6 +32,40 @@ describe("options are validated when the plugin is built", () => {
     ["a negative jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: -1 } }],
     ["a fractional jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: 1.5 } }],
     ["an infinite jwks.maxStaleSeconds", { jwks: { maxStaleSeconds: Number.POSITIVE_INFINITY } }],
+    // samlSubjects / requireSubId (D-A27)
+    ["an empty samlSubjects list", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [] }] }],
+    ["a samlSubjects mapping with an empty issuer", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "", accountProviderId: "saml-x" }] }] }],
+    ["a samlSubjects mapping without accountProviderId", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example" }] }] }],
+    ["a samlSubjects mapping with an unknown key", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "saml-x", spNameQualifer: "typo" }] }] }],
+    ["a samlSubjects issuer with a control character", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example\n", accountProviderId: "saml-x" }] }] }],
+    ["an empty spNameQualifier", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", spNameQualifier: "", accountProviderId: "saml-x" }] }] }],
+    ["an empty nameIdFormats list", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", nameIdFormats: [], accountProviderId: "saml-x" }] }] }],
+    ["the transient format in nameIdFormats", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", nameIdFormats: ["urn:oasis:names:tc:SAML:2.0:nameid-format:transient"], accountProviderId: "saml-x" }] }] }],
+    [
+      "one SAML namespace listed twice (absent and null qualifiers are the same)",
+      { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "saml-x" }, { issuer: "https://saml.example", spNameQualifier: null, accountProviderId: "saml-y" }] }] },
+    ],
+    [
+      "two SAML namespaces under one accountProviderId",
+      { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "saml-x" }, { issuer: "https://saml.example", spNameQualifier: "https://sp.example", accountProviderId: "saml-x" }] }] },
+    ],
+    ["a mapping's accountProviderId equal to the entry's own", { trustedIssuers: [{ ...TRUST[0], accountProviderId: "shared", samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "shared" }] }] }],
+    ["a mapping's accountProviderId equal to the default of its entry", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "id-jag:https://idp.example" }] }] }],
+    [
+      "a mapping's accountProviderId equal to another entry's sub provider",
+      { trustedIssuers: [TRUST[0], { issuer: "https://idp2.example", jwksUri: "https://idp2.example/jwks", samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "id-jag:https://idp.example" }] }] },
+    ],
+    [
+      "one accountProviderId for two SAML namespaces across entries",
+      {
+        trustedIssuers: [
+          { ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "saml-x" }] },
+          { issuer: "https://idp2.example", jwksUri: "https://idp2.example/jwks", samlSubjects: [{ issuer: "https://other-saml.example", accountProviderId: "saml-x" }] },
+        ],
+      },
+    ],
+    ["requireSubId without samlSubjects", { trustedIssuers: [{ ...TRUST[0], requireSubId: true }] }],
+    ["a non-boolean requireSubId", { trustedIssuers: [{ ...TRUST[0], samlSubjects: [{ issuer: "https://saml.example", accountProviderId: "saml-x" }], requireSubId: "yes" }] }],
   ];
   for (const [what, options] of bad) {
     it(`refuses ${what}`, () => {
@@ -53,6 +87,25 @@ describe("options are validated when the plugin is built", () => {
         events: { onRefused: () => {} },
       }),
     ).not.toThrow();
+  });
+
+  it("accepts samlSubjects with requireSubId, and two entries sharing one SAML namespace", () => {
+    const mapping = { issuer: "https://saml.example", spNameQualifier: "https://sp.example", nameQualifier: null, nameIdFormats: ["urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"], accountProviderId: "saml-x" };
+    const o = resolveReceiverOptions({
+      trustedIssuers: [
+        { issuer: "https://idp.example", jwksUri: "https://idp.example/jwks", samlSubjects: [mapping, { issuer: "https://saml.example", accountProviderId: "saml-y" }], requireSubId: true },
+        { issuer: "https://idp2.example", jwksUri: "https://idp2.example/jwks", samlSubjects: [mapping] },
+      ],
+    });
+    expect(o.trustedIssuers[0]).toMatchObject({
+      requireSubId: true,
+      samlSubjects: [
+        { issuer: "https://saml.example", spNameQualifier: "https://sp.example", nameQualifier: null, nameIdFormats: ["urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"], accountProviderId: "saml-x" },
+        { issuer: "https://saml.example", spNameQualifier: null, nameQualifier: null, nameIdFormats: null, accountProviderId: "saml-y" },
+      ],
+    });
+    expect(o.trustedIssuers[1]).toMatchObject({ requireSubId: false });
+    expect(resolveReceiverOptions({ trustedIssuers: TRUST }).trustedIssuers[0]).toMatchObject({ samlSubjects: null, requireSubId: false });
   });
 
   it("a defaultResource that isn't registered fails at startup", async () => {

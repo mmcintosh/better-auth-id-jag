@@ -32,7 +32,42 @@ export interface StaticTrustedIssuer {
   jitProvisioning?: boolean | { trustEmailVerified?: boolean };
   /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
   jitRole?: string;
+  /**
+   * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -04 §3.2) instead of `sub`, for these
+   * SAML namespaces only (§9.5: the association is this trust entry's local configuration;
+   * `sub_id.issuer` never establishes trust). Accounts are linked as { providerId: accountProviderId,
+   * accountId: nameid }, which is what `@better-auth/sso` creates at SAML sign-in. Unset: `sub_id` is ignored.
+   */
+  samlSubjects?: SamlSubjectMappingInput[];
+  /** Refuse an ID-JAG without a SAML NameID `sub_id` (needs `samlSubjects`). Default false. */
+  requireSubId?: boolean;
 }
+
+/** One SAML namespace whose NameIDs a trust entry resolves users by. */
+export interface SamlSubjectMappingInput {
+  /** The SAML IdP's entity ID, compared exactly with `sub_id.issuer`. */
+  issuer: string;
+  /** Compared exactly with `sub_id.sp_name_qualifier`; absent (or null): the `sub_id` must not carry one. */
+  spNameQualifier?: string | null;
+  /** Compared exactly with `sub_id.name_qualifier`; absent (or null): the `sub_id` must not carry one. */
+  nameQualifier?: string | null;
+  /** If set, `sub_id.nameid_format` must be present and one of these. Transient NameIDs are always refused. */
+  nameIdFormats?: string[];
+  /** `providerId` of the accounts that link these NameIDs, e.g. the `@better-auth/sso` SAML providerId. */
+  accountProviderId: string;
+}
+
+/** A mapping, normalised: absent qualifiers and formats are null. */
+export interface SamlSubjectMapping {
+  issuer: string;
+  spNameQualifier: string | null;
+  nameQualifier: string | null;
+  nameIdFormats: string[] | null;
+  accountProviderId: string;
+}
+
+/** The transient NameID format (SAML core §8.3.8): a new value per session, never a stable link key. */
+export const TRANSIENT_NAMEID_FORMAT = "urn:oasis:names:tc:SAML:2.0:nameid-format:transient";
 
 /** Trust the OIDC providers registered in `@better-auth/sso` (opt-in). */
 export interface SsoTrustOptions {
@@ -105,6 +140,20 @@ const httpsUrl = z.string().refine((s) => {
   }
 }, "must be an absolute https URL without credentials or fragment");
 const id = z.string().min(1).max(2048);
+// No C0/C1 controls: these are compared with sub_id members, which the core refuses with controls.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+const samlValue = z.string().min(1).max(2048).refine((v) => !/[\u0000-\u001f\u007f-\u009f]/.test(v), "control characters");
+/** A `samlSubjects` entry (static options, and the table's JSON column). */
+export const samlSubjectSchema = z.strictObject({
+  issuer: samlValue,
+  spNameQualifier: samlValue.nullable().optional(),
+  nameQualifier: samlValue.nullable().optional(),
+  nameIdFormats: z
+    .array(samlValue.refine((f) => f !== TRANSIENT_NAMEID_FORMAT, "the transient NameID format can't link accounts"))
+    .min(1)
+    .optional(),
+  accountProviderId: id,
+});
 const jit = z.union([z.boolean(), z.strictObject({ trustEmailVerified: z.boolean().optional() })]);
 
 const staticIssuer = z
@@ -119,9 +168,12 @@ const staticIssuer = z
     emailFallback: z.strictObject({ domains: z.array(z.string().min(1).max(253)).min(1) }).optional(),
     jitProvisioning: jit.optional(),
     jitRole: z.string().min(1).max(256).optional(),
+    samlSubjects: z.array(samlSubjectSchema).min(1).max(100).optional(),
+    requireSubId: z.boolean().optional(),
   })
   .refine((t) => t.jwksUri !== undefined || t.discoveryUri !== undefined, "jwksUri or discoveryUri is required")
-  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, "jitRole needs organizationId");
+  .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, "jitRole needs organizationId")
+  .refine((t) => t.requireSubId !== true || t.samlSubjects !== undefined, "requireSubId needs samlSubjects");
 
 const optionsSchema = z.strictObject({
   trustedIssuers: z.array(staticIssuer).optional(),
@@ -165,6 +217,10 @@ export interface TrustEntry extends TrustedIssuerView {
   jit: false | { trustEmailVerified: boolean };
   /** The role for JIT membership (static and table entries); sso entries use sso's own setting. */
   jitRole?: string | undefined;
+  /** SAML NameID `sub_id` mappings (static and table entries); unset or null: `sub_id` is ignored. */
+  samlSubjects?: SamlSubjectMapping[] | null | undefined;
+  /** Refuse an ID-JAG without a SAML NameID `sub_id`. */
+  requireSubId?: boolean | undefined;
 }
 
 export interface ResolvedSsoTrust {
@@ -195,6 +251,62 @@ export interface ResolvedReceiverOptions {
 
 export const defaultAccountProviderId = (issuer: string) => `id-jag:${issuer}`;
 
+/** What identifies a SAML namespace: its issuer and both qualifiers (null when absent). */
+export const samlMappingKey = (m: Pick<SamlSubjectMapping, "issuer" | "spNameQualifier" | "nameQualifier">): string => JSON.stringify([m.issuer, m.spNameQualifier, m.nameQualifier]);
+
+/**
+ * Normalises one trust entry's mappings and checks them together: no SAML namespace listed twice,
+ * one account provider id per namespace (two namespaces sharing one would merge identical NameIDs
+ * of different IdP connections into one user), and never the entry's own `sub` account provider id.
+ * Returns the mappings, or the problem.
+ */
+export function normaliseSamlSubjects(input: z.infer<typeof samlSubjectSchema>[], entryAccountProviderId: string): SamlSubjectMapping[] | string {
+  const keys = new Set<string>();
+  const providers = new Map<string, string>();
+  const out: SamlSubjectMapping[] = [];
+  for (const m of input) {
+    const mapping: SamlSubjectMapping = {
+      issuer: m.issuer,
+      spNameQualifier: m.spNameQualifier ?? null,
+      nameQualifier: m.nameQualifier ?? null,
+      nameIdFormats: m.nameIdFormats ?? null,
+      accountProviderId: m.accountProviderId,
+    };
+    const key = samlMappingKey(mapping);
+    if (keys.has(key)) return `samlSubjects: the SAML namespace ${key} is listed twice`;
+    keys.add(key);
+    if (mapping.accountProviderId === entryAccountProviderId) return `samlSubjects: accountProviderId ${mapping.accountProviderId} is also the entry's own (sub) account provider id`;
+    const other = providers.get(mapping.accountProviderId);
+    if (other !== undefined) return `samlSubjects: accountProviderId ${mapping.accountProviderId} is used by two SAML namespaces (${other} and ${key})`;
+    providers.set(mapping.accountProviderId, key);
+    out.push(mapping);
+  }
+  return out;
+}
+
+function samlOptions(t: StaticTrustedIssuer): Pick<TrustEntry, "samlSubjects" | "requireSubId"> {
+  if (!t.samlSubjects) return { samlSubjects: null, requireSubId: false };
+  const mappings = normaliseSamlSubjects(t.samlSubjects, t.accountProviderId ?? defaultAccountProviderId(t.issuer));
+  if (typeof mappings === "string") throw new Error(`id-jag receiver: trusted issuer ${t.issuer}: ${mappings}`);
+  return { samlSubjects: mappings, requireSubId: t.requireSubId === true };
+}
+
+/**
+ * Across static entries, one account provider id names one namespace: a SAML namespace (several
+ * entries may share it, e.g. two ID-JAG issuers relaying one SAML IdP's NameIDs), or an entry's `sub`s.
+ */
+function checkAccountProvidersAcrossEntries(entries: TrustEntry[]): void {
+  const owners = new Map<string, string>();
+  for (const e of entries) owners.set(e.accountProviderId, `the sub of ${e.issuer}`);
+  for (const e of entries)
+    for (const m of e.samlSubjects ?? []) {
+      const key = `SAML ${samlMappingKey(m)}`;
+      const owner = owners.get(m.accountProviderId);
+      if (owner !== undefined && owner !== key) throw new Error(`id-jag receiver: trusted issuer ${e.issuer}: accountProviderId ${m.accountProviderId} would link two namespaces (${owner} and ${key})`);
+      owners.set(m.accountProviderId, key);
+    }
+}
+
 export function jitOption(v: boolean | { trustEmailVerified?: boolean } | undefined): false | { trustEmailVerified: boolean } {
   if (!v) return false;
   return { trustEmailVerified: v === true ? false : v.trustEmailVerified === true };
@@ -224,8 +336,10 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
       emailDomains: t.emailFallback ? t.emailFallback.domains.map((d) => d.toLowerCase()) : null,
       jit: jitOption(t.jitProvisioning),
       jitRole: t.jitRole,
+      ...samlOptions(t),
     };
   });
+  checkAccountProvidersAcrossEntries(trustedIssuers);
   const sso = options.sso === undefined || options.sso === false ? null : options.sso === true ? {} : options.sso;
   const settings: JwksSettings = {
     timeoutMs: options.jwks?.timeoutMs ?? 5000,

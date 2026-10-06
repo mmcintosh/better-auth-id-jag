@@ -7,14 +7,17 @@ export {
   type ResolvedReceiverOptions,
   type ResolveSubjectInput,
   resolveReceiverOptions,
+  type SamlSubjectMapping,
+  type SamlSubjectMappingInput,
   type SsoTrustOptions,
   type StaticTrustedIssuer,
   type SubjectResolution,
   type TrustedIssuerView,
+  TRANSIENT_NAMEID_FORMAT,
   type TrustEntry,
 } from "./options";
 export { addJitMembership, BUILT_IN_ORGANIZATION_ROLES, DEFAULT_JIT_ROLE, type MembershipOutcome, type OrganizationRoles, organizationRoles, unknownRoles } from "./membership";
 export { idJagGrant, idJagGrantExtension, RECEIVER_PLUGIN_ID } from "./plugin";
-export { type ResolvedSubject, resolveSubject } from "./resolve";
+export { type ResolvedSubject, resolveSubject, type SubjectKey, subjectKey } from "./resolve";
 export { TRUSTED_ISSUER_MODEL, trustedIssuerSchema } from "./schema";
 export { findTrustedIssuer, openIdConfigurationUrl } from "./trust";
