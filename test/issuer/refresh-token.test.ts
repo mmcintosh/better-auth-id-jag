@@ -111,7 +111,38 @@ describe("refresh token subject: allowed", () => {
     const { client, refreshToken } = await setupRefresh(host);
     expect(refreshToken.startsWith("idp_rt_")).toBe(true);
     expect((await exchangeRefresh(host, client, refreshToken)).status).toBe(200);
-    await refused(host, await exchangeRefresh(host, client, refreshToken.slice("idp_rt_".length)), "invalid_subject_token");
+    const bare = refreshToken.slice("idp_rt_".length);
+    await exchangeRefresh(host, client, bare);
+    await exchangeRefresh(host, client, `idp_rt_${bare.slice(1)}`);
+    expect(host.recorded.refused.map((e) => [e.reason, e.detail])).toEqual([
+      ["invalid_subject_token", "refresh token: prefix missing"],
+      ["invalid_subject_token", "refresh token: unknown"],
+    ]);
+  });
+
+  it("the stored hash is matched exactly, even if the database's collation folds case", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { client, refreshToken, user } = await setupRefresh(host);
+    const row = await rowOf(host, client, user.id);
+    const stored = String(row.token);
+    const folded = stored.toUpperCase() === stored ? stored.toLowerCase() : stored.toUpperCase();
+    await setRow(host, row.id, { token: folded });
+    const findOne = host.ctx.adapter.findOne.bind(host.ctx.adapter);
+    host.ctx.adapter.findOne = (async (args: { model: string; where?: { field: string; value: unknown }[] }) => {
+      const w = args.where?.[0];
+      if (args.model === MODEL && w?.field === "token" && typeof w.value === "string") {
+        const all = await host.ctx.adapter.findMany<Record<string, unknown>>({ model: MODEL, limit: 5000 });
+        return all.find((r) => String(r.token).toLowerCase() === (w.value as string).toLowerCase()) ?? null;
+      }
+      return findOne(args as never);
+    }) as typeof host.ctx.adapter.findOne;
+    try {
+      const r = await exchangeRefresh(host, client, refreshToken);
+      expect(r.body).toEqual(GENERIC_GRANT);
+      expect(host.recorded.refused.map((e) => e.detail)).toEqual(["refresh token: unknown"]);
+    } finally {
+      host.ctx.adapter.findOne = findOne;
+    }
   });
 });
 
@@ -169,6 +200,13 @@ describe("refresh token subject: refused", () => {
     await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "banned_user");
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: a.user.id }], update: { banExpires: new Date(Date.now() - 1000) } });
     expect((await exchangeRefresh(host, a.client, a.refreshToken)).status).toBe(200);
+  });
+
+  it("a pairwise client's refresh token is refused too (the ID-JAG's sub would reveal the user id)", async () => {
+    const host = await createIssuerHost({ provider: { pairwiseSecret: "p".repeat(40) }, issuer: { authorize: allow } });
+    const a = await setupRefresh(host, { clientExtra: { subject_type: "pairwise" } });
+    expect(decodeJwt(a.idToken).sub).not.toBe(a.user.id);
+    await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "invalid_subject_token");
   });
 
   it("a sender-constrained refresh token (cnf) is refused: we can't check the proof of possession", async () => {

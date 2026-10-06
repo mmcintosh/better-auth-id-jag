@@ -141,9 +141,25 @@ describe("blocks: enforcement", () => {
   it("blocks are matched exactly, even if the database's collation folds case", async () => {
     const h = await host();
     const w = await world(h);
-    // A stored block for an id differing only in case must not match.
-    await h.ctx.adapter.create({ model: BLOCK_MODEL, data: { userId: w.a.user.id.toUpperCase() === w.a.user.id ? `${w.a.user.id}x` : w.a.user.id.toUpperCase(), clientId: null, audience: null, reason: "r", createdBy: w.admin.id, createdAt: new Date(), expiresAt: null } });
-    expect(await w.status("a")).toEqual([200, 200]);
+    // Stored blocks for ids differing only in case must not match, even if the database returns them.
+    const fold = (s: string) => (s.toLowerCase() === s ? s.toUpperCase() : s.toLowerCase());
+    const row = { reason: "r", createdBy: w.admin.id, createdAt: new Date(), expiresAt: null };
+    await h.ctx.adapter.create({ model: BLOCK_MODEL, data: { ...row, userId: fold(w.a.user.id), clientId: null, audience: null } });
+    await h.ctx.adapter.create({ model: BLOCK_MODEL, data: { ...row, userId: null, clientId: fold(w.a.client.client_id), audience: null } });
+    await h.ctx.adapter.create({ model: BLOCK_MODEL, data: { ...row, userId: null, clientId: null, audience: "https://RS.example/api/auth" } });
+    const findMany = h.ctx.adapter.findMany.bind(h.ctx.adapter);
+    h.ctx.adapter.findMany = (async (args: { model: string; where?: { field: string; value: unknown }[] }) => {
+      if (args.model !== BLOCK_MODEL || !args.where) return findMany(args as never);
+      const all = await findMany<Record<string, unknown>>({ model: BLOCK_MODEL, limit: 5000 });
+      const eq = (a: unknown, b: unknown) => (a === null || a === undefined ? b === null : typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase());
+      return all.filter((r) => args.where?.every((x) => eq(r[x.field], x.value)));
+    }) as typeof h.ctx.adapter.findMany;
+    try {
+      expect(await w.status("a")).toEqual([200, 200]);
+    } finally {
+      h.ctx.adapter.findMany = findMany;
+      await h.ctx.adapter.deleteMany({ model: BLOCK_MODEL, where: [{ field: "createdBy", value: w.admin.id }] });
+    }
   });
 
   it("too many blocks to evaluate is a refusal, not a miss (fail closed)", async () => {
