@@ -13,7 +13,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
                   └──────────── idJagIssuer() ────────────┘                    └────── idJagGrant() ──────┘
 ```
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **pre-release**, not yet on npm (the name holds a placeholder). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/); a later draft may rename a claim or URN before 0.1. Verified live against **Okta Cross App Access** and in CI against **Keycloak 26.8** ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **pre-release**, not yet on npm. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/); a later draft may rename a claim or URN before 0.1. Verified live against **Okta Cross App Access**, and against **Keycloak 26.8** and node-oauth2-server in an interop suite you can run with Docker ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
 If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
 
@@ -106,6 +106,8 @@ Then create the tables with your usual migration (`npx auth migrate`, or `npx au
 
 ## 🏢 Issuer: `idJagIssuer()`
 
+> **Experimental.** The issuer works and is tested, including against Keycloak and node-oauth2-server, but no production client has used it yet. Its options and admin API may change in a 0.x minor release. Better Auth may also add a general RFC 8693 token-exchange plugin (better-auth/better-auth#8023). Two extensions can't register the same grant type, so this plugin may then have to sit on top of that one. The handler is also exported as a plain function (`handleTokenExchange`) for that reason. The receiver isn't affected.
+
 Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint, advertises `identity_chaining_requested_token_types_supported` in its metadata, and signs ID-JAGs with the `jwt()` plugin's keys.
 
 ### Options
@@ -164,7 +166,18 @@ A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a 
 
 ## 🔑 Receiver: `idJagGrant()`
 
-Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvider()`) and advertises `authorization_grant_profiles_supported`. For each ID-JAG it checks, in order: the format (`typ`, `alg`, `kid`, required claims, lifetime), that the issuer is trusted, the signature against the issuer's JWKS, `aud`, that `client_id` is the authenticated client, single use of `jti`, the resource, the subject, and the scopes. The access token it issues is audience-restricted to the resource.
+Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvider()`) and advertises `authorization_grant_profiles_supported`. For each request it checks, in order:
+1. the client authenticated, and is confidential;
+2. the ID-JAG's format (`typ`, `alg`, `kid`, required claims, refused claims, lifetime) and its time claims, which are checks a caller can make for itself, so they come before anything that depends on whom we trust;
+3. that the issuer is trusted, looked up from the unverified `iss` before any key is fetched;
+4. that it isn't self-issued, then the signature against the issuer's JWKS, then `aud`, exactly;
+5. that `client_id` is the authenticated client;
+6. the scopes, which only narrow, decided before the subject so `no_scope` can't reveal whether a user exists;
+7. the resource;
+8. single use of `jti`;
+9. the subject.
+
+**Single use, deliberately.** Draft §4.4.3 lets a client re-present an unexpired ID-JAG for a new access token, and whether a resource authorization server should refuse that is an open question ([oauth-wg issue #130](https://github.com/oauth-wg/oauth-identity-assertion-authz-grant/issues/130)). This receiver accepts each ID-JAG **once**. Keycloak, node-oauth2-server and Authelia's library do the same. A client that needs another access token gets a fresh ID-JAG from the IdP, which keeps revocation at the IdP. An ID-JAG is burnt at step 8 even when step 9 then refuses it, so a captured token can't be used to probe for users. The access token it issues is audience-restricted to the resource.
 
 ### Options
 
