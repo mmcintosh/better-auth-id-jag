@@ -328,3 +328,29 @@ rows, and reproduced five defects with probe tests.
 8. **A block doesn't revoke refresh tokens** in 0.1: a block can expire, a revocation can't.
 9. **The Okta secret:** rotated now.
 10. **The demo Workers:** kept through the next Okta session, then decided.
+
+## D-015: the Phase 2 review's defects fixed (2026-10-06)
+
+Each test was written first and seen to fail.
+- **Receiver** (`docs/tracks/receiver.md` D-A23–D-A26):
+  - **Email fallback:** requires the local user's `emailVerified`, and never falls through to JIT.
+  - **Concurrent first use:** converges on one link (oldest row wins, losers delete their own rows), and never
+    escapes as an HTTP 500. Shown under a barrier that forces the race on Node, and on D1.
+    - **Remaining gap:** JIT for one `sub` with *different* emails, in an unlucky order, can leave two users. It
+      stays deterministic and error-free.
+  - **`jwks.maxStaleSeconds`** (default 3600).
+  - **`jitRole`:** checked against the organization plugin's roles at startup, and at provisioning for sso and table
+    rows.
+- **Issuer** (`docs/tracks/issuer.md` D-B22–D-B25):
+  - **`maxIdTokenAgeSeconds`** (default 3600; `subject_token_expired`). Its 3600 s default is the orchestrating
+    session's choice, to be confirmed by the maintainer.
+  - **`sid`:** an ID token that carries one is refused once its session has ended. Oauth-provider 1.7.6 sets `sid`
+    only for clients with end-session or back-channel logout.
+  - **Block from a jti:** falls back to the `id-jag.issued` audit row once the jti row is swept, with an explanatory
+    404 otherwise.
+  - **`blocks: { canManage }`** is separate from `registry.canManage`. **Breaking before 0.1:** blocks routes no
+    longer mount from the registry option.
+  - **Open:** the audit route accepts either `canManage`.
+- **Evidence:** 668 tests pass (334 per runtime). The mutation lists exit 0: receiver 121 (117 caught, 4 expected),
+  issuer 141 (133 caught, 8 expected), each reason recorded in the list. Typecheck and lint are clean. The demo Workers
+  were redeployed, and the scripted flow passed afterwards.
