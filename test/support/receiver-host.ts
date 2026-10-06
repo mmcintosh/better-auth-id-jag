@@ -147,6 +147,8 @@ export interface HostOptions {
   resources?: string[];
   /** Better Auth's `databaseHooks` (the concurrency tests hold inserts at a barrier with them). */
   databaseHooks?: BetterAuthOptions["databaseHooks"];
+  /** False when the database is already migrated (the adapter matrix: MongoDB, Drizzle, Prisma). */
+  migrate?: boolean;
   /** Better Auth's `account` options (account linking). */
   account?: BetterAuthOptions["account"];
   /** The organization plugin's options (custom roles, dynamic access control). */
@@ -184,7 +186,7 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
     ...(o.account ? { account: o.account } : {}),
   });
   const ctx = await auth.$context;
-  await (await getMigrations(ctx.options)).runMigrations();
+  if (o.migrate !== false) await (await getMigrations(ctx.options)).runMigrations();
   return { auth, ctx };
 }
 

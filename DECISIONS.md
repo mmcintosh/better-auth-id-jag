@@ -410,3 +410,26 @@ had stayed registered after their work was merged; both were stopped.
   accepts `undefined`, as the issuer's already did.
 - **The results:** publint "All good"; Are the Types Wrong green for ESM and bundlers on `.` and `./client`.
 - Dependabot's TypeScript 7 PR is superseded by this. Closing it on GitHub is the maintainer's action.
+
+## D-019: the adapter matrix (Phase 4 groundwork) (2026-10-06) — agent's choice, as the siblings
+
+`test/adapters/matrix.adapters.test.ts`, in CI's `adapters` job (a new job; the siblings' images and setup):
+- **Databases:** Postgres 17, MySQL 8.4, MongoDB 8.2 (a replica set), Drizzle on Postgres and on MySQL, and Prisma 7
+  on Postgres.
+- **What it tests:**
+  - the jti unique key, with 10 concurrent records across two instances (exactly one wins), then a replay;
+  - the jti and audit sweeps' date comparisons;
+  - concurrent first use, JIT and email fallback, converging on one user and one link with no 500.
+- **Not in the matrix:** D1 and SQLite, which run the whole suite in the test job.
+- **Result:** run locally against each database in Docker, **4/4 on all six**.
+
+**Fixed in the test harness:** the ORM schema builder (copied from better-auth-scim-provisioning) declared Better Auth's
+`string[]` and `json` fields as `text`, where Better Auth's migrator creates `jsonb` on Postgres. That broke the
+oauthClient table, which the sibling never had. They're now `jsonb` (Drizzle) and `Json` (Prisma).
+
+**Upstream, not ours (for the maintainer; nothing reported):** on MongoDB, creating an OAuth client with
+`@better-auth/oauth-provider` 1.7.6 inside the adapter's transaction fails at commit on an empty database. The
+adapter's `abortTransaction` after a failed commit then masks the real error. Once the collections exist, it hangs. No
+ID-JAG code is involved: it happens in the test's own client registration. The matrix runs MongoDB with
+`transaction: false`; our code uses no transactions, and the unique keys under test are MongoDB's indexes. Worth an
+upstream issue, drafted for approval, after a minimal reproduction.

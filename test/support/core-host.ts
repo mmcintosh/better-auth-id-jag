@@ -13,7 +13,7 @@ export async function sharedDatabase(): Promise<unknown> {
 
 const corePlugin = { id: "id-jag-core-test", schema: { ...jtiSchema(), ...auditSchema() } } satisfies BetterAuthPlugin;
 
-export async function coreHost(database: unknown, o: { backgroundTasks?: (p: Promise<unknown>) => void } = {}) {
+export async function coreHost(database: unknown, o: { backgroundTasks?: (p: Promise<unknown>) => void; migrate?: boolean } = {}) {
   const auth = betterAuth({
     baseURL: "http://localhost:3000",
     secret: "test-secret-that-is-at-least-32-characters-long",
@@ -23,6 +23,6 @@ export async function coreHost(database: unknown, o: { backgroundTasks?: (p: Pro
     ...(o.backgroundTasks ? { advanced: { backgroundTasks: { handler: o.backgroundTasks } } } : {}),
   });
   const ctx = await auth.$context;
-  await (await getMigrations(ctx.options)).runMigrations();
+  if (o.migrate !== false) await (await getMigrations(ctx.options)).runMigrations();
   return { auth, ctx };
 }
