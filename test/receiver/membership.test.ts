@@ -243,6 +243,20 @@ describe("JIT membership: without the organization plugin, and when it fails", (
     expect(errors.some((m) => m.includes("removing the half-provisioned user"))).toBe(true);
   });
 
+  it("a missing organization is detected even where the database wouldn't refuse the row (no foreign keys)", async () => {
+    const s = await host({ trust: null });
+    // The row would insert (the organization exists), but the adapter says it doesn't: as on an
+    // adapter that enforces no references, the check is ours, not the database's.
+    const org = await createOrganization(s.h);
+    const o = resolveReceiverOptions({ trustedIssuers: [{ issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, jitProvisioning: true, organizationId: org }] });
+    const real = s.h.ctx.adapter;
+    const adapter = { ...real, findOne: (q: Parameters<typeof real.findOne>[0]) => (q.model === "organization" ? Promise.resolve(null) : real.findOne(q)) };
+    const ctx = { context: { ...s.h.ctx, adapter } } as unknown as GenericEndpointContext;
+    const user = (await s.h.ctx.internalAdapter.createUser({ email: uniqueEmail(), name: "M" }, { method: "admin" })) as User;
+    await expect(addJitMembership(ctx, o.trustedIssuers[0]!, user, s.idp.claims() as unknown as IdJagClaims, new Date())).rejects.toThrow(/does not exist/);
+    expect(await membersOf(s.h, org)).toHaveLength(0);
+  });
+
   it("idempotent: a second call for a member adds nothing", async () => {
     const s = await host({ trust: null });
     const org = await createOrganization(s.h);
