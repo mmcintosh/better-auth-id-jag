@@ -650,7 +650,7 @@
  {
   "name": "JIT membership: not called from JIT",
   "file": "src/receiver/resolve.ts",
-  "a": "      await addJitMembership(ctx, trust, user, claims, now);",
+  "a": "      membership = await addJitMembership(ctx, trust, user, claims, now);",
   "b": "",
   "paths": [
    "test/receiver/membership.test.ts"
@@ -805,13 +805,13 @@
   "edits": [
    {
     "file": "src/receiver/resolve.ts",
-    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n",
+    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n",
     "b": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n"
    },
    {
     "file": "src/receiver/resolve.ts",
     "a": "    let membershipFailed = false;\n",
-    "b": "    await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    let membershipFailed = false;\n"
+    "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    let membershipFailed = false;\n"
    }
   ],
   "paths": [
@@ -830,8 +830,8 @@
  {
   "name": "JIT membership (D-A19): an existing user found by email is added too",
   "file": "src/receiver/resolve.ts",
-  "a": "      return { user: found.user, via: \"email\" };",
-  "b": "      await addJitMembership(ctx, trust, found.user, claims, now);\n      return { user: found.user, via: \"email\" };",
+  "a": "      return { user: assertNotBanned(user, now), via: \"email\" };",
+  "b": "      await addJitMembership(ctx, trust, found.user, claims, now);\n      return { user: assertNotBanned(user, now), via: \"email\" };",
   "paths": [
    "test/receiver/membership.test.ts"
   ]
@@ -853,6 +853,275 @@
   "b": " },",
   "paths": [
    "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-A23 email fallback: an unverified local user is linked (account takeover)",
+  "file": "src/receiver/resolve.ts",
+  "a": "      if (found.user.emailVerified !== true) refuse(\"unknown_subject\", \"email fallback: the local user's email is not verified\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/resolve.test.ts"
+  ]
+ },
+ {
+  "name": "D-A23 email fallback: only a user verified as `false` refused (null/undefined taken)",
+  "file": "src/receiver/resolve.ts",
+  "a": "if (found.user.emailVerified !== true)",
+  "b": "if (found.user.emailVerified === false)",
+  "paths": [
+   "test/receiver/resolve.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Equivalent on every adapter tested: Better Auth's user schema makes emailVerified a required boolean (default false), so it is never null or undefined."
+ },
+ {
+  "name": "D-A24 lookup: Better Auth's findAccountOwnerByKey (throws on duplicates: an empty 500)",
+  "file": "src/receiver/resolve.ts",
+  "a": "const owner = await findAccountOwner(ctx, trust.accountProviderId, claims.sub);",
+  "b": "const owner = await ctx.context.internalAdapter.findAccountOwnerByKey({ providerId: trust.accountProviderId, accountId: claims.sub });",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 lookup: duplicates in the adapter's order (no deterministic sort)",
+  "file": "src/receiver/resolve.ts",
+  "a": "return [...rows].sort(byAge);",
+  "b": "return rows;",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 lookup: the newest createdAt wins",
+  "file": "src/receiver/resolve.ts",
+  "a": "const d = createdAtMs(a) - createdAtMs(b);",
+  "b": "const d = createdAtMs(b) - createdAtMs(a);",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 lookup: a createdAt tie goes to the higher id",
+  "file": "src/receiver/resolve.ts",
+  "a": "return x < y ? -1 : x > y ? 1 : 0;",
+  "b": "return x > y ? -1 : x < y ? 1 : 0;",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 email fallback: no convergence after linking",
+  "file": "src/receiver/resolve.ts",
+  "a": "const user = await converge(ctx, trust, claims.sub, { account, user: found.user });",
+  "b": "const user = found.user;",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 JIT: no convergence after linking",
+  "file": "src/receiver/resolve.ts",
+  "a": "const winner = await converge(ctx, trust, claims.sub, { account, user, created: { membershipOrganizationId: membership === \"added\" ? trust.organizationId : undefined } });",
+  "b": "const winner = user;",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: the loser keeps its JIT user",
+  "file": "src/receiver/resolve.ts",
+  "a": "      await internalAdapter.deleteUser(mine.user.id);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: the loser keeps its JIT membership",
+  "file": "src/receiver/resolve.ts",
+  "a": "      if (organizationId !== undefined)\n        await adapter.deleteMany({",
+  "b": "      if (organizationId === \"never\")\n        await adapter.deleteMany({",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: the loser keeps its account row",
+  "file": "src/receiver/resolve.ts",
+  "a": "|| (lost && r.id === mine.account.id)",
+  "b": "",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: the loser continues with its own user",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (!lost) return mine.user;\n  const user = await internalAdapter.findUserById(winner.userId);",
+  "b": "  return mine.user;\n  const user = await internalAdapter.findUserById(winner.userId);",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: exact duplicates of the winner (same user) left in place",
+  "file": "src/receiver/resolve.ts",
+  "a": "r.userId === winner.userId || ",
+  "b": "false || ",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A24 converge: our own row missing on re-read not refused",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (!winner) refuse(\"subject_rejected\", \"the account just linked is gone\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Equivalent: the next line's winner.id then throws a TypeError, which the resolveSubject wrapper turns into the same subject_rejected."
+ },
+ {
+  "name": "D-A24 converge: a winner whose user is gone not refused",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (!user) refuse(\"unknown_subject\", \"the winning account's user is gone\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Nearly equivalent: assertNotBanned(null) then throws inside resolve, and the wrapper refuses as subject_rejected instead of unknown_subject; both non-public invalid_grant. Reaching it needs the winner's user deleted between two reads."
+ },
+ {
+  "name": "D-A24 converge: a failed cleanup aborts the grant",
+  "file": "src/receiver/resolve.ts",
+  "a": "  } catch (e) {\n    // Leftovers don't break lookups",
+  "b": "  } catch (e) {\n    throw e;\n    // Leftovers don't break lookups",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ],
+  "expect": "survive",
+  "why": "Only reachable when the adapter's delete fails mid-race; the grant would then be refused (subject_rejected via the wrapper) instead of continuing with the winner. Availability only; no test injects a failing delete during convergence."
+ },
+ {
+  "name": "D-A24 wrapper: unexpected errors escape (an empty 500)",
+  "file": "src/receiver/resolve.ts",
+  "a": "  } catch (e) {\n    if (e instanceof IdJagRefusal) throw e;",
+  "b": "  } catch (e) {\n    throw e;",
+  "paths": [
+   "test/receiver/concurrency.test.ts"
+  ]
+ },
+ {
+  "name": "D-A25 JWKS: stale keys never discarded (used indefinitely while the JWKS is down)",
+  "file": "src/receiver/jwks.ts",
+  "a": "    if (entry.keys !== null && this.now() - entry.fetchedAt >= this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;\n",
+  "b": "",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-A25 JWKS: maxStale ignored (no stale window at all)",
+  "file": "src/receiver/jwks.ts",
+  "a": "this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;",
+  "b": "this.settings.cacheTtlMs) entry.keys = null;",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-A25 options: maxStaleSeconds not resolved",
+  "file": "src/receiver/options.ts",
+  "a": "maxStaleMs: (options.jwks?.maxStaleSeconds ?? 3600) * 1000,",
+  "b": "maxStaleMs: 3600 * 1000,",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-A25 options: maxStaleSeconds default 0",
+  "file": "src/receiver/options.ts",
+  "a": "maxStaleMs: (options.jwks?.maxStaleSeconds ?? 3600) * 1000,",
+  "b": "maxStaleMs: (options.jwks?.maxStaleSeconds ?? 0) * 1000,",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-A25 options: maxStaleSeconds not validated",
+  "file": "src/receiver/options.ts",
+  "a": "maxStaleSeconds: z.number().int().min(0).optional(),",
+  "b": "maxStaleSeconds: z.number().optional(),",
+  "paths": [
+   "test/receiver/options.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 startup: an unknown static jitRole accepted",
+  "file": "src/receiver/plugin.ts",
+  "a": "          if (unknown.length > 0)\n            throw",
+  "b": "          if (unknown.length < 0)\n            throw",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 startup: checked even with dynamic access control (refuses an organization's own roles)",
+  "file": "src/receiver/plugin.ts",
+  "a": "if (t.jitRole === undefined || roles.dynamic) continue;",
+  "b": "if (t.jitRole === undefined) continue;",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 roles: the organization plugin's custom roles ignored",
+  "file": "src/receiver/membership.ts",
+  "a": "...BUILT_IN_ORGANIZATION_ROLES, ...Object.keys(options.roles ?? {})",
+  "b": "...BUILT_IN_ORGANIZATION_ROLES",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 roles: a comma-separated role not split",
+  "file": "src/receiver/membership.ts",
+  "a": "return memberRole.split(\",\").map((r) => r.trim()).filter",
+  "b": "return [memberRole].filter",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 provisioning: the role not checked (sso and table rows)",
+  "file": "src/receiver/membership.ts",
+  "a": "  await assertKnownRole(ctx, organizationId, memberRole);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 provisioning: an organization's own roles (dynamic access control) not looked up",
+  "file": "src/receiver/membership.ts",
+  "a": "if (unknown.length > 0 && roles.dynamic) {",
+  "b": "if (unknown.length < 0 && roles.dynamic) {",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-A26 provisioning: an unknown role not refused",
+  "file": "src/receiver/membership.ts",
+  "a": "  if (unknown.length > 0) throw new Error(`role",
+  "b": "  if (unknown.length < 0) throw new Error(`role",
+  "paths": [
+   "test/receiver/membership.test.ts"
   ]
  }
 ]

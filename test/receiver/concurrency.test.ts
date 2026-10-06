@@ -207,6 +207,60 @@ describe("duplicate account rows already in the database", () => {
   });
 });
 
+describe("a duplicate that arrives after the winner's own check", () => {
+  it("whoever sees an exact duplicate of the winner's link (same user) removes it, even when its creator has already returned", async () => {
+    // The interleaving no barrier can force: request B saw no account and linked, re-read, saw only
+    // its own row and returned; request A's row (older) arrived after that. A must clean up B's row.
+    const s = await twoInstances({ trust: { emailFallback: { domains: ["corp.example"] } } });
+    const o = resolveReceiverOptions({ trustedIssuers: [{ issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, emailFallback: { domains: ["corp.example"] } }] });
+    const email = uniqueEmail("corp.example");
+    const user = await verifiedUser(s.a, email);
+    const sub = crypto.randomUUID();
+    const late = new Date(Date.now() + 60_000);
+    await s.a.ctx.adapter.create({ model: "account", data: { id: `late-${crypto.randomUUID()}`, userId: user.id, providerId: s.providerId, accountId: sub, createdAt: late, updatedAt: late }, forceAllowId: true });
+    const real = s.a.ctx.adapter;
+    let lookups = 0;
+    // The first lookup (before A links) doesn't see B's row yet.
+    const adapter = { ...real, findMany: (q: Parameters<typeof real.findMany>[0]) => (q.model === "account" && lookups++ === 0 ? Promise.resolve([]) : real.findMany(q)) };
+    const internalAdapter = { ...s.a.ctx.internalAdapter, findUserByEmail: async (e: string) => ({ user, accounts: [], e }) };
+    const ctx = { context: { ...s.a.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
+    const claims = s.idp.claims({ sub, email }) as unknown as IdJagClaims;
+    const resolved = await resolveSubject(ctx, o, o.trustedIssuers[0]!, claims, "c");
+    expect(resolved).toMatchObject({ user: { id: user.id }, via: "email" });
+    const rows = await s.accounts(sub);
+    expect(rows).toHaveLength(1);
+    expect(String(rows[0]?.id)).not.toMatch(/^late-/);
+  });
+});
+
+describe("a JIT request that lost removes what it created, itself", () => {
+  it("its account row and its membership are deleted explicitly, not left to the database's cascades from deleting the user", async () => {
+    const org = newOrgId();
+    const s = await twoInstances({ trust: { jitProvisioning: true, organizationId: org }, organization: true });
+    await createOrganization(s.a, org);
+    const o = resolveReceiverOptions({ trustedIssuers: [{ issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, jitProvisioning: true, organizationId: org }] });
+    const sub = crypto.randomUUID();
+    // The winner: an older link of the same subject to another user, not yet visible to our first lookup.
+    const winner = await verifiedUser(s.a, uniqueEmail());
+    const old = new Date(Date.now() - 60_000);
+    await s.a.ctx.adapter.create({ model: "account", data: { id: `win-${crypto.randomUUID()}`, userId: winner.id, providerId: s.providerId, accountId: sub, createdAt: old, updatedAt: old }, forceAllowId: true });
+    const real = s.a.ctx.adapter;
+    let lookups = 0;
+    const adapter = { ...real, findMany: (q: Parameters<typeof real.findMany>[0]) => (q.model === "account" && lookups++ === 0 ? Promise.resolve([]) : real.findMany(q)) };
+    // A user deletion that cascades nothing (as on adapters without references).
+    const deleted: string[] = [];
+    const internalAdapter = { ...s.a.ctx.internalAdapter, deleteUser: async (id: string) => void deleted.push(id) };
+    const ctx = { context: { ...s.a.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
+    const email = uniqueEmail();
+    const resolved = await resolveSubject(ctx, o, o.trustedIssuers[0]!, s.idp.claims({ sub, email }) as unknown as IdJagClaims, "c");
+    expect(resolved).toMatchObject({ user: { id: winner.id }, via: "jit" });
+    const mine = await s.a.ctx.internalAdapter.findUserByEmail(email);
+    expect(deleted).toEqual([mine?.user.id]);
+    expect(await s.accounts(sub)).toMatchObject([{ userId: winner.id }]);
+    expect(await membersOf(s.a, org)).toHaveLength(0);
+  });
+});
+
 describe("an unexpected error in subject resolution is an audited refusal, not an empty 500", () => {
   it("the adapter throwing: subject_rejected, logged", async () => {
     const s = await twoInstances({ trust: { jitProvisioning: true } });
