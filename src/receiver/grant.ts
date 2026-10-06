@@ -177,7 +177,8 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
       user,
       scopes,
       resources: [resource],
-      accessTokenClaims: { idjag: { iss: claims.iss, jti: claims.jti, ...(claims.tenant ? { tenant: claims.tenant } : {}) } },
+      // `act` (who acts for the user, e.g. an AI agent) goes into the access token as RFC 8693 says.
+      accessTokenClaims: { idjag: { iss: claims.iss, jti: claims.jti, ...(claims.tenant ? { tenant: claims.tenant } : {}) }, ...(claims.act ? { act: claims.act } : {}) },
       ...(claims.auth_time !== undefined ? { authTime: new Date(claims.auth_time * 1000) } : {}),
       tokenResponse: {},
     });

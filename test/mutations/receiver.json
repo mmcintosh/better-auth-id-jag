@@ -574,5 +574,14 @@
   "paths": [
    "test/receiver/grant.test.ts"
   ]
+ },
+ {
+  "name": "receiver: act not carried into the access token",
+  "file": "src/receiver/grant.ts",
+  "a": ", ...(claims.act ? { act: claims.act } : {}) },",
+  "b": " },",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]

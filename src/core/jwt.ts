@@ -23,10 +23,28 @@ const seconds = z.number().int().nonnegative().max(2 ** 40);
 
 /**
  * Claims this package cannot honour yet. The draft says a receiver MUST process
- * `authorization_details` (RFC 9396) and `act` describes a delegation chain; accepting either while
- * ignoring it could grant more than the IdP authorised, so they're refused (v1).
+ * `authorization_details` (RFC 9396); accepting it while ignoring it could grant more than the IdP
+ * authorised, so it's refused (v1). `act` is supported: see actSchema (D-010).
  */
-export const UNSUPPORTED_CLAIMS = ["authorization_details", "act"] as const;
+export const UNSUPPORTED_CLAIMS = ["authorization_details"] as const;
+
+/** How deep a delegation chain (`act` inside `act`) may go. */
+export const MAX_ACT_DEPTH = 4;
+
+/**
+ * RFC 8693 §4.1 `act`: who acts on the subject's behalf, e.g. Okta names the AI agent
+ * (`{ sub: "<agent id>", sub_profile: "ai_agent ..." }`). It records delegation and widens
+ * nothing; the receiver carries it into the access token so the resource server sees the actor.
+ * An object with a string `sub`, optionally nested (prior actors), at most MAX_ACT_DEPTH deep.
+ */
+export type ActClaim = { sub: string; act?: ActClaim; [k: string]: unknown };
+const actSchema: z.ZodType<ActClaim> = z.lazy(() => z.looseObject({ sub: nonEmpty, sub_profile: z.string().max(256).optional(), act: actSchema.optional() })) as z.ZodType<ActClaim>;
+
+function actDepth(act: ActClaim | undefined): number {
+  let depth = 0;
+  for (let a = act; a; a = a.act) depth++;
+  return depth;
+}
 
 /** The claims, required ones strict, optional ones typed when present, unknown ones kept. */
 export const idJagClaimsSchema = z.looseObject({
@@ -50,6 +68,7 @@ export const idJagClaimsSchema = z.looseObject({
   aud_sub: nonEmpty.optional(),
   // RFC 9493 subject identifier. Never a source of trust (draft §8): informational only.
   sub_id: z.looseObject({ format: nonEmpty }).optional(),
+  act: actSchema.optional(),
 });
 export type IdJagClaims = z.infer<typeof idJagClaimsSchema>;
 
@@ -122,6 +141,7 @@ export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {
   const claims = parsed.data;
 
   if (claims.exp <= claims.iat) refuse("invalid_claim", "exp <= iat");
+  if (actDepth(claims.act) > MAX_ACT_DEPTH) refuse("invalid_claim", "act nested too deep");
   if (claims.exp - claims.iat > max) refuse("lifetime_too_long", `${claims.exp - claims.iat}s > ${max}s`);
 
   return {

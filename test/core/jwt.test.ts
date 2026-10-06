@@ -68,6 +68,15 @@ describe("verifyIdJag: accepts", () => {
     expect(v.claims.resource).toBe("https://mcp.example/mcp");
   });
 
+  it("act, as Okta sends it for an AI agent (D-010), and a nested delegation chain", async () => {
+    const k = await keyPair("RS256");
+    const okta = { sub: "0oa18f03hj0tOU9Hd698", sub_profile: "ai_agent web_app" };
+    const v = await verifyIdJag(await sign(k, claims({ act: okta, sub_profile: "user" })), k.jwks, at());
+    expect(v.claims.act).toEqual(okta);
+    const chain = { sub: "a1", act: { sub: "a2", act: { sub: "a3", act: { sub: "a4" } } } };
+    expect((await verifyIdJag(await sign(k, claims({ act: chain })), k.jwks, at())).claims.act).toEqual(chain);
+  });
+
   it("two keys with the same kid during rotation: the one that verifies is used", async () => {
     const old = await keyPair("ES256", "same");
     const fresh = await keyPair("ES256", "same");
@@ -99,7 +108,9 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
       ["invalid_claim", sign(k, claims({ iss: "https://idp.example\n" }))],
       ["lifetime_too_long", sign(k, claims({ iat: T, exp: T + 901 }))],
       ["unsupported_claim", sign(k, claims({ authorization_details: [{ type: "x", actions: ["read"] }] }))],
-      ["unsupported_claim", sign(k, claims({ act: { sub: "agent" } }))],
+      ["invalid_claim", sign(k, claims({ act: { sub_profile: "ai_agent" } as never }))],
+      ["invalid_claim", sign(k, claims({ act: "agent" as never }))],
+      ["invalid_claim", sign(k, claims({ act: { sub: "a1", act: { sub: "a2", act: { sub: "a3", act: { sub: "a4", act: { sub: "a5" } } } } } }))],
     ];
     for (const [want, token] of cases) expect(await reasonOf(verifyIdJag(await token, k.jwks, at())), want).toBe(want);
     // The boundary: exactly 900 seconds is allowed.
@@ -197,7 +208,7 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
     const s = (p: Record<string, unknown>, h: { typ: string }) => sign(k, p, h);
     await expect(buildIdJag(claims({ iat: T, exp: T + 901 }), s)).rejects.toThrow(/lifetime/);
     await expect(buildIdJag({ ...claims(), client_id: "" }, s)).rejects.toThrow(/client_id/);
-    await expect(buildIdJag(claims({ act: { sub: "x" } }), s)).rejects.toThrow(/act/);
+    await expect(buildIdJag(claims({ authorization_details: [{ type: "x" }] }), s)).rejects.toThrow(/authorization_details/);
     await expect(buildIdJag(claims(), s, { maxLifetimeSeconds: Number.NaN })).rejects.toThrow(/id-jag: /);
   });
 });
@@ -245,7 +256,7 @@ describe("parseIdJag: properties (S9)", () => {
         expect(parsed.claims.exp - parsed.claims.iat).toBeGreaterThan(0);
         expect(parsed.claims.exp - parsed.claims.iat).toBeLessThanOrEqual(900);
         expect(parsed.claims.authorization_details).toBeUndefined();
-        expect(parsed.claims.act).toBeUndefined();
+        if (parsed.claims.act !== undefined) expect(typeof parsed.claims.act.sub).toBe("string");
         // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting their absence.
         for (const k of ["iss", "sub", "client_id", "jti"] as const) expect(parsed.claims[k]).not.toMatch(/[\u0000-\u001f]/);
       }),

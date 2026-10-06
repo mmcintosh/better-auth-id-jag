@@ -386,5 +386,23 @@
    "test/issuer/refusals.test.ts",
    "test/receiver/grant.test.ts"
   ]
+ },
+ {
+  "name": "jwt: act depth not limited",
+  "file": "src/core/jwt.ts",
+  "a": "if (actDepth(claims.act) > MAX_ACT_DEPTH) refuse",
+  "b": "if (false) refuse",
+  "paths": [
+   "test/core"
+  ]
+ },
+ {
+  "name": "jwt: act without sub accepted",
+  "file": "src/core/jwt.ts",
+  "a": "z.looseObject({ sub: nonEmpty, sub_profile",
+  "b": "z.looseObject({ sub: nonEmpty.optional(), sub_profile",
+  "paths": [
+   "test/core"
+  ]
  }
 ]

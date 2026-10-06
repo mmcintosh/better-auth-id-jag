@@ -60,6 +60,20 @@ async function expectRefusal(s: Setup, r: { status: number; body: Record<string,
 }
 
 describe("receiver: a valid ID-JAG", () => {
+  it("carries act (who acts for the user, as Okta sends for an AI agent) into the access token (D-010)", async () => {
+    const s = await setup();
+    const act = { sub: "0oa-agent", sub_profile: "ai_agent web_app" };
+    const r = await redeem(s.h, s.client, await s.valid({ act }));
+    expect(r.status, r.text).toBe(200);
+    const jwks = (await (await s.h.auth.handler(new Request(`${ISSUER}/jwks`))).json()) as never;
+    const at = await jwtVerify(r.body.access_token as string, createLocalJWKSet(jwks), { issuer: ISSUER, audience: MCP_RESOURCE });
+    expect(at.payload.act).toEqual(act);
+    // Without act in the ID-JAG, none in the access token.
+    const plain = await redeem(s.h, s.client, await s.valid());
+    const at2 = await jwtVerify(plain.body.access_token as string, createLocalJWKSet(jwks), { issuer: ISSUER, audience: MCP_RESOURCE });
+    expect(at2.payload).not.toHaveProperty("act");
+  });
+
   it("yields an access token audience-restricted to the MCP resource, with no refresh token and no ID token", async () => {
     const s = await setup();
     // The ID-JAG asks for openid and offline_access too; the client may use refresh_token.
@@ -114,7 +128,7 @@ describe("receiver: every refusal, by reason and by body", () => {
   it("missing_claim, unsupported_claim, invalid_claim, lifetime_too_long", async () => {
     const s = await setup();
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ jti: undefined })), "missing_claim");
-    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ act: { sub: "agent" } })), "unsupported_claim");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ authorization_details: [{ type: "x", actions: ["read"] }] })), "unsupported_claim");
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ aud: [ISSUER, "https://other.example"] })), "invalid_claim");
     const t = Math.floor(Date.now() / 1000);
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ iat: t, exp: t + 901 })), "lifetime_too_long");
