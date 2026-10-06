@@ -60,3 +60,34 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
   runtimes and the example jobs when there is code for them.
 - **First receiver consumer:** the example in this repository. A real MCP server when there is one to name.
 - **npm:** a 0.0.1 placeholder, published by the maintainer, only to hold the name.
+
+## D-006: The shared core (2026-10-05) — agent's choices
+
+`src/core/`: `urns.ts`, `errors.ts`, `jwt.ts`, `replay.ts`, `audit.ts`. Choices made here, both tracks follow:
+
+- **Errors.** Every refusal is an `IdJagRefusal(reason, detail?)`; `toApiError()` turns it into Better Auth's
+  `APIError` (a plain `Error` from a grant handler is an empty HTTP 500, measured). 401 for `invalid_client`, 400 for
+  the rest. Each reason is `public` (the caller sent the defect: a missing parameter, a malformed token, an expired
+  one) or not; a non-public reason shows only its error code's generic text (S8). Reason codes and details go to the
+  audit event only.
+- **`typ`** is compared as a media type: case-insensitive, `application/` optional (RFC 7515 §4.1.9). Missing = refused.
+- **Parse before verify.** `parseIdJag` checks shape, `typ`, `alg` (RS256, ES256, EdDSA only), `kid`, `crit` (refused:
+  we understand no extensions), required claims, `aud` as a string or one-element array, `0 < exp - iat <= 900`.
+  `verifyIdJag` then checks `iss` against the issuer the caller resolved **before** using any key, the signature
+  (jose `compactVerify`, signature only), `aud` by exact string, then `exp`/`nbf`/`iat` with skew (default 60 s).
+  `client_id` continuity and `jti` are the receiver's, after this. **Order differs from the plan's §3.4:** time
+  checks come before the `jti` insert, so the replay row never records a token refused for its age.
+- **jti table** `idJagJti`: key = SHA-256 of `id-jag:<side>\0<iss>\0<jti>`, insert-first, unique at field level and as
+  a named table-level index (MongoDB), `expiresAt` = token `exp` + skew, `sweepJtis` deletes expired rows. Shared:
+  `side` is `issued` or `accepted`.
+- **Audit** as better-auth-saml-idp's D-038: `onIssued`, `onAccepted`, `onRefused`, `onAdminChanged`, run through
+  `runInBackground`; optional `idJagAudit` table with retention; refusals with no authenticated client aren't stored;
+  caller-controlled text is made log-safe. `IssuedEvent` carries both the client's id at the IdP and its id at the
+  resource (D-004).
+- **Build:** `buildIdJag(claims, signer)` takes a signer function, so the core has no Better Auth signing dependency;
+  the issuer passes one built on the jwt plugin's `signJWT`.
+
+**Evidence:** 90 tests (45 per runtime: Node/SQLite and workerd/D1), including 1,500 fast-check runs per runtime on
+the parser, and 10 concurrent jti records across two auth instances on one database. **Each guard broken once**
+(`test/mutations/core.json`, `scripts/mutate.py`): 18 mutations, 16 caught at first; the parse-time `alg` check and
+log-safe refusal details survived, a test was added for each, and both are now caught.

@@ -1,0 +1,20 @@
+[
+ {"name":"replay: read-then-write instead of insert-first","file":"src/core/replay.ts","a":"  try {\n    await adapter.create(","b":"  if (await adapter.findOne({ model: JTI_MODEL, where: [{ field: \"key\", value: key }] })) return false;\n  await new Promise((r) => setTimeout(r, 5));\n  try {\n    await adapter.create({ model: JTI_MODEL, data: { key: crypto.randomUUID(), ...r, createdAt: now } });\n    return true;\n    await adapter.create(","paths":["test/core/replay.test.ts"]},
+ {"name":"replay: side left out of the key","file":"src/core/replay.ts","a":"`id-jag:${side}\\u0000${iss}","b":"`id-jag:\\u0000${iss}","paths":["test/core/replay.test.ts"]},
+ {"name":"jwt: typ not checked","file":"src/core/jwt.ts","a":"if (!isIdJagTyp(rawHeader.typ)) refuse","b":"if (false) refuse","paths":["test/core"]},
+ {"name":"jwt: alg allow-list not checked at parse","file":"src/core/jwt.ts","a":"!(ALLOWED_ALGORITHMS as readonly string[]).includes(rawHeader.alg)","b":"false","paths":["test/core"]},
+ {"name":"jwt: kid not required","file":"src/core/jwt.ts","a":"rawHeader.kid.length === 0) refuse(\"missing_kid\")","b":"rawHeader.kid.length === 0) void 0","paths":["test/core"]},
+ {"name":"jwt: lifetime cap off","file":"src/core/jwt.ts","a":"if (claims.exp - claims.iat > max) refuse","b":"if (false) refuse","paths":["test/core"]},
+ {"name":"jwt: iss checked after the signature","file":"src/core/jwt.ts","a":"  if (parsed.claims.iss !== expected.issuer) refuse(\"untrusted_issuer\", parsed.claims.iss);\n  try {\n    await compactVerify(token, key as CompactVerifyGetKey, { algorithms });","b":"  try {\n    await compactVerify(token, key as CompactVerifyGetKey, { algorithms });\n    if (parsed.claims.iss !== expected.issuer) refuse(\"untrusted_issuer\", parsed.claims.iss);","paths":["test/core"]},
+ {"name":"jwt: aud prefix match","file":"src/core/jwt.ts","a":"if (parsed.audience !== expected.audience)","b":"if (!parsed.audience.startsWith(expected.audience))","paths":["test/core"]},
+ {"name":"jwt: aud array of any length","file":"src/core/jwt.ts","a":"z.tuple([nonEmpty])","b":"z.array(nonEmpty).min(1)","paths":["test/core"]},
+ {"name":"jwt: skew applied the wrong way on exp","file":"src/core/jwt.ts","a":"if (claims.exp + skew <= now)","b":"if (claims.exp - skew <= now)","paths":["test/core"]},
+ {"name":"jwt: iat in the future not checked","file":"src/core/jwt.ts","a":"if (claims.iat - skew > now) refuse","b":"if (false) refuse","paths":["test/core"]},
+ {"name":"jwt: crit ignored","file":"src/core/jwt.ts","a":"if (rawHeader.crit !== undefined) refuse","b":"if (false) refuse","paths":["test/core"]},
+ {"name":"errors: untrusted_issuer made public","file":"src/core/errors.ts","a":"untrusted_issuer: { error: \"invalid_grant\", public: false }","b":"untrusted_issuer: { error: \"invalid_grant\", public: true, description: \"Unknown issuer.\" }","paths":["test/core"]},
+ {"name":"errors: invalid_client as 400","file":"src/core/errors.ts","a":"refusal.error === \"invalid_client\" ? \"UNAUTHORIZED\"","b":"refusal.error === \"never\" ? \"UNAUTHORIZED\"","paths":["test/core"]},
+ {"name":"audit: anonymous refusals stored","file":"src/core/audit.ts","a":"!(full.type === \"id-jag.refused\" && !full.clientId)","b":"true","paths":["test/core"]},
+ {"name":"audit: handler errors not caught","file":"src/core/audit.ts","a":"      try {\n        await handler(full);\n      } catch (e) {\n        sink.logger.error(`[id-jag] events.${name} threw`, e);\n      }","b":"      await handler(full);","paths":["test/core"]},
+ {"name":"audit: not through runInBackground","file":"src/core/audit.ts","a":"  sink.runInBackground(run());","b":"  void run();","paths":["test/core"]},
+ {"name":"audit: detail not log-safe","file":"src/core/audit.ts","a":"full.detail = logSafe(full.detail);","b":"void 0;","paths":["test/core"]}
+]
