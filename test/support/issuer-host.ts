@@ -182,6 +182,13 @@ export const basic = (c: { client_id: string; client_secret: string }) => `Basic
 
 /** An ID token for this user and client, through /oauth2/authorize and the authorization_code grant. */
 export async function getIdToken(host: IssuerHost, browser: Browser, client: Client, o: { scope?: string; post?: boolean } = {}): Promise<string> {
+  const body = await getTokens(host, browser, client, o);
+  if (!body.id_token) throw new Error(`token: no id_token ${JSON.stringify(body)}`);
+  return body.id_token;
+}
+
+/** The authorization_code grant's whole response (id_token, refresh_token with offline_access). */
+export async function getTokens(host: IssuerHost, browser: Browser, client: Client, o: { scope?: string; post?: boolean } = {}): Promise<{ id_token?: string; refresh_token?: string; access_token?: string }> {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const q = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: REDIRECT, scope: o.scope ?? "openid profile email", state: "s1", code_challenge: challenge, code_challenge_method: "S256" });
@@ -204,9 +211,34 @@ export async function getIdToken(host: IssuerHost, browser: Browser, client: Cli
       }),
     }),
   );
-  const body = (await token.json()) as { id_token?: string };
-  if (!body.id_token) throw new Error(`token: ${token.status} ${JSON.stringify(body)}`);
-  return body.id_token;
+  const body = (await token.json()) as { id_token?: string; refresh_token?: string; access_token?: string };
+  if (token.status !== 200) throw new Error(`token: ${token.status} ${JSON.stringify(body)}`);
+  return body;
+}
+
+/** The refresh_token grant at the token endpoint, as the client uses it. */
+export async function refresh(host: IssuerHost, client: Client, refreshToken: string) {
+  const res = await host.auth.handler(
+    new Request(`${host.issuerUrl}/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", authorization: basic(client) },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+    }),
+  );
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+/** A user, a confidential client allowed refresh tokens, and a real refresh token (scope openid offline_access). */
+export async function setupRefresh(host: IssuerHost, o: { scope?: string; clientExtra?: Record<string, unknown> } = {}) {
+  const owner = await signUp(host);
+  const client = await createClient(host, owner.browser, {
+    grantTypes: ["authorization_code", "refresh_token", TOKEN_EXCHANGE_GRANT],
+    extra: { scope: "openid profile email offline_access", ...o.clientExtra },
+  });
+  const user = await signUp(host);
+  const tokens = await getTokens(host, user.browser, client, { scope: o.scope ?? "openid profile email offline_access" });
+  if (!tokens.refresh_token) throw new Error(`no refresh_token: ${JSON.stringify(tokens)}`);
+  return { user, owner, client, refreshToken: tokens.refresh_token, idToken: tokens.id_token ?? "" };
 }
 
 /** The token-exchange request for an ID-JAG. `form` overrides or (with undefined) removes fields. */
@@ -228,6 +260,12 @@ export function exchangeRequest(client: Partial<Client> | null, idToken: string,
   if (client?.client_id && client.client_secret) headers.authorization = basic(client as Client);
   return new Request(`${ISSUER}/oauth2/token`, { method: "POST", headers, body: params });
 }
+
+/** The exchange of a refresh token instead of an ID token. */
+export const exchangeRefresh = (host: IssuerHost, client: Partial<Client> | null, refreshToken: string, form: Record<string, string | string[] | undefined> = {}) =>
+  exchange(host, client, refreshToken, { subject_token_type: REFRESH_TOKEN_TYPE, ...form });
+
+export const REFRESH_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
 
 /** POST the exchange; returns status, headers and JSON body. */
 export async function exchange(host: IssuerHost, client: Partial<Client> | null, idToken: string, form: Record<string, string | string[] | undefined> = {}, o: { headers?: Record<string, string> } = {}) {

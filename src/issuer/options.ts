@@ -21,13 +21,19 @@ export interface PolicyClient {
   metadata?: Record<string, unknown> | undefined;
 }
 
-/** What the ID token said about the authentication, carried into the ID-JAG. */
+/**
+ * What the subject token said about the authentication, carried into the ID-JAG. For a refresh
+ * token: `auth_time` as the provider stored it, no `acr`/`amr` (not stored), and `raw` holds
+ * `{ token_type, client_id, scope, iat, exp }` (never the token or its hash).
+ */
 export interface SubjectTokenClaims {
+  /** Which kind of subject token was exchanged (its RFC 8693 token type URN). */
+  tokenType: "urn:ietf:params:oauth:token-type:id_token" | "urn:ietf:params:oauth:token-type:refresh_token";
   sub: string;
   auth_time?: number | undefined;
   acr?: string | undefined;
   amr?: string[] | undefined;
-  /** Every claim of the verified ID token, for hosts that need more. */
+  /** Every claim of the verified ID token (or the refresh token's summary above), for hosts that need more. */
   raw: Record<string, unknown>;
 }
 
@@ -70,8 +76,9 @@ export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny;
 export interface RegistryOptions {
   enabled: boolean;
   /**
-   * Who may manage the registry over the API. Without it the API isn't mounted (the tables are
-   * still used). Must return exactly `true`; a throw denies.
+   * Who may manage the registry and the blocks over the API. Without it the API isn't mounted (the
+   * tables are still used). With `enabled: false`, only the blocks and audit routes are mounted.
+   * Must return exactly `true`; a throw denies.
    */
   canManage?: ((input: { user: User & Record<string, unknown>; session: Record<string, unknown> }) => Awaitable<boolean>) | undefined;
   /** Per-isolate cache of looked-up audiences (hits and misses). Default 60; 0 turns it off. */

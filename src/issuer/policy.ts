@@ -2,7 +2,8 @@
 // (S1): no source configured, no resource server for the audience, or no matching policy is a
 // refusal, never "allow all". Each configured source must allow (code hook and registry), and the
 // narrower outcome wins: scopes intersect, the shortest lifetime wins, email only if every source
-// opts in. Scopes only narrow (S7): never wider than requested ∩ allowed.
+// opts in. Scopes only narrow (S7): never wider than requested ∩ allowed. Before any source, an
+// administrator's block (blocks.ts) refuses outright.
 //
 // S8 ordering: the refusals that would tell the caller something about our policies (no policy,
 // policy denied) are all `invalid_grant` with one generic body, like unknown or banned users. The
@@ -11,6 +12,7 @@
 import type { GenericEndpointContext, User } from "better-auth";
 import { z } from "zod";
 import { MAX_LIFETIME_SECONDS, refuse } from "../core";
+import { checkBlocks } from "./blocks";
 import type { AudienceEntry, RegistryDirectory } from "./directory";
 import type { AuthorizeInput, AuthorizeResult, PolicyClient, ResolvedIssuerOptions, SubjectTokenClaims } from "./options";
 import { isResourceUri } from "./url";
@@ -157,6 +159,8 @@ function agree(name: string, values: (string | undefined)[]): string | undefined
 export async function decide(options: ResolvedIssuerOptions, directory: RegistryDirectory | undefined, r: PolicyRequest): Promise<Grant> {
   const allows: Allow[] = [];
   const sources: Grant["sources"] = [];
+  // An administrator's block (D-B16) wins over every source; same body as any other deny (S8).
+  await checkBlocks(r.ctx, { userId: r.user.id, clientId: r.client.clientId, audience: r.audience });
   if (!directory && !options.authorize) refuse("no_policy", "no policy source configured");
   if (directory) {
     allows.push(await fromRegistry(directory, r));

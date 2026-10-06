@@ -1,5 +1,6 @@
-// The issuer's tables (plan §3.5): the core's jti and audit tables, plus the registry's two when
-// it is enabled. Unique columns are declared at field level (SQL migrators) and as named
+// The issuer's tables (plan §3.5): the core's jti and audit tables, the blocks table (always: it
+// is how an administrator stops further exchanges, D-B16), plus the registry's two when it is
+// enabled. Unique columns are declared at field level (SQL migrators) and as named
 // table-level indexes (Better Auth 1.7's MongoDB adapter creates only those: better-auth-saml-idp
 // D-033).
 import type { BetterAuthPluginDBSchema } from "better-auth";
@@ -7,6 +8,25 @@ import { auditSchema, jtiSchema } from "../core";
 
 export const RESOURCE_SERVER_MODEL = "idJagResourceServer";
 export const POLICY_MODEL = "idJagPolicy";
+export const BLOCK_MODEL = "idJagBlock";
+
+/** Blocks (D-B16): null in userId, clientId or audience means "any"; at least one is set. */
+export function blockSchema() {
+  return {
+    [BLOCK_MODEL]: {
+      fields: {
+        userId: { type: "string", required: false, input: false, index: true },
+        clientId: { type: "string", required: false, input: false, index: true },
+        audience: { type: "string", required: false, input: false, index: true },
+        reason: { type: "string", required: true, input: false },
+        createdBy: { type: "string", required: true, input: false },
+        createdAt: { type: "date", required: true, input: false },
+        // Null: until deleted.
+        expiresAt: { type: "date", required: false, input: false, index: true },
+      },
+    },
+  } satisfies BetterAuthPluginDBSchema;
+}
 
 export function registrySchema() {
   return {
@@ -54,7 +74,7 @@ export function registrySchema() {
   } satisfies BetterAuthPluginDBSchema;
 }
 
-/** The jti table always; the audit table only with `auditLog`, the registry's only with `registry.enabled`. */
+/** The jti and block tables always; the audit table only with `auditLog`, the registry's only with `registry.enabled`. */
 export function issuerSchema(o: { registry: boolean; auditLog: boolean }) {
-  return { ...jtiSchema(), ...(o.auditLog ? auditSchema() : {}), ...(o.registry ? registrySchema() : {}) };
+  return { ...jtiSchema(), ...blockSchema(), ...(o.auditLog ? auditSchema() : {}), ...(o.registry ? registrySchema() : {}) };
 }

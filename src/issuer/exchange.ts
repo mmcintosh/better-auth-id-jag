@@ -33,7 +33,9 @@ import {
 import type { RegistryDirectory } from "./directory";
 import type { PolicyClient, ResolvedIssuerOptions, SubjectTokenClaims } from "./options";
 import { decide } from "./policy";
+import { sweepBlocks } from "./blocks";
 import { verifyOwnIdToken } from "./subject/id-token";
+import { REFRESH_TOKEN_TOKEN_TYPE, verifyOwnRefreshToken } from "./subject/refresh-token";
 import { normalizeAudience } from "./url";
 
 /** What the plugin keeps per instance: resolved options, the registry directory, the sweep clock. */
@@ -102,6 +104,7 @@ function maybeSweep(ctx: GenericEndpointContext, state: IssuerState): void {
     (async () => {
       try {
         await sweepJtis(adapter);
+        await sweepBlocks(ctx);
         if (state.options.auditLog) await sweepAudit(adapter);
       } catch (e) {
         ctx.context.logger.error("[id-jag] sweep failed", e);
@@ -145,7 +148,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     if (!subjectToken) refuse("missing_parameter", "subject_token");
     const subjectTokenType = one("subject_token_type");
     if (!subjectTokenType) refuse("missing_parameter", "subject_token_type");
-    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE) refuse("unsupported_subject_token_type", subjectTokenType);
+    if (subjectTokenType !== ID_TOKEN_TOKEN_TYPE && subjectTokenType !== REFRESH_TOKEN_TOKEN_TYPE) refuse("unsupported_subject_token_type", subjectTokenType);
     const rawAudience = one("audience");
     if (!rawAudience) refuse("missing_parameter", "audience");
     const normalized = normalizeAudience(rawAudience, { allowLoopbackHttp: options.allowLoopbackHttpAudiences });
@@ -161,19 +164,19 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     if (scopeParam.length > MAX_SCOPE_LENGTH) refuse("unsupported_parameter", "scope too long");
     const requestedScopes = [...new Set(scopeParam.split(" ").filter(Boolean))];
 
-    // 3. Subject token: an ID token this IdP issued to this client (S6).
+    // 3. Subject token: an ID token or a refresh token this IdP issued to this client (S6).
     const jwtOptions = jwtOptionsOf(ctx.context as unknown as { getPlugin(id: string): unknown });
     // A pairwise client's ID tokens carry a per-client hash, not the user id: refused, not guessed.
+    // Its refresh tokens too: the ID-JAG's sub is the user id, which the client could read (D-B14).
     if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("invalid_subject_token", "pairwise subject (not supported in v1)");
     const now = Math.floor(Date.now() / 1000);
-    const idToken = await verifyOwnIdToken(ctx, subjectToken, { issuer, clientId: client.clientId, jwtOptions, now });
-    const user = (await ctx.context.internalAdapter.findUserById(idToken.sub)) as (User & Record<string, unknown>) | null;
-    if (!user || user.id !== idToken.sub) return refuse("unknown_subject");
+    const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer, clientId: client.clientId, jwtOptions, now });
+    const user = (await ctx.context.internalAdapter.findUserById(subject.sub)) as (User & Record<string, unknown>) | null;
+    if (!user || user.id !== subject.sub) return refuse("unknown_subject");
     seen.userId = user.id;
     if (isBanned(user, new Date(now * 1000))) refuse("banned_user");
 
     // 4. Policy.
-    const subject: SubjectTokenClaims = { sub: idToken.sub, auth_time: idToken.auth_time, acr: idToken.acr, amr: idToken.amr, raw: { ...idToken } };
     const policyClient: PolicyClient = {
       clientId: client.clientId,
       name: client.name ?? undefined,
@@ -196,16 +199,16 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       exp,
       ...(grant.resource !== undefined ? { resource: grant.resource } : {}),
       ...(grant.scopes.length > 0 ? { scope: grant.scopes.join(" ") } : {}),
-      ...(idToken.auth_time !== undefined ? { auth_time: idToken.auth_time } : {}),
-      ...(idToken.acr !== undefined ? { acr: idToken.acr } : {}),
-      ...(idToken.amr !== undefined ? { amr: idToken.amr } : {}),
+      ...(subject.auth_time !== undefined ? { auth_time: subject.auth_time } : {}),
+      ...(subject.acr !== undefined ? { acr: subject.acr } : {}),
+      ...(subject.amr !== undefined ? { amr: subject.amr } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(grant.tenant !== undefined ? { tenant: grant.tenant } : {}),
     };
     const signer: IdJagSigner = (payload, header) => signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
     const token = await buildIdJag(claims, signer);
 
-    // 6. Record (audit, and the revoke-this-jti admin action), audit, respond.
+    // 6. Record (audit, and the block-from-this-jti admin action), audit, respond.
     if (!(await recordJti(ctx.context.adapter, { side: "issued", jti, iss: issuer, aud: audience, sub: user.id, clientId: client.clientId, exp, clockSkewSeconds: 0 }))) throw new Error("id-jag: jti collision");
     emit(ctx, options, {
       type: "id-jag.issued",
@@ -258,6 +261,28 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     });
     throw toApiError(e);
   }
+}
+
+/** Step 3 for either subject token type, as the policy sees it. */
+async function verifySubject(
+  input: OAuthExtensionGrantHandlerInput,
+  type: string,
+  token: string,
+  e: { issuer: string; clientId: string; jwtOptions: JwtOptions | undefined; now: number },
+): Promise<SubjectTokenClaims> {
+  if (type === REFRESH_TOKEN_TOKEN_TYPE) {
+    const rt = await verifyOwnRefreshToken(input.ctx, token, { clientId: e.clientId, now: e.now, opts: input.opts, hashToken: input.provider.hashToken });
+    return {
+      tokenType: REFRESH_TOKEN_TOKEN_TYPE,
+      sub: rt.userId,
+      auth_time: rt.authTime,
+      acr: undefined,
+      amr: undefined,
+      raw: { token_type: "refresh_token", client_id: e.clientId, scope: rt.scopes.join(" "), iat: rt.issuedAt, exp: rt.expiresAt },
+    };
+  }
+  const idToken = await verifyOwnIdToken(input.ctx, token, e);
+  return { tokenType: ID_TOKEN_TOKEN_TYPE, sub: idToken.sub, auth_time: idToken.auth_time, acr: idToken.acr, amr: idToken.amr, raw: { ...idToken } };
 }
 
 function safeJson(s: string): Record<string, unknown> | undefined {
