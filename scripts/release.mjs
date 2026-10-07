@@ -80,6 +80,7 @@ const docsCheck = [
   "- [ ] README: features, the options tables and defaults, the events, the conformance and interoperability tables",
   "- [ ] docs/security.md (threats and known limitations), docs/interop.md, docs/versioning.md",
   "- [ ] Nothing in the README still describes the package as unreleased",
+  "- [ ] `pnpm docs:check` passes",
 ].join("\n");
 const what = firstRelease ? `Version ${next} in package.json (no longer \`"private": true\`), its dated CHANGELOG section, and the README's release status.` : `Version ${next} in package.json and its dated CHANGELOG section.`;
 const url = run("gh", ["pr", "create", "--draft", "--base", "main", "--title", `Release ${next}`, "--body", `${what}\n\n${docsCheck}\n\n**Merging this releases it:** tag-release.yml tags v${next} on main and starts the release run. Then approve the \`npm\` environment in GitHub, and the staged publish on npmjs.com.`]);

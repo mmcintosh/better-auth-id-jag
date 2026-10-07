@@ -27,6 +27,7 @@ jobs:
       - run: scripts/use-better-auth.sh ${{ matrix.better-auth }}
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm docs:check # every relative link and #anchor in the Markdown docs
       - run: pnpm test # Node (node:sqlite) and workerd (D1)
       - run: pnpm pack:check # dist build, a strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
 

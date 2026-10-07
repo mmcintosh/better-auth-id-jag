@@ -420,6 +420,7 @@ pnpm test:node       # one runtime only
 pnpm test:workerd
 pnpm typecheck
 pnpm lint            # Biome
+pnpm docs:check      # every relative link and #anchor in the Markdown docs
 pnpm build           # dist + type declarations
 pnpm pack:check      # the built package: strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
 ADAPTER_DB=postgres ADAPTER_URL=postgres://… pnpm vitest run --project node test/adapters   # the adapter matrix
