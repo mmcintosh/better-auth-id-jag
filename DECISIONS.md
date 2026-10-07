@@ -480,3 +480,24 @@ Docs: the README states the npm placeholder plainly, and says what a path (b) re
 refresh token, usable at `grant_type=refresh_token` within its scopes, with no consent row, which a block doesn't stop
 (revoke it). `docs/security.md` covers both SAML paths, `sub_id`, and the known gaps; the CHANGELOG has the Phase 3
 entry.
+
+## D-023: the live evidence session (2026-10-06)
+
+Okta Cross App Access (the lifecycle checks A1–A7) and xaa.dev's resource-app tester (OIDC and SAML), against the
+example Workers. Every check passed; the details are in [docs/interop.md](docs/interop.md). What it established
+that tests couldn't:
+
+- **The enterprise controls are the IdP's, and they work:** Okta refused the exchange when the connection was
+  off, the scope wasn't granted, the audience wasn't connected, the user was unassigned or deactivated. Our
+  receiver adds the checks that are its own: single use (`replay`) and the client (`client_mismatch`, met in
+  the wild when Okta's connection carried the wrong client id).
+- **The account-takeover protection holds against a real third-party IdP:** xaa.dev asserting an email already
+  linked to an Okta user was refused (`unknown_subject`), not linked.
+- **SAML `sub_id` resolution works with a real IdP's claim:** xaa.dev's `sub_id` matched a `samlSubjects`
+  mapping, and the user resolved through it alone.
+- **Interop requirements for browser testers** (CORS, `client_secret_post`, MCP's Streamable HTTP) are the
+  example's to meet, not the package's; the example Worker now meets them (opt-in CORS, a minimal MCP endpoint).
+
+Not changed: no package code. A demo-database client was switched to `client_secret_post`, and one NameID link
+was made by hand, as an operator would. The xaa.dev client secret was exposed during the session and is rotated
+afterwards.

@@ -64,3 +64,16 @@ MCP server's issuer **exactly as its metadata publishes it**, path included: the
 `https://<mcp>/.well-known/oauth-authorization-server/api/auth`, for example `https://<mcp>/api/auth`. The receiver
 compares `aud` with it exactly. The AI agent's client id and secret are issued by the MCP server (`/setup`) and entered
 in Okta.
+
+`node examples/workers/okta-agent.mjs` plays the agent: `--subject=refresh` exchanges Okta's refresh token instead of
+the ID token, `--negative` adds the replay, scope and audience refusals, and `--refresh-file=<path>` with `--reuse`
+replays a saved refresh token (after unassigning or deactivating the user in Okta). See the header of the script.
+
+## xaa.dev's resource-app tester
+
+Set `XAA_ISSUER` to `https://idp.xaa.dev` and `CORS_ORIGINS` to `https://xaa.dev` on the MCP server: the tester calls
+the token endpoint and `/mcp` from the browser. It authenticates with `client_secret_post`, so register its client
+with that method (`/setup` registers `client_secret_basic`). In the tester, choose **Use My Own Auth Server** and
+enter the MCP server's issuer, its token endpoint, and that client. The SAML variant sends the user as a SAML NameID
+in `sub_id`; the MCP server maps xaa.dev's SAML issuer (`samlSubjects`, in `mcp-server/src/auth.ts`). Results:
+[docs/interop.md](../../docs/interop.md#xaadev--our-receiver).

@@ -21,7 +21,9 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | Our issuer | node-oauth2-server receiver | **Verified** 2026-10-06 against the unreleased pull request [node-oauth/node-oauth2-server#462](https://github.com/node-oauth/node-oauth2-server/pull/462) at commit `0b7844f83f552d3acf50e13aca27f03c214fd825`. ES256 and RS256 accepted. **Differs:** EdDSA is refused (see below). |
 | Our receiver | Keycloak issuer | **Not possible**, because Keycloak doesn't issue ID-JAGs. Its guide lists the issuer side as "Not Yet Implemented". |
 | SAML IdP: better-auth-saml-idp (assertion exchange) → our issuer → our receiver | (both SAML paths) | **Verified** 2026-10-06 against **better-auth-saml-idp 1.2.0 from npm** (and before that its `feat/assertion-exchange` at `2d54cb4`), with this repository's main: every check passes (`test/interop/saml-idp-e2e`). |
-| Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). |
+| Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). |
+| xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). |
+| xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
 
 ## Our issuer → our receiver
 
@@ -170,6 +172,28 @@ acts for the user (RFC 8693 delegation) and widens nothing, so it is now accepte
 with `sub`, at most 4 nested actors) and carried into the access token (D-010). `authorization_details`
 stays refused. Without the live test the receiver would have refused every Okta ID-JAG.
 
+### The lifecycle checks (2026-10-06, second session, D-023)
+
+The same org and deployment, `okta-agent.mjs` with `--subject=refresh`, `--negative` and `--refresh-file`/`--reuse`:
+
+| Check | Result |
+|---|---|
+| A returning user | The same local user, through the linked Okta account; no user or link created |
+| Okta's **refresh token** as the subject token | Accepted by Okta; our receiver's result as for an ID token |
+| The same ID-JAG redeemed twice | Our receiver refused the second (`invalid_grant`; audit `replay`) |
+| `scope=read admin` | **Okta** refused: `invalid_scope` ("scopes are not allowed for this request: [admin]") |
+| An audience with no connection | **Okta** refused: `invalid_target` |
+| Cross-app access disabled on the resource app | **Okta** refused the exchange of both an ID token and a refresh token: `invalid_target` |
+| The connection re-created with the issuer URL in the client-id field | Okta minted an ID-JAG whose `client_id` was that URL; **our receiver** refused it (`client_mismatch`: not the client that authenticated) |
+| The user unassigned (with a saved refresh token) | **Okta** refused: `access_denied`, "User is not assigned to the client application."; reassigned, the same refresh token worked again |
+| A new user, first use | Provisioned just in time from the verified `email` and linked |
+| That user deactivated (with a saved refresh token) | **Okta** refused: `invalid_request`, "'subject_token' is invalid." |
+
+So the enterprise controls work as the specification intends: Okta enforces the connection, its scopes,
+assignment and the user's status at every exchange, and our receiver enforces the ID-JAG's audience, client and
+single use. Deactivating a user doesn't remove the local user our receiver provisioned (there's no SCIM yet), and
+an access token already issued lives until it expires.
+
 Setting it up in Okta (Admin Console, 2026.09):
 - The **resource app** is an OIDC web app. On its **Machine Assignments** tab, **Resource server access**,
   enable **Cross-app access (XAA)** and set its **Issuer URL** to the receiver's `issuer`, exactly as the
@@ -181,6 +205,50 @@ Setting it up in Okta (Admin Console, 2026.09):
   **resource indicator** (our `/mcp`), the **agent's client id registered at our receiver**, and the scopes.
 - Subject mapping: the receiver provisioned the user just in time from the verified `email` claim; Okta's `sub`
   is then linked, so later ID-JAGs find the same user.
+- The agent's app needs the **Refresh Token** grant for refresh tokens as subject tokens; a persistent refresh
+  token (not rotated on each use) is simpler for testing.
+- Turning cross-app access off and on again on the resource app asks for the issuer URL again and drops the
+  resource connection's resource indicator. The connection's **client id can't be edited**: deactivate the
+  connection, remove it, and add it again. Check the client id field: it may come up filled with the issuer URL,
+  which our receiver then refuses as `client_mismatch`.
+- Assignments made through a group can't be removed for one user: **Convert assignments** to individual ones first.
+
+## xaa.dev → our receiver
+
+[xaa.dev](https://xaa.dev) is Okta's Cross App Access playground. Its **resource-app tester** (Resource App →
+Register it with xaa.dev's IdP → **Use My Own Auth Server**) has the playground IdP (`https://idp.xaa.dev`, RS256,
+JWKS at `/jwks`) issue ID-JAGs to our receiver, redeems them at our token endpoint, and calls our MCP server.
+Live, 2026-10-06, against `examples/workers/mcp-server` with `XAA_ISSUER` and `CORS_ORIGINS` set:
+
+| Variant | Flow | Result |
+|---|---|---|
+| OIDC | Sign-in → refresh token → ID-JAG → jwt-bearer at our receiver → MCP `initialize`, `notifications/initialized`, `tools/call` | ✅ 200 at every step; the user provisioned just in time; a returning user found by its link |
+| SAML | SAML SSO → assertion exchanged for a refresh token (draft §4.5) → ID-JAG → jwt-bearer → MCP | ✅ 200 at every step, the user resolved by the SAML NameID in `sub_id` |
+
+What the tester needs from a receiver, and what it found:
+
+- **The browser calls the receiver.** The token endpoint and the MCP endpoint need CORS for `https://xaa.dev`
+  (the example's opt-in `CORS_ORIGINS`). Without it the tester reports "Failed to fetch".
+- **`client_secret_post`.** It sends the receiver-issued client id and secret in the body, so register that
+  client with `token_endpoint_auth_method: client_secret_post`. Otherwise our receiver refuses
+  (`invalid_client`, "client registered for client_secret_basic cannot use client_secret_post").
+- **Real MCP.** Its last step is MCP's Streamable HTTP (`initialize` with capabilities, then the initialized
+  notification, then `tools/call`).
+- **The audience.** The ID-JAG's `aud` is the auth-server URL entered in the tester, `client_id` the target client
+  id, `resource` the resource identifier. The tester asks its own IdP for `resource=…/mcp/` with a trailing
+  slash, but the ID-JAG carries `…/mcp` as registered.
+- **An email that's already ours.** The first OIDC run asserted an email already linked to the Okta user. Our
+  receiver refused it (`unknown_subject`, "JIT: email belongs to an existing user"), because the xaa.dev trust
+  entry has no email fallback. That's the account-takeover protection working against a real third-party IdP.
+  A user new to our receiver was provisioned.
+- **SAML subjects.** The SAML variant's ID-JAG has `sub` = the email and
+  `sub_id = { format: "saml-nameid", issuer: "https://idp.xaa.dev/saml", nameid: <email>, nameid_format:
+  "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" }`. Without a mapping, our receiver resolved it by
+  `sub`, a new identity, and refused the colliding email as above. With `samlSubjects: [{ issuer:
+  "https://idp.xaa.dev/saml", nameIdFormats: [emailAddress], accountProviderId: "xaa-saml" }]` on the trust entry,
+  and that NameID linked to the existing user, the ID-JAG resolved to that user **through `sub_id` alone** (its
+  `sub` is linked to nothing).
+- The tester offers no conformance export; the evidence is its step results and our audit log.
 
 ## Authelia: not possible yet
 
