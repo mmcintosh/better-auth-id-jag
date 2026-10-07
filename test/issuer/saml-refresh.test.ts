@@ -171,6 +171,15 @@ describe("path (b): saml2 → refresh token", () => {
     expect(host.recorded.refused.map((e) => [e.reason, e.detail])).toEqual([["no_scope", "phone not among the provider's scopes"]]);
   });
 
+  it("P3-S9: the provider's scopes bound it when the client lists scopes too", async () => {
+    const { host, client, assertion } = await world({ saml: { refreshTokens: { scopes: ["openid", "offline_access", "phone"] } } });
+    // Registration refuses scopes the provider doesn't offer: this client was registered with phone
+    // before the operator withdrew it from the provider.
+    await host.ctx.adapter.update({ model: "oauthClient", where: [{ field: "clientId", value: client.client_id }], update: { scopes: ["openid", "offline_access", "phone"] } });
+    await refusedAs(host, await requestSamlRefresh(host, client, samlToken(assertion().xml), { scope: "openid offline_access phone" }), "no_scope", GENERIC_SCOPE);
+    expect(host.idp.calls).toHaveLength(0);
+  });
+
   it("P3-S10: a public client is refused even with allowPublicClients; a client must list refresh_token itself", async () => {
     const pub = await world({ issuer: { allowPublicClients: true }, setup: { authMethod: "none" } });
     const r = await requestSamlRefresh(pub.host, { client_id: pub.client.client_id }, samlToken(pub.assertion().xml), { client_id: pub.client.client_id });

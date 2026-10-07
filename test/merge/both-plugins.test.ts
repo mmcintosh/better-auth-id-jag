@@ -16,6 +16,9 @@ async function database(): Promise<unknown> {
 
 describe("issuer and receiver on one host", () => {
   it("boots, migrates one jti table and one audit table, and advertises both sides", async () => {
+    // One handlers object for both plugins: each accepts every core handler (the receiver never
+    // fires onIssued or onRefreshIssued).
+    const events = { onIssued() {}, onRefreshIssued() {}, onAccepted() {}, onRefused() {}, onAdminChanged() {} };
     const auth = betterAuth({
       baseURL: "http://localhost:3000",
       secret: "test-secret-that-is-at-least-32-characters-long",
@@ -24,8 +27,8 @@ describe("issuer and receiver on one host", () => {
       plugins: [
         jwt(),
         mcp({ loginPage: "/login", consentPage: "/consent", resource: "http://localhost:3000/mcp" }) as unknown as BetterAuthPlugin,
-        idJagIssuer({ authorize: () => ({ decision: "deny" }), auditLog: { retentionDays: 30 } }),
-        idJagGrant({ trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }], auditLog: { retentionDays: 30 } }),
+        idJagIssuer({ authorize: () => ({ decision: "deny" }), auditLog: { retentionDays: 30 }, events }),
+        idJagGrant({ trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }], auditLog: { retentionDays: 30 }, events }),
       ],
     });
     const ctx = await auth.$context;

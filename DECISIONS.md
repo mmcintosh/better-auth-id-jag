@@ -456,3 +456,27 @@ The fix is the same pnpm overrides as better-auth-scim-provisioning: `deepmerge-
 `mysql2@<3.23.1 → ^3.24.5`, and, for development, `sharp@<0.35.5 → ^0.35.5` (librsvg advisory, through Miniflare).
 `pnpm audit` is now clean at every level, and the tests pass on both runtimes. These overrides should be revisited
 when Better Auth or Miniflare move to patched versions (the siblings' upstream-watch does this; ours has none yet).
+
+## D-022: the Phase 3 review's findings (2026-10-06)
+
+The review of `95d46f0` against `de31e58` found two defects, two test gaps and a hardening idea; all are fixed with a
+test that fails first and a mutation entry each, all caught.
+
+1. **One `events` object for both plugins failed at startup.** The receiver's options schema is strict and didn't list
+   the core's `onRefreshIssued` (D-B31 left it out without weighing this). It is now accepted and never called;
+   `test/merge/both-plugins.test.ts` passes one handlers object to both plugins.
+2. **The issuer's audit route couldn't filter on `id-jag.refresh-issued`** (a 400). Added to the enum; the registry
+   test requests every type.
+3. **Nothing pinned "the SAML verifier gets the authenticated client, never the body's `client_id`".** The code was
+   right, and the case is reachable: the provider authenticates Basic credentials and ignores a `client_id` in the
+   body. New test on both paths (Basic as another client, the mapped client's id in the body: `WRONG_CLIENT`, not
+   consumed), two mutations, and the cross-repository end-to-end test now forges the body id on both paths.
+4. **Path (b)'s provider-scope bound was untested when the client lists scopes.** New test (a client registered with
+   a scope the provider later withdrew).
+5. **Hardening:** the ID token's `sid` session must also belong to the token's `sub`. The signature already binds
+   them; this is defence in depth, as better-auth-saml-idp does it.
+
+Docs: the README states the npm placeholder plainly, and says what a path (b) refresh token is: an ordinary provider
+refresh token, usable at `grant_type=refresh_token` within its scopes, with no consent row, which a block doesn't stop
+(revoke it). `docs/security.md` covers both SAML paths, `sub_id`, and the known gaps; the CHANGELOG has the Phase 3
+entry.

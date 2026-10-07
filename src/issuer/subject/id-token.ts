@@ -66,10 +66,14 @@ async function ourKeys(ctx: GenericEndpointContext, o: JwtOptions | undefined, n
   return (keys ?? []).filter((k) => !k.expiresAt || new Date(k.expiresAt).getTime() + grace > now * 1000);
 }
 
-/** Whether the session `sid` names is in the database and unexpired (as the provider's introspection checks it). */
-async function sessionLive(ctx: GenericEndpointContext, sid: string, now: number): Promise<boolean> {
-  const row = await ctx.context.adapter.findOne<{ id: unknown; expiresAt: unknown }>({ model: "session", where: [{ field: "id", value: sid }] });
-  if (!row || String(row.id) !== sid) return false;
+/**
+ * Whether the session `sid` names is in the database, unexpired (as the provider's introspection
+ * checks it) and the token's user's. The signature already binds sid to sub; the user check is
+ * defence in depth, as better-auth-saml-idp does it.
+ */
+async function sessionLive(ctx: GenericEndpointContext, sid: string, sub: string, now: number): Promise<boolean> {
+  const row = await ctx.context.adapter.findOne<{ id: unknown; userId: unknown; expiresAt: unknown }>({ model: "session", where: [{ field: "id", value: sid }] });
+  if (!row || String(row.id) !== sid || String(row.userId) !== sub) return false;
   const exp = row.expiresAt instanceof Date ? row.expiresAt.getTime() : new Date(row.expiresAt as string | number).getTime();
   return !Number.isNaN(exp) && exp > now * 1000;
 }
@@ -123,6 +127,6 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
   if (aud.length > 1 && claims.azp !== expected.clientId) bad("azp");
   if (claims.azp !== undefined && claims.azp !== expected.clientId) bad("azp");
   // A session-bound ID token: the session must still exist and be unexpired (D-B23).
-  if (claims.sid !== undefined && !(await sessionLive(ctx, claims.sid, expected.now))) bad("session ended");
+  if (claims.sid !== undefined && !(await sessionLive(ctx, claims.sid, claims.sub, expected.now))) bad("session ended");
   return claims;
 }

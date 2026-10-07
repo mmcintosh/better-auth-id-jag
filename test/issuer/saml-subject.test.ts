@@ -15,6 +15,7 @@ import {
   FakeAssertionExchangeError,
   type IssuerHost,
   PERSISTENT,
+  requestSamlRefresh,
   RESOURCE,
   SAML_IDP_ENTITY_ID,
   SAML_SP_ENTITY_ID,
@@ -165,6 +166,23 @@ describe("path (a): saml2 → ID-JAG", () => {
     expect((await exchangeSaml(host, client, samlToken('<saml:Assertion ID="_unknown"/>'))).body).toEqual(GENERIC_GRANT);
     // The rightful client can still use b: WRONG_CLIENT didn't consume it (the IdP's order).
     expect((await exchangeSaml(host, client, samlToken(b.xml))).status).toBe(200);
+  });
+
+  it("the verifier gets the authenticated client, never the body's client_id: Basic as another client with the mapped client's id in the body is WRONG_CLIENT, on both paths", async () => {
+    const { host, client, assertion } = await world();
+    const other = await setupSaml(host);
+    for (const send of [exchangeSaml, requestSamlRefresh]) {
+      const a = assertion();
+      // The provider authenticates the Basic credentials and ignores the body's client_id.
+      const forged = await send(host, other.client, samlToken(a.xml), { client_id: client.client_id });
+      expect(forged.body, send.name).toEqual(GENERIC_GRANT);
+      expect(host.recorded.refused.at(-1)?.detail).toBe("saml2: WRONG_CLIENT");
+      expect(host.idp.calls.at(-1)?.clientId).toBe(other.client.client_id);
+      // Not consumed: the mapped client still exchanges it.
+      expect((await send(host, client, samlToken(a.xml))).status, send.name).toBe(200);
+    }
+    expect(host.recorded.issued).toHaveLength(1);
+    expect(host.recorded.refreshIssued).toHaveLength(1);
   });
 
   it("expired and not-yet-valid assertions: the public refusals, with the IdP deciding the window on our clock", async () => {

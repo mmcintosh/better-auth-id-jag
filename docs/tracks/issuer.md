@@ -427,6 +427,9 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   The receiver's `events` schema (`src/receiver/options.ts`) doesn't list `onRefreshIssued`. It is not needed there,
   since the receiver never emits it, and this track doesn't touch receiver files.
 
+  **Reversed after the Phase 3 review (D-022):** the consequence was a startup failure for a host passing one
+  `events` object to both plugins. The receiver now accepts `onRefreshIssued` and never calls it.
+
 ## Evidence
 
 ### Phase 3 (SAML subject tokens, D-B26–D-B31), 2026-10-06

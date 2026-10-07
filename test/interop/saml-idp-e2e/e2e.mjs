@@ -116,7 +116,7 @@ const sso = async () => {
   return new XMLSerializer().serializeToString(doc.getElementsByTagNameNS("urn:oasis:names:tc:SAML:2.0:assertion", "Assertion")[0]);
 };
 const token = (auth, issuer, body, client) => auth.handler(new Request(`${issuer}/oauth2/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", authorization: basic(client) }, body: form(body) })).then(async (r) => ({ status: r.status, body: await r.json() }));
-const exchange = (o) => token(idpAuth, IDP_ISSUER, { grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", ...o }, o.client ?? agent);
+const exchange = ({ client, ...o }) => token(idpAuth, IDP_ISSUER, { grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", ...o }, client ?? agent);
 const redeem = (assertion) => token(mcpAuth, MCP_ISSUER, { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }, mcpClient);
 const mcpJwks = async () => createLocalJWKSet(await (await mcpAuth.handler(new Request(`${MCP_ISSUER}/jwks`))).json());
 const idpJwks = async () => createLocalJWKSet(await (await idpAuth.handler(new Request(`${IDP_ISSUER}/jwks`))).json());
@@ -169,8 +169,12 @@ const wrongClient = await idpAuth.api.adminCreateOAuthClient({
   headers: new Headers({ cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") }),
   body: { client_name: "other", redirect_uris: ["https://other.test/cb"], grant_types: ["urn:ietf:params:oauth:grant-type:token-exchange", "refresh_token"], token_endpoint_auth_method: "client_secret_basic", scope: "openid offline_access" },
 });
-const wc = await exchange({ client: wrongClient, requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
-check("another client presenting the agent's assertion is refused", wc.status === 400 && wc.body.error === "invalid_grant", `${wc.status} ${JSON.stringify(wc.body)}`);
+// Basic as the other client, with the agent's client_id forged in the body: the verifier must get the
+// authenticated client, never the body's.
+const wc = await exchange({ client: wrongClient, client_id: agent.client_id, requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
+check("another client presenting the agent's assertion (agent's client_id forged in the body) is refused: path (a)", wc.status === 400 && wc.body.error === "invalid_grant", `${wc.status} ${JSON.stringify(wc.body)}`);
+const wcb = await exchange({ client: wrongClient, client_id: agent.client_id, requested_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), scope: "openid offline_access" });
+check("…and path (b)", wcb.status === 400 && wcb.body.error === "invalid_grant", `${wcb.status} ${JSON.stringify(wcb.body)}`);
 const own = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
 check("…and the right client can still use it (a wrong client doesn't consume)", own.status === 200, `${own.status}`);
 

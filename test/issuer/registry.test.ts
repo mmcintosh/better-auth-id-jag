@@ -386,6 +386,8 @@ describe("registry API: records", () => {
     expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(["id-jag.issued", "id-jag.refused", "id-jag.admin"]));
     expect(events.find((e) => e.type === "id-jag.refused")?.reason).toBe("unknown_resource");
     expect((await api(admin.browser, "/audit?type=id-jag.admin")).body.events.every((e: Json) => e.type === "id-jag.admin")).toBe(true);
+    // Every event type the issuer writes is a valid filter.
+    for (const type of ["id-jag.issued", "id-jag.refresh-issued", "id-jag.refused", "id-jag.admin"]) expect((await api(admin.browser, `/audit?type=${type}`)).status, type).toBe(200);
   });
 });
 

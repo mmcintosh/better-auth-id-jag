@@ -1324,7 +1324,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the unknown_subject audit detail (\u00a79.6)",
+  "name": "R3-S7 the NameID in the unknown_subject audit detail (§9.6)",
   "file": "src/receiver/resolve.ts",
   "a": "`sub_id at ${key.providerId}`",
   "b": "`sub_id ${key.accountId} at ${key.providerId}`",
@@ -1333,7 +1333,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the not-authorized audit detail (\u00a79.6)",
+  "name": "R3-S7 the NameID in the not-authorized audit detail (§9.6)",
   "file": "src/receiver/resolve.ts",
   "a": "JSON.stringify({ issuer: s.issuer,",
   "b": "JSON.stringify({ nameid: s.nameid, issuer: s.issuer,",
@@ -1469,6 +1469,15 @@
   "b": "if (false) refuse",
   "paths": [
    "test/receiver/resolve.test.ts"
+  ]
+ },
+ {
+  "name": "Review P3 #1: onRefreshIssued refused by the receiver's options (one handlers object can't serve both plugins)",
+  "file": "src/receiver/options.ts",
+  "a": "onIssued: fn.optional(), onRefreshIssued: fn.optional(), onAccepted:",
+  "b": "onIssued: fn.optional(), onAccepted:",
+  "paths": [
+   "test/merge/both-plugins.test.ts"
   ]
  }
 ]

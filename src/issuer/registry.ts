@@ -427,7 +427,7 @@ export function auditEndpoints(state: IssuerState) {
       {
         method: "GET",
         use,
-        query: z.object({ type: z.enum(["id-jag.issued", "id-jag.refused", "id-jag.admin"]).optional(), limit: z.coerce.number().int().min(1).max(MAX_AUDIT).optional(), before: z.iso.datetime().optional() }).optional(),
+        query: z.object({ type: z.enum(["id-jag.issued", "id-jag.refresh-issued", "id-jag.refused", "id-jag.admin"]).optional(), limit: z.coerce.number().int().min(1).max(MAX_AUDIT).optional(), before: z.iso.datetime().optional() }).optional(),
       },
       async (ctx) => {
         await actor(ctx, state, "audit");

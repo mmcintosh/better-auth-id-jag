@@ -7,7 +7,7 @@ import { decodeJwt } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { publicDescription } from "../../src/core";
 import type { AuthorizeResult } from "../../src/issuer";
-import { createIssuerHost, exchange, exchangeRefresh, type IssuerHost, setup, setupRefresh, takeReasons } from "../support/issuer-host";
+import { createIssuerHost, exchange, exchangeRefresh, type IssuerHost, setup, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
 const EXPIRED = { error: "invalid_grant", error_description: publicDescription("subject_token_expired") };
@@ -94,6 +94,19 @@ describe("ID token sid: the session must still exist", () => {
     expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_GRANT);
     expect(host.recorded.refused.at(-1)?.detail).toBe("session ended");
     await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { expiresAt: new Date(Date.now() + 3600_000) } });
+    expect((await exchange(host, client, idToken)).status).toBe(200);
+  });
+
+  it("a session that belongs to another user counts as ended (defence in depth: the signature binds sid to sub)", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { client, idToken, user } = await setup(host, { clientExtra: { enable_end_session: true } });
+    const other = await signUp(host);
+    const sid = decodeJwt(idToken).sid as string;
+    await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { userId: other.id } });
+    takeReasons(host);
+    expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_GRANT);
+    expect(host.recorded.refused.at(-1)?.detail).toBe("session ended");
+    await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { userId: user.id } });
     expect((await exchange(host, client, idToken)).status).toBe(200);
   });
 });

@@ -202,7 +202,8 @@ const optionsSchema = z.strictObject({
     })
     .optional(),
   clock: fn.optional(),
-  events: z.strictObject({ onIssued: fn.optional(), onAccepted: fn.optional(), onRefused: fn.optional(), onAdminChanged: fn.optional() }).optional(),
+  // onRefreshIssued is accepted (one handlers object can serve both plugins) and never fires here.
+  events: z.strictObject({ onIssued: fn.optional(), onRefreshIssued: fn.optional(), onAccepted: fn.optional(), onRefused: fn.optional(), onAdminChanged: fn.optional() }).optional(),
   auditLog: z.strictObject({ retentionDays: z.number().int().min(1).max(3650) }).optional(),
 });
 

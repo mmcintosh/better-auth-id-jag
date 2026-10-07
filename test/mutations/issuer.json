@@ -1886,5 +1886,50 @@
   "paths": [
    "test/issuer/saml-refresh.test.ts"
   ]
+ },
+ {
+  "name": "P3-S3 path (a): the body's client_id passed to the SAML verifier",
+  "file": "src/issuer/exchange.ts",
+  "a": "const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer: idTokenIssuer, clientId: client.clientId,",
+  "b": "const subject = await verifySubject(input, subjectTokenType, subjectToken, { issuer: idTokenIssuer, clientId: form.get(\"client_id\")?.[0] ?? client.clientId,",
+  "paths": [
+   "test/issuer/saml-subject.test.ts"
+  ]
+ },
+ {
+  "name": "P3-S3 path (b): the body's client_id passed to the SAML verifier",
+  "file": "src/issuer/exchange.ts",
+  "a": "verifyOwnSamlAssertion(ctx, r.subjectToken, { clientId: client.clientId, now: at })",
+  "b": "verifyOwnSamlAssertion(ctx, r.subjectToken, { clientId: form.get(\"client_id\")?.[0] ?? client.clientId, now: at })",
+  "paths": [
+   "test/issuer/saml-subject.test.ts"
+  ]
+ },
+ {
+  "name": "P3-S9 provider's scopes checked only when the client lists none",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (providerScopes && !providerScopes.includes(s)) refuse(",
+  "b": "    if (!clientScopes && providerScopes && !providerScopes.includes(s)) refuse(",
+  "paths": [
+   "test/issuer/saml-refresh.test.ts"
+  ]
+ },
+ {
+  "name": "Review P3 #2: the audit route can't filter on id-jag.refresh-issued",
+  "file": "src/issuer/registry.ts",
+  "a": "\"id-jag.issued\", \"id-jag.refresh-issued\", \"id-jag.refused\", \"id-jag.admin\"",
+  "b": "\"id-jag.issued\", \"id-jag.refused\", \"id-jag.admin\"",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "Review P3 #5: the sid session's user not checked",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": " || String(row.userId) !== sub) return false;",
+  "b": ") return false;",
+  "paths": [
+   "test/issuer/subject-age.test.ts"
+  ]
  }
 ]
