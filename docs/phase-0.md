@@ -105,13 +105,13 @@ Each mutation applied to `test/support/ping.ts`, the suite run, the file restore
 ## Okta (plan Question 8)
 
 XAA is self-service Early Access, nothing to request, no lead time.
-The maintainer turns it on when Track A has a deployable receiver. What the agent prepares: the receiver's issuer URL (with
+The maintainer turns it on when Track A has a deployable receiver. What's prepared for it: the receiver's issuer URL (with
 `/api/auth`, see above) and a confidential client registration for Okta's "AI Agent" app.
 
 ## Throwaway resources
 
 Worker `id-jag-phase0-spike` and D1 `id-jag-phase0-spike` on the maintainer's account, created and **deleted** 2026-10-05
-(URL returns 404; `d1 list` shows none). Secrets were generated locally into the session scratchpad and never written to
+(URL returns 404; `d1 list` shows none). Secrets were generated locally in a scratch directory and never written to
 the repository.
 
 ## Reproduce

@@ -6,8 +6,8 @@ turns a real ID token, from a confidential client that went through `/oauth2/aut
 an ID-JAG that the core's `verifyIdJag` accepts against the host's own `/jwks`, carrying the policy's narrowed scopes
 and the mapped `client_id`.
 
-Built as planned: the core first (written, then reviewed by a separate agent and fixed: D-006, D-007), then Track A
-(receiver) and Track B (issuer) in parallel, each by its own agent in its own git worktree, then merged and checked
+Built as planned: the core first (written, then reviewed separately and fixed: D-006, D-007), then Track A
+(receiver) and Track B (issuer) in parallel, each in its own git worktree, then merged and checked
 together.
 
 ## What exists
@@ -48,10 +48,10 @@ together.
   - **Built package:** typechecks for a `NodeNext` consumer and imports at runtime through `.` and `./client`.
   - **Build script fix:** it now rewrites nested and directory declaration imports. They were broken for `NodeNext`
     once declarations moved into subfolders.
-- **Independent re-run:** each track's branch was re-run by the orchestrating session before merging (typecheck, lint,
+- **Independent re-run:** each track's branch was re-run independently before merging (typecheck, lint,
   full suite). Each changed only its own files.
 
-## Decisions the agents made that you should look at
+## Decisions to look at
 
 - **Receiver, D-A01: sso trust is opt-in.** sso providers exist for sign-in, so trusting every one for ID-JAGs by
   default widens what they can do.

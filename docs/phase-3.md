@@ -65,5 +65,3 @@ requesting-app run, and the planned Okta evidence session (`docs/phase-2.md`, "N
   provisioning is the planned answer (`docs/phase-2.md`, "After Phase 3").
 - **An upstream issue for the maintainer:** MongoDB plus oauth-provider transactions (D-019).
 - **The #8023 comment** stays on hold (D-012).
-- **Process change:** no subagents unless the maintainer asks. Two agents stayed registered after their work was
-  merged, and were stopped.

@@ -21,7 +21,7 @@ The thirteen Phase 1 questions were decided as the review recommended (D-009). S
 - `requireResourceClaim`;
 - a startup warning on adapters without UNIQUE;
 - the guide notes on the burnt jti and on the exact issuer string Okta needs;
-- the agent worktrees removed.
+- the track worktrees removed.
 
 ## Okta Cross App Access, live
 

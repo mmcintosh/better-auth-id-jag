@@ -140,7 +140,7 @@ Phase 3 exports: `getSamlIdpExchange`, `assertionExchangeErrorCode`, `ASSERTION_
 Metadata: `identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"]` in both
 discovery documents; `grant_types_supported` lists token-exchange automatically.
 
-## Decisions (each the agent's choice, raised with the maintainer)
+## Decisions (each an implementation choice, raised with the maintainer)
 
 - **D-B01: ID tokens obtained the honest way in tests.** A signed-in user's cookie → `GET /oauth2/authorize` (PKCE,
   skip-consent client) → `authorization_code` at `/oauth2/token` with the client's secret. No hand-minted ID tokens
@@ -265,7 +265,7 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
 - **D-B22: an age cap on ID tokens (`maxIdTokenAgeSeconds`, default 3600).** Defect 4 of the review: an ID token
   lives 10 hours (oauth-provider's `idTokenExpiresIn` default, 36000 s) and, for most clients, names no session, so
   after sign-out, with every session deleted, it still minted ID-JAGs; only a ban or a block stopped it. (The decision
-  is the orchestrating session's, to be confirmed by the maintainer.)
+  is an implementation choice, to be confirmed by the maintainer.)
   - **The rule.** An ID token whose `iat` is more than `maxIdTokenAgeSeconds` before now is refused as
     `subject_token_expired`, even if its `exp` is later. `iat` is now required (the provider always sets it; with no
     `iat` there is no age to cap, so it's `invalid_subject_token`). Exactly the cap is accepted (`now - iat > cap`
@@ -322,8 +322,8 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
     `getSamlIdpExchange` is duck-typed (an object with `version === 1` and a `verifyIssuedAssertion` function).
     `nameIdFor` is not declared or used: `sub_id` minting is deferred (D-016 #6).
   - **Errors** are recognised by `name === "AssertionExchangeError"` plus one of the nine codes, never by
-    `instanceof` (another copy of that module throws them). The final interface the SAML IdP's agent reported, relayed
-    by the coordinator, specifies exactly this.
+    `instanceof` (another copy of that module throws them). The final interface agreed with better-auth-saml-idp
+    specifies exactly this.
   - **Startup.** Any `saml` option (even `{}`) requires the capability at `checkIssuerHost`, otherwise boot fails.
     Better Auth runs plugins' `init` in order and merges each result into the context, so **the SAML IdP must be
     installed before `idJagIssuer()`**. The error says so. The capability is also read at request time; if it has
@@ -439,7 +439,7 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   issued ID; the time window on our clock; the SP-to-client mapping; consume. It can also be forced to throw any
   code, or replaced with an accept-anything verifier. Its "assertions" aren't real SAML: the XML hardening and
   signature rows (P3-S1, S2, S4, S5 concurrency, S7, the XML half of S8) are the SAML IdP's own tests. The
-  coordinator runs the cross-repository end-to-end test.
+  cross-repository end-to-end test (`test/interop/saml-idp-e2e`) runs both.
 - **P3 items → tests.** `D` = `saml-decode.test.ts`, `A` = `saml-subject.test.ts`, `B` = `saml-refresh.test.ts`.
 
   | Item | Our side, and where it's tested |
@@ -731,7 +731,7 @@ Phase 2:
 - ~~**D-B15, `openid`:**~~ answered by D-B27: path (b) always grants `openid`, so the requirement stays (tested end
   to end with the stub).
 - ~~**D-B18, blocks API mounting**~~: decided (Question 7 accepted), `blocks: { canManage }` (D-B24).
-- **D-B22, the ID-token age cap's default (3600):** the orchestrating session's choice, to be confirmed.
+- **D-B22, the ID-token age cap's default (3600):** an implementation choice, to be confirmed.
 - **D-B24, the audit route under either `canManage`:** or should it have its own (`auditLog: { canRead }`)?
 - **D-B16, blocks and sessions:** should a block also revoke the user's refresh tokens for that client at the provider?
   Today it only stops ID-JAGs: the client can still refresh its access tokens here.

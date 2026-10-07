@@ -39,8 +39,8 @@ Is `a7a22ee` fit to publish as 0.1.0: the receiver as a usable pre-1.0 plugin, t
 4. **`docs/security.md` and SECURITY.md.** Check the threat tables, the known limitations (including the new SAML,
    `sub_id`, JIT and concurrency entries), and the pre-1.0 support statement. The supply-chain claims are marked as
    applying once the repository is public.
-5. **What going public exposes.** The full history was checked: gitleaks over every commit, no file under
-   `private/`, `plans/` or `HANDOFF-*` ever committed. The author email is the same as on the public
+5. **What going public exposes.** The full history was checked: gitleaks over every commit, and no git-ignored working
+   notes ever committed. The author email is the same as on the public
    better-auth-saml-idp. One real Okta client id (not a secret) is in the history, from before `ef40b14`. The example
    Workers' deploy configs are git-ignored. Decide whether anything in `examples/` or `docs/` should not be public.
 6. **The workflows once public:** `release.yml` (npm provenance, the `npm` environment), `tag-release.yml`, the

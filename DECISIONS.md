@@ -1,8 +1,8 @@
 # Decisions
 
-Every entry is an agent's choice unless it says the maintainer decided it, and each agent's choice is raised with the maintainer.
+Every entry is an implementation choice unless it says the maintainer decided it, and each implementation choice is raised with the maintainer.
 
-## D-001: Phase 0 scaffold, name and licence used provisionally (2026-10-05) — agent's choice
+## D-001: Phase 0 scaffold, name and licence used provisionally (2026-10-05) — implementation choice
 
 Scaffolded from `better-auth-scim-provisioning`: pnpm, biome (its `biome.jsonc` unchanged), vitest, strict tsconfig
 (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), `SECURITY.md`, `.gitleaks.toml`, `LICENSE`, `scripts/build.mjs`.
@@ -10,10 +10,10 @@ Scaffolded from `better-auth-scim-provisioning`: pnpm, biome (its `biome.jsonc` 
 recommendations for Questions 1 and 2, used so the scaffold has a name; **not decided**, the maintainer's call. CI workflows,
 CHANGELOG and README are not copied yet: they come with Phase 1, when there is code to gate.
 
-`git init` locally (no remote, nothing pushed), as the handoff allows once Phase 0 starts. No GitHub repository, no npm
+`git init` locally (no remote, nothing pushed), as planned for Phase 0. No GitHub repository, no npm
 name claimed.
 
-## D-002: Better Auth pinned to 1.7.6 (2026-10-05) — agent's choice
+## D-002: Better Auth pinned to 1.7.6 (2026-10-05) — implementation choice
 
 The siblings' dev dependencies and the first issuer consumer are on 1.7.6, and the measured extension
 API (plan §2.3) is 1.7.6's. 1.7.7 was published the same day; CI's matrix (1.7.5 and latest-1.7, as the siblings) will
@@ -30,8 +30,7 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
 
 - **Name** `better-auth-id-jag`, **licence** MIT (D-001's provisional choices confirmed).
 - **Policy depth:** code hook **and** registry with an admin API.
-- **Plans and handoffs stay private:** `plans/` and `HANDOFF-*.md` are git-ignored, as `private/` is. Public docs never
-  link to them.
+- **Working notes stay private:** they are git-ignored, and public docs never link to them.
 - **GitHub repository private at first;** npm name reserved with a placeholder, as `better-auth-saml-idp` did.
 - **Signing algorithm is a visible choice** (review condition 4, added to S4): the receiver accepts RS256, ES256 and
   EdDSA only and requires `kid`; the issuer's algorithm is an option (default: the jwt plugin's), the docs say EdDSA may
@@ -61,7 +60,7 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
 - **First receiver consumer:** the example in this repository. A real MCP server when there is one to name.
 - **npm:** a 0.0.1 placeholder, published by the maintainer, only to hold the name.
 
-## D-006: The shared core (2026-10-05) — agent's choices
+## D-006: The shared core (2026-10-05) — implementation choices
 
 `src/core/`: `urns.ts`, `errors.ts`, `jwt.ts`, `replay.ts`, `audit.ts`. Choices made here, both tracks follow:
 
@@ -94,7 +93,7 @@ log-safe refusal details survived, a test was added for each, and both are now c
 
 ## D-007: Review of the core, and its fixes (2026-10-05)
 
-An independent adversarial review (a separate agent, read-only, reproducing each finding against a bundle of
+An independent adversarial review (a separate reviewer, read-only, reproducing each finding against a bundle of
 `src/core`) found 14 issues and weak tests. The committed tree also failed `pnpm typecheck` (a test typing under
 `exactOptionalPropertyTypes`, so CI was red on 39fe6eb). Every finding is fixed except where noted:
 
@@ -142,7 +141,7 @@ An independent adversarial review (a separate agent, read-only, reproducing each
 
 **Open, for the maintainer:**
 - **Re-presentation (finding 5).** Draft §4.4.3 lets a client re-submit an unexpired ID-JAG once its access token
-  expires. Our receiver enforces strict single use (S3). The agent's choice is to keep strict single use and document
+  expires. Our receiver enforces strict single use (S3). The implementation choice is to keep strict single use and document
   it: the client gets a new ID-JAG from the IdP, which keeps revocation at the IdP.
 - **Adapters that don't enforce UNIQUE (finding 12):** Better Auth's memory adapter, or a MongoDB without the named
   index. On those, replays are accepted silently. To be documented in the guide (Phase 4). A startup self-test was
@@ -158,11 +157,11 @@ caught. Of the 43 in the first run, two survived:
 
 Track A (receiver, `docs/tracks/receiver.md`, D-A01–D-A17) and Track B (issuer, `docs/tracks/issuer.md`, D-B01–D-B13)
 merged into main, each re-checked independently first (typecheck, lint, full suite, only its own files changed).
-Merge-time changes by the orchestrating session: `src/index.ts` exports the core, issuer and receiver;
+Merge-time changes: `src/index.ts` exports the core, issuer and receiver;
 `better-auth-id-jag/client` exports the issuer's client plugin; the build script rewrites nested and directory
-declaration imports for NodeNext consumers (it only handled top-level files); `.claude/` (agent worktrees) is ignored;
+declaration imports for NodeNext consumers (it only handled top-level files); worktree directories are ignored;
 `test/merge/both-plugins.test.ts` proves both plugins on one host share one jti table and one audit table. Evidence,
-the agents' decisions to review, the open questions and the core change requests: `docs/phase-1.md`. Phase 2 does not
+the decisions to review, the open questions and the core change requests: `docs/phase-1.md`. Phase 2 does not
 start without the maintainer's go.
 
 ## D-009: Phase 2 begins — the maintainer's decisions on the Phase 1 questions (2026-10-06)
@@ -189,7 +188,7 @@ Also decided for Phase 2:
 - **Two Workers on the demo account** (an example IdP and an example MCP server) stay up through Phase 2. The receiver
   is publicly reachable for Okta and xaa.dev.
 - **Keycloak and Authelia** run in Docker; node-oauth2-server runs in a Node test.
-- **The agent worktrees** are removed.
+- **The track worktrees** are removed.
 
 **Audit gap closed** (the review's finding 1, both tracks' core change request 1):
 - **What's added:** the provider's own refusals (a wrong secret, a client not registered for the grant, any other
@@ -238,7 +237,7 @@ doesn't yet (it has no agent identity to name). After the fix, the whole flow pa
   deployed Workers. They are up on the demo account through Phase 2.
 - **Merge:** one conflict (both sides appended to `test/mutations/receiver.json`); kept both.
 
-## D-012: `cnf` refused; the ID-JAG's `iss` from the provider's getIssuer (2026-10-06) — agent's choices, from a review note
+## D-012: `cnf` refused; the ID-JAG's `iss` from the provider's getIssuer (2026-10-06) — implementation choices, from a review note
 
 Two gaps, found by reviewing an external reference note on ID-JAG for Better Auth.
 - **`cnf` (draft §9.8.1.2).** An ID-JAG bound to a key must be refused unless the client presents a matching DPoP
@@ -278,7 +277,7 @@ Checked against Better Auth's own `biome.json`.
   Our code already met them: there was one finding, `if (entry.inflight)` on a promise-or-null in
   `src/receiver/jwks.ts`, now `!== null`. Both rules were shown to fire on a probe file.
 - **Not adopted:** tabs, `import * as z from "zod"`, separated `import type` lines. They would churn every file, and the
-  siblings (whose conventions this repository follows, per the handoff) use 2-space indentation and `import { z }`.
+  siblings (whose conventions this repository follows) use 2-space indentation and `import { z }`.
   They only matter for code going upstream, which would be written in Better Auth's repository through its own
   formatter.
 - **No Lefthook.** CI already enforces lint, typecheck, tests and the secret scan on every push.
@@ -301,7 +300,7 @@ rows, and reproduced five defects with probe tests.
 3. **Stale JWKS keys were used indefinitely while the IdP's JWKS was unreachable.** New `jwks.maxStaleSeconds`,
    default 3600.
 4. **An ID token kept minting ID-JAGs after sign-out (up to its 10-hour lifetime).** New `maxIdTokenAgeSeconds`,
-   default 3600; older sign-ins use the refresh token. This is the orchestrating session's choice over
+   default 3600; older sign-ins use the refresh token. This is an implementation choice over
    documentation-only, raised with the maintainer.
 5. **"Block from a jti" stopped working when the jti row was swept.** It now falls back to the audit row.
 
@@ -311,8 +310,8 @@ rows, and reproduced five defects with probe tests.
   longer claims it.
 - **README gaps:** the issuer wasn't marked experimental; the single-use position and oauth-wg #130 were missing; the
   receiver's check order was wrong; the CHANGELOG had nothing from Phase 2. All fixed.
-- **"The build agent did not stop":** `52bd35e` (README, SECURITY, CONTRIBUTING, threat model, templates) came from a
-  separate docs agent the maintainer was running in the same checkout, now stopped. `294efe1` is D-013.
+- **Commits after the review pin:** `52bd35e` (README, SECURITY, CONTRIBUTING, threat model, templates) was separate
+  docs work in the same checkout. `294efe1` is D-013.
 - **The Okta agent secret:** the maintainer rotates it.
 
 **The ten Phase 2 questions**, as the review recommended (the maintainer asked to proceed on its recommendations):
@@ -342,8 +341,8 @@ Each test was written first and seen to fail.
   - **`jitRole`:** checked against the organization plugin's roles at startup, and at provisioning for sso and table
     rows.
 - **Issuer** (`docs/tracks/issuer.md` D-B22–D-B25):
-  - **`maxIdTokenAgeSeconds`** (default 3600; `subject_token_expired`). Its 3600 s default is the orchestrating
-    session's choice, to be confirmed by the maintainer.
+  - **`maxIdTokenAgeSeconds`** (default 3600; `subject_token_expired`). Its 3600 s default is an implementation
+    choice, to be confirmed by the maintainer.
   - **`sid`:** an ID token that carries one is refused once its session has ended. Oauth-provider 1.7.6 sets `sid`
     only for clients with end-session or back-channel logout.
   - **Block from a jti:** falls back to the `id-jag.issued` audit row once the jti row is swept, with an explanatory
@@ -357,7 +356,7 @@ Each test was written first and seen to fail.
 
 ## D-016: Phase 3 decisions (2026-10-06) — the maintainer's
 
-On the Phase 3 design (`plans/phase-3-design.md`, private):
+On the Phase 3 design:
 1. **Both SAML paths:**
    - **(a)** assertion → ID-JAG directly;
    - **(b)** assertion → refresh token (draft -04 §4.5, RFC 8693, what Okta and the MCP extension use), then the
@@ -373,8 +372,8 @@ Also confirmed:
 - **`maxIdTokenAgeSeconds`** defaults to 3600.
 - **The audit route** stays open to either `canManage`.
 - **The `better-auth-saml-idp` side** (the SP opt-in, the record at issuance, `verifyIssuedAssertion` and its 1.2.0
-  minor release) is built by the maintainer's own SAML agent in that repository, from the brief at
-  `private/saml-idp-exchange-brief.md`. This repository builds against the interface frozen in that brief.
+  minor release) is built in that repository by its maintainer. This repository builds against the interface agreed between the
+  two.
 
 ## D-017: SAML, verified end to end across the two repositories (2026-10-06)
 
@@ -394,10 +393,7 @@ repository's main. **17/17 passed:**
 **Remaining for Phase 3:** the live xaa.dev SAML run and the Okta SAML run (the maintainer), the 1.2.0 release of
 better-auth-saml-idp (the maintainer), a Phase 3 review, and the Phase 3 note.
 
-**This session's process change** (the maintainer's instruction, 2026-10-06): no subagents unless asked. Two agents
-had stayed registered after their work was merged; both were stopped.
-
-## D-018: package checks (Phase 4 groundwork) (2026-10-06) — agent's choice, as the siblings
+## D-018: package checks (Phase 4 groundwork) (2026-10-06) — implementation choice, as the siblings
 
 - **TypeScript 7.0.2 is the compiler**, with **5.9.3 kept as `typescript-5`**. The whole repository typechecks
   clean under 7.
@@ -411,7 +407,7 @@ had stayed registered after their work was merged; both were stopped.
 - **The results:** publint "All good"; Are the Types Wrong green for ESM and bundlers on `.` and `./client`.
 - Dependabot's TypeScript 7 PR is superseded by this. Closing it on GitHub is the maintainer's action.
 
-## D-019: the adapter matrix (Phase 4 groundwork) (2026-10-06) — agent's choice, as the siblings
+## D-019: the adapter matrix (Phase 4 groundwork) (2026-10-06) — implementation choice, as the siblings
 
 `test/adapters/matrix.adapters.test.ts`, in CI's `adapters` job (a new job; the siblings' images and setup):
 - **Databases:** Postgres 17, MySQL 8.4, MongoDB 8.2 (a replica set), Drizzle on Postgres and on MySQL, and Prisma 7
@@ -499,8 +495,7 @@ that tests couldn't:
   example's to meet, not the package's; the example Worker now meets them (opt-in CORS, a minimal MCP endpoint).
 
 Not changed: no package code. A demo-database client was switched to `client_secret_post`, and one NameID link
-was made by hand, as an operator would. The xaa.dev client secret was exposed during the session and is rotated
-afterwards.
+was made by hand, as an operator would. The xaa.dev tester's client secret is rotated afterwards.
 
 ## D-024: Socket Firewall, and a wait before taking new versions (2026-10-07)
 

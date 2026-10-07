@@ -53,7 +53,7 @@ idJagGrant({
 
 ## The plan's §3.4 steps, as built
 
-The order is D-007's, as the Phase 1 brief corrected it.
+The order is D-007's, as the Phase 1 design corrected it.
 
 | Step | Where | How |
 |---|---|---|
@@ -71,7 +71,7 @@ The order is D-007's, as the Phase 1 brief corrected it.
 Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown as `toApiError(...)`.
 `sweepJtis` and `sweepAudit` run in the background at most once a minute per instance (`maybeSweep`).
 
-## Decisions (each the agent's choice; for the maintainer to confirm)
+## Decisions (each an implementation choice; for the maintainer to confirm)
 
 - **D-A01: sso trust is opt-in** (`sso: true | {…}`; default off). `@better-auth/sso` providers exist for sign-in. Trusting every one of them for ID-JAGs by default would widen what they can do. Depending on the host's sso configuration, ordinary users may be able to register providers. The plan's G1 ("from any IdP registered in sso") is still one option away.
 - **D-A02: our own discovery and JWKS fetch, not sso's `discoverOIDCConfig` / `fetchDiscoveryDocument`.** Those use Better Auth's global-fetch-based `betterFetch`, and S10 needs one injectable `fetch` with our caps.
@@ -91,7 +91,7 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
   - `defaultResource` must be registered: checked at startup.
 - **D-A07: no `issueRefreshToken` option.** `openid` and `offline_access` are always removed. The provider issues a refresh token only for `offline_access` (docs/phase-0.md finding 3), and an ID token only for `openid`. A regression test asserts neither appears, for a client allowed `refresh_token` and an ID-JAG that asks for both.
 - **D-A08: two guards for public clients.**
-  - `requireCredentials: !allowPublicClients` is what the brief asked for.
+  - `requireCredentials: !allowPublicClients` is what the design asked for.
   - Our own check after it refuses method/registration `none` as `public_client`, so the refusal is ours and audited if the provider's behaviour changes.
   - The provider's own client-authentication errors (wrong secret, missing credentials, unauthorized grant) are passed through unchanged and **not audited**. The core has no reason code for them; see core change request 1.
 - **D-A09: email fallback.**
@@ -148,7 +148,7 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
 - **D-A22: no organization plugin.**
   - **At startup:** a warning for static entries with JIT and an `organizationId`.
   - **At request time:** a warning each time JIT skips a membership for that reason. sso and table rows aren't known at startup.
-  - In both cases the user is still created, without a membership. That's the brief's choice: the entry's organization can't be honoured, but the host chose JIT.
+  - In both cases the user is still created, without a membership. That's the design's choice: the entry's organization can't be honoured, but the host chose JIT.
 
 ### After the independent review (D-A23–D-A26)
 
