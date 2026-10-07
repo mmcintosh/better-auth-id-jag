@@ -17,7 +17,7 @@ It runs as its own project, so both packages share **one** Better Auth (pnpm ove
 pnpm build                                  # this repository's dist
 cd test/interop/saml-idp-e2e
 openssl req -x509 -newkey rsa:2048 -nodes -keyout idp.key -out idp.crt -days 2 -subj "/CN=e2e-saml-idp"
-pnpm install --ignore-scripts
+pnpm install --ignore-workspace --ignore-scripts   # its own project, not part of the root workspace
 node e2e.mjs
 ```
 

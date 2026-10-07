@@ -9,7 +9,7 @@
     "@better-auth/mcp": "1.7.6",
     "better-auth-id-jag": "file:../../..",
     "better-auth-saml-idp": "1.2.0",
-    "@xmldom/xmldom": "0.8.11",
+    "@xmldom/xmldom": "0.8.15",
     "jose": "6.2.12"
   },
   "pnpm": {
@@ -17,7 +17,8 @@
       "better-auth": "1.7.6",
       "@better-auth/core": "1.7.6",
       "@better-auth/oauth-provider": "1.7.6",
-      "@better-auth/utils": "0.4.2"
+      "@better-auth/utils": "0.4.2",
+      "@xmldom/xmldom@<0.8.15": "0.8.15"
     }
   }
 }
