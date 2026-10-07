@@ -1197,7 +1197,7 @@
  {
   "name": "D-B23 sid session not checked",
   "file": "src/issuer/subject/id-token.ts",
-  "a": "  if (claims.sid !== undefined && !(await sessionLive(ctx, claims.sid, expected.now))) bad(\"session ended\");\n",
+  "a": "  if (claims.sid !== undefined && !(await sessionLive(ctx, claims.sid, claims.sub, expected.now))) bad(\"session ended\");\n",
   "b": "",
   "paths": [
    "test/issuer/subject-age.test.ts"
@@ -1215,8 +1215,8 @@
  {
   "name": "D-B23 session id not compared exactly",
   "file": "src/issuer/subject/id-token.ts",
-  "a": "  if (!row || String(row.id) !== sid) return false;",
-  "b": "  if (!row) return false;",
+  "a": "  if (!row || String(row.id) !== sid || String(row.userId) !== sub) return false;",
+  "b": "  if (!row || String(row.userId) !== sub) return false;",
   "paths": [
    "test/issuer/subject-age.test.ts"
   ],
