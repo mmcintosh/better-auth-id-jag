@@ -34,7 +34,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 
 ## 📚 Contents
 
-[Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [Conformance](#-conformance) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
+[Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [What ID-JAG controls](#-what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#-conformance) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
 
 ## 📦 Install
 
@@ -325,6 +325,21 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 ## 🚫 Errors
 
 Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`). The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Trust, binding, subject and policy failures all get the generic description for their code, so an agent can't probe which users exist or what a policy allows. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
+
+## 🛡️ What ID-JAG controls, and what your MCP server still must
+
+ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act for this user at this app, and with which scopes. The rest of an agent's permissions is layered on top, and most of it is your MCP server's job.
+
+| Layer | Who decides | With this package |
+|---|---|---|
+| Which agents may act for which users at which apps | The IdP: its connections, assignments and user status, checked at every exchange | Our issuer: your `authorize` policy, the registry and blocks. Okta: its resource connections (verified live, [docs/interop.md](docs/interop.md)) |
+| Which scopes the agent gets | The IdP grants them; the receiver intersects the request's scopes with the ID-JAG's | The access token is audience-bound to the resource and carries only those scopes |
+| Which tools a scope unlocks | **Your MCP server**: check the token's `scope` on every tool call (for example `read` for listing, `write` for changes) | This package never sees tool calls |
+| Different rights for different users | The IdP's policies (per group); your app's roles | JIT can add new users to an organization with a role (`organizationId`, `jitRole`) |
+| Which records | **Your app** | Rich Authorization Requests (`authorization_details`) are refused for now |
+| Who is acting | The ID-JAG's `act` claim names the agent (Okta sends it) | Carried into the access token: log it, or allow agents less than people |
+
+**How fast a cutoff takes effect.** When the IdP stops an agent (a connection removed, a user unassigned or deactivated), it stops issuing ID-JAGs at once. An ID-JAG already issued lives at most its lifetime (300 s by default, 900 s at most) and works once. But an **access token already issued lives until it expires**: the provider's `accessTokenExpiresIn`, **an hour by default**. No refresh token is issued, so the agent then needs a new ID-JAG. For agents, set a short `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, and `scopeExpirations` (for example `{ write: "5m" }`) for the sensitive scopes.
 
 ## ✅ Conformance
 

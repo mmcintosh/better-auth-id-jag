@@ -153,13 +153,15 @@ export interface HostOptions {
   account?: BetterAuthOptions["account"];
   /** The organization plugin's options (custom roles, dynamic access control). */
   organizationOptions?: Parameters<typeof organization>[0];
+  /** More options for mcp() or oauthProvider() (e.g. accessTokenExpiresIn, scopeExpirations). */
+  provider?: Record<string, unknown>;
 }
 
 /** `@better-auth/sso`'s `organizationProvisioning` option. */
 export type SsoOrganizationProvisioning = NonNullable<NonNullable<Parameters<typeof sso>[0]>["organizationProvisioning"]>;
 
 export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOptions) {
-  const common = { loginPage: "/login", consentPage: "/consent", allowDynamicClientRegistration: false, scopes: SCOPES };
+  const common = { loginPage: "/login", consentPage: "/consent", allowDynamicClientRegistration: false, scopes: SCOPES, ...o.provider };
   const rec = o.recorder;
   const receiver: IdJagGrantOptions = { ...o.receiver, ...(rec && !o.receiver.events ? { events: rec.events } : {}) };
   // `as unknown as BetterAuthPlugin`: these don't typecheck under exactOptionalPropertyTypes (docs/phase-0.md).
