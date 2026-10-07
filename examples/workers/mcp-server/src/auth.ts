@@ -21,13 +21,23 @@ export interface Env {
   /** Optional: Okta's xaa.dev playground IdP (https://idp.xaa.dev), for its conformance testers. */
   XAA_ISSUER?: string;
   OKTA_JWKS_URI?: string;
+  /** Optional: browser origins allowed to call the token endpoint and /mcp (comma-separated), e.g. xaa.dev's testers. */
+  CORS_ORIGINS?: string;
 }
 
 export function createAuth(env: Env, origin: string) {
   const idpHost = new URL(env.IDP_ISSUER).host;
   const trustedIssuers: StaticTrustedIssuer[] = [{ issuer: env.IDP_ISSUER, jwksUri: `${env.IDP_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } }];
   if (env.OKTA_ISSUER && env.OKTA_JWKS_URI) trustedIssuers.push({ issuer: env.OKTA_ISSUER, jwksUri: env.OKTA_JWKS_URI, jitProvisioning: { trustEmailVerified: true } });
-  if (env.XAA_ISSUER) trustedIssuers.push({ issuer: env.XAA_ISSUER, jwksUri: `${env.XAA_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } });
+  // xaa.dev's SAML variant puts the SAML NameID in sub_id (draft §3.2): users resolve by that NameID,
+  // under the account key ("xaa-saml", NameID), not by sub.
+  if (env.XAA_ISSUER)
+    trustedIssuers.push({
+      issuer: env.XAA_ISSUER,
+      jwksUri: `${env.XAA_ISSUER}/jwks`,
+      jitProvisioning: { trustEmailVerified: true },
+      samlSubjects: [{ issuer: `${env.XAA_ISSUER}/saml`, nameIdFormats: ["urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"], accountProviderId: "xaa-saml" }],
+    });
   return betterAuth({
     baseURL: origin,
     secret: env.BETTER_AUTH_SECRET,

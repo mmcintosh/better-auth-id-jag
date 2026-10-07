@@ -62,8 +62,25 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   } catch {
     return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "invalid token" } }, { status: 401, headers: { "WWW-Authenticate": `${challenge["WWW-Authenticate"]}, error="invalid_token"` } });
   }
-  const rpc = (await request.json().catch(() => ({}))) as { id?: unknown };
-  return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result: { content: [{ type: "text", text: JSON.stringify({ tool: "whoami", sub: claims.sub, scope: claims.scope, aud: claims.aud, idjag: claims.idjag }) }] } });
+  const rpc = (await request.json().catch(() => ({}))) as { id?: unknown; method?: string; params?: { protocolVersion?: string } };
+  // The minimum of MCP's Streamable HTTP for one tool: initialize, the initialized notification
+  // (202, no body), ping, tools/list and tools/call. Any other method is "method not found".
+  const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
+  const whoami = { content: [{ type: "text", text: JSON.stringify({ tool: "whoami", sub: claims.sub, scope: claims.scope, aud: claims.aud, idjag: claims.idjag }) }] };
+  switch (rpc.method) {
+    case "initialize":
+      return reply({ protocolVersion: rpc.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "id-jag-example-mcp", version: "0.1.0" } });
+    case "notifications/initialized":
+      return new Response(null, { status: 202 });
+    case "ping":
+      return reply({});
+    case "tools/list":
+      return reply({ tools: [{ name: "whoami", description: "Returns the authenticated user", inputSchema: { type: "object", properties: {} } }] });
+    case "tools/call":
+      return reply(whoami);
+    default:
+      return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32601, message: "method not found" } });
+  }
 }
 
 export default {
@@ -72,8 +89,28 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+// CORS for browser-based testers (CORS_ORIGINS): only the token endpoint, the metadata documents
+// and /mcp, and no credentials (cookies) — what these callers send is a client secret or a bearer token.
+const CORS_PATHS = /^\/(api\/auth\/oauth2\/token|mcp|\.well-known\/.*)$/;
+function corsHeaders(request: Request, env: Env, url: URL): Record<string, string> | null {
+  const origin = request.headers.get("origin");
+  const allowed = (env.CORS_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+  if (!origin || !allowed.includes(origin) || !CORS_PATHS.test(url.pathname)) return null;
+  return { "access-control-allow-origin": origin, "access-control-allow-methods": "GET, POST, OPTIONS", "access-control-allow-headers": "authorization, content-type, accept, mcp-protocol-version", "access-control-expose-headers": "www-authenticate", "access-control-max-age": "600", vary: "origin" };
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const cors = corsHeaders(request, env, url);
+  if (request.method === "OPTIONS" && cors) return new Response(null, { status: 204, headers: cors });
+  const response = await dispatch(request, env, url);
+  if (!cors) return response;
+  const out = new Response(response.body, response);
+  for (const [k, v] of Object.entries(cors)) out.headers.set(k, v);
+  return out;
+}
+
+async function dispatch(request: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname === "/setup" && request.method === "POST") return setup(request, env, url.origin);
   if (url.pathname === "/mcp") return mcpEndpoint(request, env, url.origin);
   return authFor(env, url.origin).handler(request);
