@@ -511,3 +511,23 @@ falls short" list, and the maintainer's request.
   `pnpm-workspace.yaml`, Better Auth exempt; Dependabot `cooldown: { default-days: 3 }` on every entry. Lockfile
   installs are unchanged. `test/interop/saml-idp-e2e` (its own lockfile) still installs and passes.
 - **Risk accepted:** a Socket outage or a false positive blocks CI until resolved.
+
+## D-025: the external pre-release review (2026-10-07)
+
+A deep review of `21326cb`: "ship 0.1.0, after two one-line doc fixes". Nothing lets an attacker obtain a token as
+the wrong user, for the wrong resource or scope, or replay one. Its run: 870 tests, the SAML end-to-end test (19/19)
+and all three mutation lists (402 caught, 15 expected survivors, 0 problems). Its findings, all fixed:
+
+1. **Low: one refused request per minute during a JWKS outage.** Past the cache TTL, the request that triggered the
+   refetch was refused (`jwks_unavailable`) when the fetch failed, although the cached keys were within
+   `maxStaleSeconds`; only the following requests got them. Now that request gets the cached keys too, and the
+   failure goes to the host's logger as a warning (`JwksCache.keysFor`'s `onStaleRefetchError`). Past the stale
+   window it is refused as before. Tests rewritten failing-first; three new mutations, three updated.
+2. **Low: `trustEmailVerified` described as reading `email_verified`.** No such claim is read: the new user's
+   email is marked verified on the trusted issuer's word. `docs/security.md` and the option's comment say so.
+3. **Low: the issuer's audit filter couldn't select `id-jag.accepted`** (both plugins share one audit table). The
+   allowed types now come from the core's event map (`AUDIT_EVENT_TYPES`), so they can't drift again.
+4. **Info: the public API is wide** (105 exports, internals included). Fine for 0.x; trim before 1.0 (agenda).
+
+Also from the review: the Mutations workflow runs its three lists in parallel (a matrix), and it is dispatched at
+the release commit so a green run is on record.

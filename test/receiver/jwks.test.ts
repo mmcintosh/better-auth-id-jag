@@ -198,21 +198,27 @@ describe("JwksCache: caching and refetch (S4)", () => {
     expect(net.calls).toHaveLength(2);
   });
 
-  it("stale keys while the JWKS is down: used up to maxStale past the TTL, then refused until a fetch succeeds (D-A25)", async () => {
+  it("stale keys while the JWKS is down: used up to maxStale past the TTL, then refused until a fetch succeeds (D-A25, D-025)", async () => {
     const idp = await testIdp();
     const net = network(idp);
     const c = clock();
     const cache = new JwksCache(net.fetch, SETTINGS, c.now);
-    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    const failures: string[] = [];
+    const onStale = (e: unknown) => failures.push(e instanceof Error ? e.message : String(e));
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid, onStale))).toBe("ok");
     idp.override = () => new Response("down", { status: 503 });
-    // Past the TTL: the refetch fails (that request is refused), then the cached keys answer.
+    // Past the TTL: the refetch fails, and the cached keys still answer that same request; the
+    // failure is reported, not turned into a refusal.
     c.advance(SETTINGS.cacheTtlMs);
-    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
-    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
-    // The last moment of the stale window: still the cached keys (after that minute's failed refetch).
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid, onStale))).toBe("ok");
+    expect(failures).toHaveLength(1);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid, onStale))).toBe("ok");
+    expect(net.calls).toHaveLength(2);
+    // The last moment of the stale window: still the cached keys, after that minute's failed refetch.
     c.advance(SETTINGS.maxStaleMs - 1);
-    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
-    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid, onStale))).toBe("ok");
+    expect(failures).toHaveLength(2);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid, onStale))).toBe("ok");
     // Past it: the cached keys are discarded; every request is jwks_unavailable, fetched or not.
     c.advance(1);
     expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("jwks_unavailable: no keys (a recent fetch failed)");
@@ -315,9 +321,11 @@ describe("through the grant", () => {
       let t = Date.now();
       const idp = await testIdp();
       const rec = recorder();
+      const logs: string[] = [];
       const h = await receiverHost("mcp", {
         receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch, clock: () => new Date(t), ...(maxStaleSeconds === undefined ? {} : { jwks: { maxStaleSeconds } }) },
         recorder: rec,
+        logs,
       });
       const client = await createClient(h);
       const sub = crypto.randomUUID();
@@ -332,7 +340,9 @@ describe("through the grant", () => {
       expect(await attempt()).toBe("ok");
       idp.override = () => new Response("down", { status: 503 });
       t += 600_000 + stale - 1000;
-      expect(await attempt()).toBe("jwks_unavailable");
+      // The refetch fails, and the cached keys still answer this request (D-025); the operator is told.
+      expect(await attempt()).toBe("ok");
+      expect(logs.filter((l) => l.includes("JWKS refetch") && l.includes("failed; using its cached keys"))).toHaveLength(1);
       expect(await attempt()).toBe("ok");
       t += 1000;
       expect(await attempt()).toBe("jwks_unavailable");

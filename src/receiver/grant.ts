@@ -14,7 +14,7 @@
 // Every refusal is an IdJagRefusal, audited, then turned into the standard JSON error.
 import type { CompactVerifyGetKey } from "jose";
 import { getIssuer, type OAuthExtensionGrantHandlerInput, type OAuthTokenResponse } from "@better-auth/oauth-provider";
-import { checkTimes, emit, IdJagRefusal, providerErrorCode, providerRefusalReason, type ParsedIdJag, parseIdJag, recordJti, refuse, sweepAudit, sweepJtis, toApiError, verifyIdJag } from "../core";
+import { checkTimes, emit, IdJagRefusal, logSafe, providerErrorCode, providerRefusalReason, type ParsedIdJag, parseIdJag, recordJti, refuse, sweepAudit, sweepJtis, toApiError, verifyIdJag } from "../core";
 import type { ResolvedReceiverOptions, TrustEntry } from "./options";
 import { resolveSubject } from "./resolve";
 import { findTrustedIssuer } from "./trust";
@@ -141,7 +141,9 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     // The keys are fetched lazily, when the signature is checked, so nothing is fetched for a
     // token verifyIdJag refuses earlier (a self-issued one).
     const key: CompactVerifyGetKey = async (header, token) => {
-      const keys = await o.jwks.keysFor(trust, parsed.header.kid);
+      const keys = await o.jwks.keysFor(trust, parsed.header.kid, (e) =>
+        ctx.context.logger.warn(`[id-jag] JWKS refetch for ${logSafe(trust.issuer)} failed; using its cached keys (within jwks.maxStaleSeconds): ${logSafe(e instanceof IdJagRefusal ? (e.detail ?? e.reason) : String(e))}`),
+      );
       // Narrowed to what this issuer publishes; not public, or it would reveal the trust (S8).
       if (keys.algorithms && !(keys.algorithms as string[]).includes(header.alg)) refuse("bad_signature", `alg ${header.alg} not published by the issuer`);
       return keys.key(header, token);

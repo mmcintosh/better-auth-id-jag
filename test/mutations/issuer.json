@@ -1915,10 +1915,10 @@
   ]
  },
  {
-  "name": "Review P3 #2: the audit route can't filter on id-jag.refresh-issued",
+  "name": "Review P3 #2 / D-025: the audit route can't filter on every event type (refresh-issued, accepted)",
   "file": "src/issuer/registry.ts",
-  "a": "\"id-jag.issued\", \"id-jag.refresh-issued\", \"id-jag.refused\", \"id-jag.admin\"",
-  "b": "\"id-jag.issued\", \"id-jag.refused\", \"id-jag.admin\"",
+  "a": "z.enum(AUDIT_EVENT_TYPES)",
+  "b": "z.enum([\"id-jag.issued\", \"id-jag.refused\", \"id-jag.admin\"])",
   "paths": [
    "test/issuer/registry.test.ts"
   ]

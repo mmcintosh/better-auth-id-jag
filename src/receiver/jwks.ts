@@ -70,8 +70,12 @@ export class JwksCache {
     private readonly now: () => number,
   ) {}
 
-  /** The keys to verify an ID-JAG with `kid` from this issuer; fetches (or refetches) as the rules allow. */
-  async keysFor(source: KeySource, kid: string): Promise<IssuerKeys> {
+  /**
+   * The keys to verify an ID-JAG with `kid` from this issuer; fetches (or refetches) as the rules allow.
+   * A failed refetch doesn't refuse the request while the cached keys are within `maxStale` past their
+   * TTL: they answer, and `onStaleRefetchError` hears about the failure (the operator should know).
+   */
+  async keysFor(source: KeySource, kid: string, onStaleRefetchError?: (e: unknown) => void): Promise<IssuerKeys> {
     const cacheKey = JSON.stringify([source.issuer, source.jwksUri ?? "", source.discoveryUri ?? ""]);
     let entry = this.entries.get(cacheKey);
     if (!entry) {
@@ -83,13 +87,22 @@ export class JwksCache {
     const hasKid = entry.keys?.some((k) => k.kid === kid) ?? false;
     if (!(fresh && hasKid)) {
       if (entry.inflight !== null) await entry.inflight;
-      else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs) await this.refresh(entry, source);
+      else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs)
+        await this.refresh(entry, source).catch((e: unknown) => {
+          if (!this.usable(entry)) throw e;
+          onStaleRefetchError?.(e);
+        });
       // else: refetched too recently; use what we have (an unknown kid then fails as a bad signature).
     }
     // Too stale to use (the refetches failed): discard the keys until a fetch succeeds.
-    if (entry.keys !== null && this.now() - entry.fetchedAt >= this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;
+    if (entry.keys !== null && !this.usable(entry)) entry.keys = null;
     if (!entry.keys) refuse("jwks_unavailable", "no keys (a recent fetch failed)");
     return toIssuerKeys(entry.keys);
+  }
+
+  /** Cached keys no more than `maxStale` past their TTL. */
+  private usable(entry: Entry): boolean {
+    return entry.keys !== null && this.now() - entry.fetchedAt < this.settings.cacheTtlMs + this.settings.maxStaleMs;
   }
 
   private refresh(entry: Entry, source: KeySource): Promise<void> {

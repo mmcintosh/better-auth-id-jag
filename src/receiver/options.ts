@@ -28,7 +28,10 @@ export interface StaticTrustedIssuer {
   accountProviderId?: string | undefined;
   /** Match an unlinked subject by its `email` claim, only for these domains (exact, lowercase). Off when absent. */
   emailFallback?: { domains: string[] } | undefined;
-  /** Create a user for an unknown subject. Off by default. */
+  /**
+   * Create a user for an unknown subject. Off by default. `trustEmailVerified`: mark the new user's email verified,
+   * on this issuer's word (no `email_verified` claim is read).
+   */
   jitProvisioning?: boolean | { trustEmailVerified?: boolean } | undefined;
   /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
   jitRole?: string | undefined;

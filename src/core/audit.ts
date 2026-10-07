@@ -116,6 +116,9 @@ const HANDLER = {
   "id-jag.admin": "onAdminChanged",
 } as const satisfies Record<IdJagEvent["type"], keyof IdJagEventHandlers>;
 
+/** Every audit event type (both plugins write to one table). */
+export const AUDIT_EVENT_TYPES = Object.keys(HANDLER) as [IdJagEvent["type"], ...IdJagEvent["type"][]];
+
 export function auditSchema() {
   return {
     [AUDIT_MODEL]: {

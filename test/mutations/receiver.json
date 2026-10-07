@@ -137,8 +137,8 @@
  {
   "name": "S4 refetch: no rate limit on unknown kids",
   "file": "src/receiver/jwks.ts",
-  "a": "else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs) await this.refresh(entry, source);",
-  "b": "else await this.refresh(entry, source);",
+  "a": "      else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs)\n        await this.refresh(entry, source)",
+  "b": "      else\n        await this.refresh(entry, source)",
   "paths": [
    "test/receiver"
   ]
@@ -1019,7 +1019,7 @@
  {
   "name": "D-A25 JWKS: stale keys never discarded (used indefinitely while the JWKS is down)",
   "file": "src/receiver/jwks.ts",
-  "a": "    if (entry.keys !== null && this.now() - entry.fetchedAt >= this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;\n",
+  "a": "    if (entry.keys !== null && !this.usable(entry)) entry.keys = null;\n",
   "b": "",
   "paths": [
    "test/receiver/jwks.test.ts"
@@ -1028,8 +1028,8 @@
  {
   "name": "D-A25 JWKS: maxStale ignored (no stale window at all)",
   "file": "src/receiver/jwks.ts",
-  "a": "this.settings.cacheTtlMs + this.settings.maxStaleMs) entry.keys = null;",
-  "b": "this.settings.cacheTtlMs) entry.keys = null;",
+  "a": "this.now() - entry.fetchedAt < this.settings.cacheTtlMs + this.settings.maxStaleMs;",
+  "b": "this.now() - entry.fetchedAt < this.settings.cacheTtlMs;",
   "paths": [
    "test/receiver/jwks.test.ts"
   ]
@@ -1478,6 +1478,33 @@
   "b": "onIssued: fn.optional(), onAccepted:",
   "paths": [
    "test/merge/both-plugins.test.ts"
+  ]
+ },
+ {
+  "name": "D-025 JWKS: a failed refetch in the stale window refuses that request (the old behaviour)",
+  "file": "src/receiver/jwks.ts",
+  "a": "          if (!this.usable(entry)) throw e;\n          onStaleRefetchError?.(e);\n",
+  "b": "          throw e;\n",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-025 JWKS: the stale-window refetch failure not reported",
+  "file": "src/receiver/jwks.ts",
+  "a": "          onStaleRefetchError?.(e);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-025 JWKS: a refetch failure past the stale window swallowed",
+  "file": "src/receiver/jwks.ts",
+  "a": "          if (!this.usable(entry)) throw e;\n",
+  "b": "",
+  "paths": [
+   "test/receiver/jwks.test.ts"
   ]
  }
 ]

@@ -12,7 +12,7 @@
 import type { GenericEndpointContext, User } from "better-auth";
 import { APIError, createAuthEndpoint, sensitiveSessionMiddleware } from "better-auth/api";
 import { z } from "zod";
-import { AUDIT_MODEL, type AdminChangedEvent, emit, JTI_MODEL, jtiKey } from "../core";
+import { AUDIT_EVENT_TYPES, AUDIT_MODEL, type AdminChangedEvent, emit, JTI_MODEL, jtiKey } from "../core";
 import { type BlockConfig, blockColumns, blockInput, readBlock } from "./blocks";
 import { type IssuerState, issuerOf } from "./exchange";
 import type { CanManage } from "./options";
@@ -427,7 +427,7 @@ export function auditEndpoints(state: IssuerState) {
       {
         method: "GET",
         use,
-        query: z.object({ type: z.enum(["id-jag.issued", "id-jag.refresh-issued", "id-jag.refused", "id-jag.admin"]).optional(), limit: z.coerce.number().int().min(1).max(MAX_AUDIT).optional(), before: z.iso.datetime().optional() }).optional(),
+        query: z.object({ type: z.enum(AUDIT_EVENT_TYPES).optional(), limit: z.coerce.number().int().min(1).max(MAX_AUDIT).optional(), before: z.iso.datetime().optional() }).optional(),
       },
       async (ctx) => {
         await actor(ctx, state, "audit");
