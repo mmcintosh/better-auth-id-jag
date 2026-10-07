@@ -1,5 +1,5 @@
 # OpenSSF Scorecard: supply-chain practices (pinned actions, token permissions, branch
-# protection, …), published to the OpenSSF API for the README badge and to Security > Code scanning.
+# protection, …), published to the OpenSSF API (for a README badge once the repository is public) and to Security > Code scanning.
 name: Scorecard
 on:
   push: { branches: [main] }

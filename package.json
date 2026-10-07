@@ -5,6 +5,33 @@
   "description": "Identity Assertion JWT Authorization Grants (ID-JAG, Cross App Access, MCP Enterprise-Managed Authorization) for Better Auth: issue them from your IdP, accept them at your MCP server.",
   "license": "MIT",
   "author": "Mark McIntosh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmcintosh/better-auth-id-jag.git"
+  },
+  "homepage": "https://github.com/mmcintosh/better-auth-id-jag#readme",
+  "bugs": {
+    "url": "https://github.com/mmcintosh/better-auth-id-jag/issues"
+  },
+  "keywords": [
+    "better-auth",
+    "better-auth-plugin",
+    "id-jag",
+    "identity-assertion",
+    "cross-app-access",
+    "xaa",
+    "mcp",
+    "model-context-protocol",
+    "enterprise-managed-authorization",
+    "oauth",
+    "token-exchange",
+    "rfc8693",
+    "jwt-bearer",
+    "rfc7523",
+    "okta",
+    "saml",
+    "cloudflare-workers"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -97,5 +124,9 @@
     "better-auth-saml-idp": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

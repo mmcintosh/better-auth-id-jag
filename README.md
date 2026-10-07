@@ -94,6 +94,8 @@ export const auth = betterAuth({
 });
 ```
 
+> **With `exactOptionalPropertyTypes`:** Better Auth's own `oauthProvider()` and `mcp()` plugin types don't compile under that setting (upstream, not this package). Cast them where you list your plugins (`mcp({ … }) as unknown as BetterAuthPlugin`), as this repository's tests do.
+
 Then create the tables with your usual migration (`npx auth migrate`, or `npx auth generate` for Drizzle and Prisma), and the agent can run the flow:
 
 1. Get an ID token (or a refresh token) for the user from the IdP, as any OAuth client does.
@@ -115,7 +117,7 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | Option | Default | |
 |---|---|---|
 | `authorize` | | Code policy: `(input) => { decision: "allow", scopes, … } \| { decision: "deny", reason? }`. See [Policy](#policy). |
-| `registry` | | Database policy: `{ enabled, canManage?, cacheSeconds? }`. See [Registry and admin API](#registry-and-admin-api). |
+| `registry` | | Database policy: `{ enabled, canManage?, cacheSeconds? }` (`cacheSeconds`: 60 by default, 0 to 3600). See [Registry and admin API](#registry-and-admin-api). |
 | `blocks` | | `{ canManage? }`: who may manage [blocks](#blocks) over the API. Blocks are enforced either way. |
 | `maxIdTokenAgeSeconds` | `3600` | The oldest ID token (by `iat`) accepted as a subject token, even when it hasn't expired. 60 to 86400. An older one is refused as `subject_token_expired`; exchange the refresh token instead. |
 | `allowPublicClients` | `false` | The draft: "SHOULD only be supported for confidential clients". Turning it on logs a warning at startup. |

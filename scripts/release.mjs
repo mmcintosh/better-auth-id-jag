@@ -1,5 +1,6 @@
 // Prepares a release: bumps package.json, dates CHANGELOG.md's [Unreleased] section, and opens the
 // "Release X.Y.Z" pull request. Merging it releases (tag-release.yml tags it and starts release.yml).
+// The first release also drops "private": true and the README's pre-release lines.
 //
 //   pnpm release patch|minor|major ["One sentence for the top of the version's section."]
 //
@@ -40,11 +41,46 @@ if (!unreleased) fail("the [Unreleased] section is empty: there's nothing to rel
 const date = new Date().toISOString().slice(0, 10);
 const section = `## [${next}] - ${date}\n\n${summary ? `${summary}\n\n` : ""}${unreleased}\n\n`;
 writeFileSync("CHANGELOG.md", `${changelog.slice(0, at)}${head}\n${section}${end < 0 ? "" : rest.slice(end)}`);
-writeFileSync("package.json", pkg.replace(/("version":\s*")[^"]+(")/, `$1${next}$2`));
+let nextPkg = pkg.replace(/("version":\s*")[^"]+(")/, `$1${next}$2`);
+
+// The first release (package.json still "private": true): publishable from here on, and the README
+// that ships in the tarball stops saying the package isn't released. Each passage must be found
+// exactly, so a reworded README stops the release instead of shipping the old text.
+const FIRST_RELEASE_README = [
+  [
+    "Status: **pre-release**: npm has only a 0.0.1 placeholder under this name; 0.1.0 is the first usable release.",
+    "Status: **0.x, before 1.0**.",
+  ],
+  [
+    "> The 0.0.1 on npm is a name placeholder with no code. Until 0.1.0, install from a clone (`pnpm build`, then `pnpm add ../better-auth-id-jag`).\n\n",
+    "",
+  ],
+];
+let firstRelease = false;
+if (JSON.parse(pkg).private === true) {
+  firstRelease = true;
+  nextPkg = nextPkg.replace(/^\s*"private":\s*true,\n/m, "");
+  if (JSON.parse(nextPkg).private !== undefined) fail('couldn\'t remove "private": true from package.json');
+  let readme = readFileSync("README.md", "utf8");
+  for (const [from, to] of FIRST_RELEASE_README) {
+    if (!readme.includes(from)) fail(`the README's pre-release passage has changed; update FIRST_RELEASE_README in scripts/release.mjs:\n  ${from}`);
+    readme = readme.replace(from, to);
+  }
+  writeFileSync("README.md", readme);
+}
+writeFileSync("package.json", nextPkg);
 
 const branch = `release/${next}`;
 run("git", ["checkout", "-b", branch]);
 run("git", ["commit", "-am", `Release ${next}`]);
 run("git", ["push", "-u", "origin", branch], { stdio: ["ignore", "ignore", "inherit"] });
-const url = run("gh", ["pr", "create", "--draft", "--base", "main", "--title", `Release ${next}`, "--body", `Version ${next} in package.json and its dated CHANGELOG section.\n\n**Merging this releases it:** tag-release.yml tags v${next} on main and starts the release run. Then approve the \`npm\` environment in GitHub, and the staged publish on npmjs.com.`]);
-console.log(`${current} → ${next}: ${url}\nWhen CI is green, mark it ready and merge it to release.`);
+// The README is packed into the tarball, so the npm page shows it as it is now until the next release.
+const docsCheck = [
+  "**Before merging: do the docs cover everything in this section?**",
+  "- [ ] README: features, the options tables and defaults, the events, the conformance and interoperability tables",
+  "- [ ] docs/security.md (threats and known limitations), docs/interop.md, docs/versioning.md",
+  "- [ ] Nothing in the README still describes the package as unreleased",
+].join("\n");
+const what = firstRelease ? `Version ${next} in package.json (no longer \`"private": true\`), its dated CHANGELOG section, and the README's release status.` : `Version ${next} in package.json and its dated CHANGELOG section.`;
+const url = run("gh", ["pr", "create", "--draft", "--base", "main", "--title", `Release ${next}`, "--body", `${what}\n\n${docsCheck}\n\n**Merging this releases it:** tag-release.yml tags v${next} on main and starts the release run. Then approve the \`npm\` environment in GitHub, and the staged publish on npmjs.com.`]);
+console.log(`${current} → ${next}: ${url}\nCheck the docs against the release (the checklist in the PR); the npm page shows this README until the next release.\nWhen CI is green, mark it ready and merge it to release.`);

@@ -90,8 +90,8 @@ One-time setup, before the first release:
 Each release:
 
 1. Keep CHANGELOG.md's `[Unreleased]` section up to date as changes land.
-2. On an up-to-date, clean `main`: `pnpm release patch|minor|major ["One sentence for the top of the section."]`. It bumps `version` in package.json, dates the `[Unreleased]` section, and opens the **Release X.Y.Z** pull request.
-3. Optionally, run **Actions → Release → Run workflow** on `main` for a dry run: it tests, packs, and builds the SBOM without publishing.
+2. On an up-to-date, clean `main`: `pnpm release patch|minor|major ["One sentence for the top of the section."]`. It bumps `version` in package.json, dates the `[Unreleased]` section, and opens the **Release X.Y.Z** pull request. On the first release (package.json still `"private": true`) it also removes `"private": true` and the README's two pre-release passages; it stops if either passage has been reworded. The PR carries a docs checklist: the README is in the tarball, so the npm page shows it until the next release.
+3. Run **Actions → Release → Run workflow** on `main` for a dry run (optional later; do it once before the first release): it tests, packs, and builds the SBOM without publishing.
 4. **Merge the release PR when CI is green: that's the go-ahead.** [tag-release.yml](.github/workflows/tag-release.yml) tags `vX.Y.Z` on `main` and starts the release run on the tag. It checks the tag matches package.json, tests and packs. After your approval in the `npm` environment, it **stages** the tested tarball with provenance and creates the GitHub release with its CycloneDX SBOM.
 5. Approve the staged version on npmjs.com (Staged packages, with your security key) or with `npm stage approve <id>`. Only then is it installable.
 6. Before 0.1 and at each draft change: check that [src/core/urns.ts](src/core/urns.ts) and the README name the draft the release implements.
