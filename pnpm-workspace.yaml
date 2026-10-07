@@ -1,0 +1,11 @@
+# Settings only: this repository is one package (test/interop/saml-idp-e2e is its own project, with its
+# own lockfile).
+
+# Don't install a version published less than a day ago (D-024, as better-auth-saml-idp's D-073): most
+# npm malware is found and pulled within hours. Dependabot waits 3 days (cooldown), so it never proposes
+# a version this rejects. Better Auth is exempt, because CI's latest-1.7 row exists to try its newest
+# releases at once; Socket Firewall still checks them in CI.
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - better-auth
+  - "@better-auth/*"

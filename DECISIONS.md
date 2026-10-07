@@ -501,3 +501,18 @@ that tests couldn't:
 Not changed: no package code. A demo-database client was switched to `client_secret_post`, and one NameID link
 was made by hand, as an operator would. The xaa.dev client secret was exposed during the session and is rotated
 afterwards.
+
+## D-024: Socket Firewall, and a wait before taking new versions (2026-10-07)
+
+The siblings' standard (better-auth-saml-idp D-073, better-auth-scim-provisioning), the reviewer's "where id-jag
+falls short" list, and the maintainer's request.
+
+- **Socket Firewall** (`sfw`, the free edition, `SocketDev/action` pinned by SHA, `mode: firewall-free`) wraps
+  every dependency install: the `ci.yml` jobs, `scripts/use-better-auth.sh` (it installs fresh Better Auth
+  versions in the latest-1.7 row), the interop and mutation workflows, both `pnpm install` steps of the release,
+  and the `npm ci` of the npm CLI in the publish job, which holds the identity that can stage a version. It
+  refuses packages Socket has confirmed as malware before they download; suspected ones get a warning.
+- **A minimum release age:** pnpm 10.34.6 (was 10.10.0) with `minimumReleaseAge: 1440` in a settings-only
+  `pnpm-workspace.yaml`, Better Auth exempt; Dependabot `cooldown: { default-days: 3 }` on every entry. Lockfile
+  installs are unchanged. `test/interop/saml-idp-e2e` (its own lockfile) still installs and passes.
+- **Risk accepted:** a Socket outage or a false positive blocks CI until resolved.
