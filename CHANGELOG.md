@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-08
+
+Fixes the SCIM step from 0.2.0: parallel redemptions for one user are no longer refused.
+
 - **Fix (SCIM, new in 0.2.0): parallel redemptions for one user were refused.** `acquireActiveSCIMUserLink` bumps the
   SCIM subject's revision on every lookup, so concurrent lookups of the same user conflict with each other, not only
   with a lifecycle change; on Postgres, 8 parallel redemptions for one active user got 3 tokens and 5
