@@ -11,6 +11,7 @@ import { admin, jwt, organization } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
 import { mcp } from "@better-auth/mcp";
 import { oauthProvider } from "@better-auth/oauth-provider";
+import { scim } from "@better-auth/scim";
 import { sso } from "@better-auth/sso";
 import { JWT_BEARER_GRANT, newJti, type RefusedEvent, type AcceptedEvent } from "../../src/core";
 import { type FetchLike, type IdJagGrantOptions, idJagGrant } from "../../src/receiver";
@@ -155,6 +156,8 @@ export interface HostOptions {
   organizationOptions?: Parameters<typeof organization>[0];
   /** More options for mcp() or oauthProvider() (e.g. accessTokenExpiresIn, scopeExpirations). */
   provider?: Record<string, unknown>;
+  /** Install @better-auth/scim with these options (SCIM provisioning at the receiver). */
+  scim?: Parameters<typeof scim>[0];
 }
 
 /** `@better-auth/sso`'s `organizationProvisioning` option. */
@@ -181,7 +184,7 @@ export async function receiverHost(kind: "mcp" | "oauth-provider", o: HostOption
     telemetry: { enabled: false },
     database: (o.database ?? (await database())) as never,
     emailAndPassword: { enabled: true },
-    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), ...(o.organization ? [organization(o.organizationOptions) as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
+    plugins: [jwt(), ...provider, ...ssoPlugin, ...(o.admin ? [admin() as unknown as BetterAuthPlugin] : []), ...(o.organization ? [organization(o.organizationOptions) as unknown as BetterAuthPlugin] : []), ...(o.scim ? [scim(o.scim) as unknown as BetterAuthPlugin] : []), idJagGrant(receiver)],
     ...(logs ? { logger: { level: "warn" as const, log: (level: string, message: string) => void logs.push(`${level}: ${message}`) } } : {}),
     ...(rec ? { advanced: { backgroundTasks: { handler: rec.backgroundTasks } } } : {}),
     ...(o.databaseHooks ? { databaseHooks: o.databaseHooks } : {}),

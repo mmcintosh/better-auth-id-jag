@@ -8,7 +8,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { hasJti, recordJti, sweepAudit, sweepJtis, AUDIT_MODEL } from "../../src/core";
 import { coreHost } from "../support/core-host";
-import { createClient, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
+import { acquireActiveSCIMUserLink } from "@better-auth/scim";
+import { BASE, createClient, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
 
 const KIND = process.env.ADAPTER_DB;
 const URL_ = process.env.ADAPTER_URL ?? "";
@@ -72,7 +73,7 @@ async function connect(): Promise<Raw> {
  * migrator on the raw connection first (via a bootstrap host with the same plugins), then an ORM
  * adapter whose schema is built from those same options.
  */
-async function prepare<T extends { ctx: { options: unknown } }>(build: (database: unknown, migrate: boolean) => Promise<T>): Promise<(migrateHint?: boolean) => Promise<T>> {
+async function prepare<T extends { ctx: { options: unknown } }>(build: (database: unknown, migrate: boolean) => Promise<T>, o: { transaction?: boolean } = {}): Promise<(migrateHint?: boolean) => Promise<T>> {
   const raw = await connect();
   open.push(raw);
   const kind = KIND as string;
@@ -85,7 +86,7 @@ async function prepare<T extends { ctx: { options: unknown } }>(build: (database
     const pg = kind === "drizzle-postgres";
     const db = pg ? (await import("drizzle-orm/node-postgres")).drizzle(raw.database as never) : (await import("drizzle-orm/mysql2")).drizzle(raw.database as never);
     const schema = pg ? await schemas.drizzlePgSchema(options) : await schemas.drizzleMysqlSchema(options);
-    const adapter = drizzleAdapter(db as never, { provider: pg ? "pg" : "mysql", schema: schema as never });
+    const adapter = drizzleAdapter(db as never, { provider: pg ? "pg" : "mysql", schema: schema as never, ...(o.transaction ? { transaction: true } : {}) });
     return () => build(adapter, false);
   }
   const { mkdirSync, mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
@@ -102,7 +103,7 @@ async function prepare<T extends { ctx: { options: unknown } }>(build: (database
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: raw.url as string }) });
   open.push({ async close() { await prisma.$disconnect(); rmSync(dir, { recursive: true, force: true }); } });
   const { prismaAdapter } = await import("better-auth/adapters/prisma");
-  const adapter = prismaAdapter(prisma as never, { provider: "postgresql" });
+  const adapter = prismaAdapter(prisma as never, { provider: "postgresql", ...(o.transaction ? { transaction: true } : {}) });
   return () => build(adapter, false);
 }
 
@@ -167,4 +168,35 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
       expect(later.status, later.text).toBe(200);
     });
   }
+
+  // @better-auth/scim needs native transactions; the MongoDB rows run without them (D-019).
+  it.skipIf(KIND === "mongodb")("SCIM (D-027): a provisioned user resolves by sub, inside the adapter's transaction; deactivated, refused", async () => {
+    const idp = await testIdp();
+    const token = "scim-bearer-token-that-is-long-enough-for-the-plugin";
+    const make = await prepare((database, migrate) =>
+      receiverHost("mcp", {
+        receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: { connectionId: "acme" } }], scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as never }, fetch: network(idp).fetch },
+        scim: { connections: [{ id: "acme", credentials: [{ type: "bearer", id: "acme-token", token }] }] },
+        database,
+        migrate,
+      }),
+      // Drizzle and Prisma adapters have transactions off by default; @better-auth/scim needs them.
+      { transaction: true },
+    );
+    const h = await make();
+    const client = await createClient(h);
+    const scimCall = (method: string, path: string, body: unknown) =>
+      h.auth.handler(new Request(`${BASE}/api/auth/scim/v2${path}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/scim+json" }, body: JSON.stringify(body) }));
+    const sub = crypto.randomUUID();
+    const email = uniqueEmail();
+    const created = await scimCall("POST", "/Users", { schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"], userName: email, externalId: sub, emails: [{ value: email, primary: true }], active: true });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const scimId = ((await created.json()) as { id: string }).id;
+    const ok = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub })));
+    expect(ok.status, ok.text).toBe(200);
+    const off = await scimCall("PATCH", `/Users/${scimId}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "replace", path: "active", value: false }] });
+    expect(off.status).toBe(200);
+    const refused = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub })));
+    expect(refused.status).toBe(400);
+  });
 });

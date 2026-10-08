@@ -552,3 +552,33 @@ The first scans:
 - **Scorecard, left to resolve:** Maintained (the repository is new), SAST (CodeQL has just started), Branch
   protection and Code review (a ruleset, the maintainer's decision), CII Best Practices (the badge, registered by the
   maintainer at bestpractices.dev).
+
+## D-027: SCIM-provisioned users at the receiver (2026-10-08) — the maintainer asked for it now
+
+The shape agreed with the better-auth-scim-provisioning maintainer on 2026-10-06 (`docs/phase-2.md`, "After Phase 3"),
+built straight after 0.1.0. It should have been flagged as unbuilt before the release; it wasn't.
+
+- **The option.** A trusted issuer (static or table) gets `scim: { connectionId, required? }`. The ID-JAG's `sub` is
+  the SCIM `externalId`: our issuer's `sub` is the IdP's user id, better-auth-scim-provisioning's default `externalId`.
+- **The lookup is Better Auth's.** `@better-auth/scim`'s `acquireActiveSCIMUserLink({ connectionId, externalId: sub })`
+  finds the user that connection provisioned while the SCIM user is active, the connection isn't decommissioned and
+  no deletion tombstone exists; it never falls back to email or userName. It is **passed in**
+  (`idJagGrant({ scim: { acquireActiveSCIMUserLink } })`), not imported: a dynamic import of an optional peer breaks
+  bundling (Workers) for hosts without it. An entry with `scim` and no function, or no `scim` plugin, fails at startup;
+  a table row with `scimConnectionId` and no function is refused at runtime (fail closed).
+- **Where.** After the `resolveSubject` hook, before the account, email and JIT steps. A user found by SCIM is still
+  refused when banned locally. **Required by default:** none found is `unknown_subject`, so a deprovisioned user can't
+  return through an older account link, the email fallback or JIT. `required: false` falls through (a migration aid;
+  documented that a deprovisioned user linked by `sub` is then found). SCIM-found users are not linked by `sub`.
+- **Transactions.** The function bumps the SCIM subject's revision (optimistic), so it runs in
+  `adapter.transaction`; a 409 SCIM conflict (a concurrent lifecycle change) is retried once, then `subject_rejected`.
+  Any other error is the usual audited `subject_rejected`. **`@better-auth/scim` refuses adapters without native
+  transactions**, so this works on Postgres, MySQL and SQLite (Drizzle and Prisma with `transaction: true`), not D1.
+- **Audit:** `id-jag.accepted` gains `resolvedBy` (`hook`, `scim`, `account`, `email`, `jit`).
+- **Evidence.** `test/receiver/scim.test.ts` against the real `@better-auth/scim` 1.7.6 server, users provisioned
+  over its SCIM API: active, unprovisioned, deactivated and reactivated, deleted, another connection, banned locally,
+  `required: false`, the conflict retry, other errors, table rows, startup checks (Node; skipped on workerd, which
+  can't run the SCIM server). The adapter matrix: Postgres, MySQL, Drizzle (both) and Prisma. The cross-package test
+  `test/interop/scim-provisioning.test.ts`: better-auth-scim-provisioning 1.0.0 at the IdP, our issuer, `@better-auth/scim`
+  and our receiver: provisioned → resolved by SCIM; banned or deleted at the IdP → an ID-JAG issued before is refused;
+  unbanned → the same user. Fourteen mutations: 13 caught, 1 expected survivor (a race guard; reason recorded).

@@ -29,6 +29,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 - 🤐 **Refusals that don't leak**: the caller can't tell an unknown user from a denied policy from an untrusted issuer. Only defects in what they sent themselves (a missing claim, a malformed JWT) are named; the real reason goes to the audit log.
 - 🏛️ **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
 - 👤 **Subject resolution you can reason about**: linked accounts first, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
+- 👥 **SCIM-provisioned users**: with `@better-auth/scim` at your app, ID-JAGs resolve to the users the IdP provisioned, and deprovisioning at the IdP stops the agent there too.
 - 🤖 **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token.
 - 📈 **Audit trail**: `onIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
 - 🧪 **Tested as if it matters**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
@@ -230,6 +231,7 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 | `sso` | `false` | `true` or `{ providerIds?, emailFallback?, jitProvisioning?, allowedClientIds? }`: also trust `@better-auth/sso`'s OIDC providers. |
 | `trustedIssuerTable` | `false` | Also read trusted issuers from the `idJagTrustedIssuer` table (adds the table). |
 | `resolveSubject` | | `(input) => { action: "link", userId } \| { action: "continue" } \| { action: "reject" }`. Runs before the default resolution. |
+| `scim` | | `{ acquireActiveSCIMUserLink }`, imported from `@better-auth/scim`: needed when a trusted issuer has `scim`. See [SCIM-provisioned users](#scim-provisioned-users). |
 | `defaultResource` | | The resource when neither the ID-JAG nor the request names one. Must be a registered resource. |
 | `requireResourceClaim` | `false` | Refuse an ID-JAG without a `resource` claim. |
 | `allowEmptyScope` | `false` | Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. |
@@ -263,15 +265,40 @@ idJagGrant({
 ### Who the subject is
 
 1. `resolveSubject`, if set, can link, reject, or continue.
-2. A linked account: `providerId` = `accountProviderId` (default `id-jag:<issuer>`), `accountId` = the ID-JAG's `sub`.
-3. Only if `emailFallback` lists the domain: a local user with that verified email, which is then linked.
-4. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`.
+2. With `scim` on the trust entry: the user that SCIM connection provisioned with `externalId` = `sub`, while active. If there's none, the grant is refused, and steps 3–5 don't run, unless `scim.required` is `false`. See [SCIM-provisioned users](#scim-provisioned-users).
+3. A linked account: `providerId` = `accountProviderId` (default `id-jag:<issuer>`), `accountId` = the ID-JAG's `sub`.
+4. Only if `emailFallback` lists the domain: a local user with that verified email, which is then linked.
+5. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`.
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
 
+### SCIM-provisioned users
+
+When the IdP provisions its users to your app over SCIM (Better Auth's [`@better-auth/scim`](https://www.better-auth.com/docs/plugins/scim) at your app, and, for a Better Auth IdP, [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning) there), the receiver can resolve ID-JAGs to those users. Deprovisioning at the IdP then stops the agent at your app too:
+
+```ts
+import { acquireActiveSCIMUserLink, scim } from "@better-auth/scim";
+
+plugins: [
+  scim({ connections: [{ id: "acme-idp", credentials: [{ type: "bearer", id: "acme", token: process.env.ACME_SCIM_TOKEN }] }] }),
+  idJagGrant({
+    scim: { acquireActiveSCIMUserLink },
+    trustedIssuers: [{ issuer: "https://idp.acme.com/api/auth", jwksUri: "https://idp.acme.com/api/auth/jwks", scim: { connectionId: "acme-idp" } }],
+  }),
+],
+```
+
+- **The ID-JAG's `sub` is the SCIM `externalId`.** Our issuer's `sub` is the IdP's user id, which is better-auth-scim-provisioning's default `externalId`; a `mapUser` that changes `externalId` breaks the link. For Okta, its SCIM must send the Okta user id as `externalId`.
+- **Only active users of that connection.** `acquireActiveSCIMUserLink` finds the user that this connection provisioned, while the SCIM user is active and the connection isn't decommissioned. It never falls back to the email, the userName or a deleted identity. A user deactivated, deleted or banned at the IdP (better-auth-scim-provisioning deactivates them) is refused, even with an ID-JAG issued before that. A banned local user is refused too.
+- **Required by default.** With no active provisioned user, the grant is refused (`unknown_subject`), so a deprovisioned user can't come back through an older account link, the email fallback or JIT. `scim: { connectionId, required: false }` falls through to those steps instead, as a migration aid only: a deprovisioned user who is linked by `sub` is then still found.
+- **Needs a database with transactions.** The lookup runs in the adapter's transaction (it bumps the SCIM subject's revision, so a concurrent deprovisioning is detected; a conflict is retried once, then refused). `@better-auth/scim` refuses adapters without native transactions: it works on Postgres, MySQL and SQLite, and on Drizzle and Prisma with `transaction: true`, **not on Cloudflare D1**.
+- **Access tokens already issued** live until they expire, as with every cutoff: see [What ID-JAG controls](#-what-id-jag-controls-and-what-your-mcp-server-still-must). `@better-auth/scim` ends the user's sessions at your app when they're deprovisioned.
+- **The `idJagTrustedIssuer` table** has the same settings as a `scimConnectionId` column and a `scimRequired` column (null means required). A row with `scimConnectionId` on a host that didn't pass `acquireActiveSCIMUserLink` is refused, not resolved some other way.
+- The `id-jag.accepted` event says how each user was found (`resolvedBy`: `"scim"`, `"account"`, `"email"`, `"jit"` or `"hook"`).
+
 ### SAML NameID subjects (`sub_id`)
 
-When your users sign in through SAML (`@better-auth/sso`), the IdP can put the SAML NameID it would send you in the ID-JAG's `sub_id` (draft §3.2, format `saml-nameid`). A static trust entry with `samlSubjects` then resolves users by that NameID instead of `sub`. The account key becomes `providerId` = the mapping's `accountProviderId` and `accountId` = the NameID. That is the same key `@better-auth/sso` stores for a SAML sign-in, so set `accountProviderId` to the sso SAML provider's `providerId`. This applies to steps 2–4 above. The hook still runs first. Mappings are only read from the trust entry that `iss` matched, so `sub_id.issuer` never makes an issuer trusted. A mapping matches when `issuer` is equal and `spNameQualifier` and `nameQualifier` are equal, with "not configured" meaning "must be absent". It also checks `nameIdFormats` if you list any. A malformed `sub_id`, a transient NameID, or one with no matching mapping is refused (`subject_rejected`), never resolved by `sub` instead. With `requireSubId: true`, an ID-JAG without a SAML `sub_id` is refused as well. Without `requireSubId`, such an ID-JAG falls back to `sub`. A trust entry without `samlSubjects` ignores `sub_id`. Each SAML namespace needs its own `accountProviderId`, so the same NameID from two IdP connections gives two users. JIT still needs an `email` claim, because Better Auth users have an email address. The `idJagTrustedIssuer` table has the same two settings, as a `samlSubjects` JSON column and a `requireSubId` column.
+When your users sign in through SAML (`@better-auth/sso`), the IdP can put the SAML NameID it would send you in the ID-JAG's `sub_id` (draft §3.2, format `saml-nameid`). A static trust entry with `samlSubjects` then resolves users by that NameID instead of `sub`. The account key becomes `providerId` = the mapping's `accountProviderId` and `accountId` = the NameID. That is the same key `@better-auth/sso` stores for a SAML sign-in, so set `accountProviderId` to the sso SAML provider's `providerId`. This applies to steps 3–5 above. The hook still runs first. Mappings are only read from the trust entry that `iss` matched, so `sub_id.issuer` never makes an issuer trusted. A mapping matches when `issuer` is equal and `spNameQualifier` and `nameQualifier` are equal, with "not configured" meaning "must be absent". It also checks `nameIdFormats` if you list any. A malformed `sub_id`, a transient NameID, or one with no matching mapping is refused (`subject_rejected`), never resolved by `sub` instead. With `requireSubId: true`, an ID-JAG without a SAML `sub_id` is refused as well. Without `requireSubId`, such an ID-JAG falls back to `sub`. A trust entry without `samlSubjects` ignores `sub_id`. Each SAML namespace needs its own `accountProviderId`, so the same NameID from two IdP connections gives two users. JIT still needs an `email` claim, because Better Auth users have an email address. The `idJagTrustedIssuer` table has the same two settings, as a `samlSubjects` JSON column and a `requireSubId` column.
 
 ```ts
 trustedIssuers: [{
@@ -396,6 +423,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks |
 | **xaa.dev** (Okta's playground), OIDC and SAML | Receiver on Workers + D1 | ✅ **Verified live** with its resource-app tester through to an MCP `tools/call`; SAML users resolved by NameID (`sub_id`) |
 | better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
+| better-auth-scim-provisioning 1.0.0 → `@better-auth/scim` 1.7.6 | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG |
 | Receiver | Keycloak as issuer | ⏳ Not possible: Keycloak doesn't issue ID-JAGs |
 
@@ -416,7 +444,6 @@ The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1. CI runs 
 - **A later draft:** -04 expires on 2026-11-22. When -05 appears, [src/core/urns.ts](src/core/urns.ts) and this README will say which draft is implemented.
 - The rows marked ❌ in [Conformance](#-conformance). Each one is refused by name, not silently ignored.
 - No admin API for trusted issuers yet: configure them in code, through `@better-auth/sso`, or in the table directly.
-- SCIM provisioning as a way to resolve subjects (planned: users provisioned with [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning) found by their SCIM `externalId`).
 
 ## 🔒 Security
 

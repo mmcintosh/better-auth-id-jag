@@ -174,7 +174,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     if (!first) refuse("replay", claims.jti);
 
     // 9. Subject.
-    const { user } = await resolveSubject(ctx, o, trust, claims, authn.clientId);
+    const { user, via } = await resolveSubject(ctx, o, trust, claims, authn.clientId);
     progress.userId = user.id;
 
     // 10. Issue: audience = the resource; no refresh token (offline_access stripped), no ID token.
@@ -198,6 +198,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
       scopes,
       jti: claims.jti,
       organizationId: trust.organizationId,
+      resolvedBy: via,
     });
     return response;
   } catch (error) {

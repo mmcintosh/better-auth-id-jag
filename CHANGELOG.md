@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+- Receiver: **SCIM-provisioned users** (D-027). A trusted issuer with `scim: { connectionId, required? }` resolves the
+  ID-JAG's `sub` as the SCIM `externalId` through `@better-auth/scim`'s `acquireActiveSCIMUserLink` (passed in as
+  `idJagGrant({ scim: { acquireActiveSCIMUserLink } })`): only an active provisioned user is found, and by default a
+  subject with none is refused, so deprovisioning at the IdP stops the agent here too. The `idJagTrustedIssuer`
+  table gains `scimConnectionId` and `scimRequired`. Needs a database with transactions (not D1). The
+  `id-jag.accepted` event gains `resolvedBy`.
+
 ## [0.1.0] - 2026-10-08
 
 The first release: Identity Assertion JWT Authorization Grants for Better Auth, an issuer (experimental) and a receiver, draft -04.

@@ -67,6 +67,9 @@ const tableRowSchema = z.looseObject({
       }
     }),
   requireSubId: z.union([z.boolean(), z.number()]).nullable().optional().transform((v) => v === true || v === 1),
+  scimConnectionId: z.string().min(1).max(256).nullable().optional(),
+  // null or absent = true: a SCIM link is required unless the row says otherwise.
+  scimRequired: z.union([z.boolean(), z.number()]).nullable().optional().transform((v) => !(v === false || v === 0)),
   tenant: z.string().nullable().optional(),
   organizationId: z.string().nullable().optional(),
 });
@@ -158,6 +161,7 @@ async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions
       jitRole: orUndef(r.jitRole),
       samlSubjects,
       requireSubId: r.requireSubId,
+      scim: r.scimConnectionId ? { connectionId: r.scimConnectionId, required: r.scimRequired } : null,
     });
   }
   return out;

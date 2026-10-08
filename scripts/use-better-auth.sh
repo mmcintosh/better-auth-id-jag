@@ -9,4 +9,4 @@ case "$want" in
   *) v="$want" ;;
 esac
 echo "better-auth $want -> $v"
-pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v"
+pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v"
