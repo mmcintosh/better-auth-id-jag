@@ -656,3 +656,7 @@ the matrix passed. A row lock wouldn't raise that throughput either.
 - **Evidence.** A unit test with a 30 ms lookup (node:sqlite otherwise answers at once, so lookups never overlap):
   8 at once all succeed with fewer than 8 lookups, and a later one looks up again. Two mutations (no
   single-flight; a settled lookup kept) caught.
+- **On Neon** (the better-auth-scim-provisioning maintainer, `bc85fd6`, 45 ms away, 3 runs each): one receiver,
+  8/16/32 at once all succeeded, the slowest 0.9 / 1.4 / 1.9 s (a single redemption takes 0.84–0.95 s); two
+  receivers on the same database, requests alternating, all succeeded too, the slowest 1.5 / 1.5 / 1.9 s. Before:
+  3/8; with D-029 alone 8/8 at 5.2 s and 11/32.
