@@ -8,6 +8,8 @@
   subject with none is refused, so deprovisioning at the IdP stops the agent here too. The `idJagTrustedIssuer`
   table gains `scimConnectionId` and `scimRequired`. Needs a database with transactions (not D1). The
   `id-jag.accepted` event gains `resolvedBy`.
+- **Migration, only with `trustedIssuerTable: true`:** the `idJagTrustedIssuer` table has two new nullable columns
+  (`scimConnectionId`, `scimRequired`). Run `npx auth migrate` (or `npx auth generate` for Drizzle and Prisma).
 
 ## [0.1.0] - 2026-10-08
 

@@ -2,6 +2,7 @@
 
 Let AI agents reach your users' tools **with the enterprise's say-so, not a fresh consent screen per app**. This package adds **Identity Assertion JWT Authorization Grants** (ID-JAG: Okta's *Cross App Access*, MCP's *Enterprise-Managed Authorization*) to [Better Auth](https://www.better-auth.com), on both sides of the exchange: **issue them** from your identity provider, and **accept them** at your MCP server's authorization server. Runs on **Cloudflare Workers** and **Node.js 22+**.
 
+[![npm](https://img.shields.io/npm/v/better-auth-id-jag)](https://www.npmjs.com/package/better-auth-id-jag)
 [![CI](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml)
 [![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.5%20%3C1.8-black)](https://www.better-auth.com)
 [![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#-runtimes-and-databases)
@@ -9,13 +10,17 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mmcintosh/better-auth-id-jag/badge)](https://scorecard.dev/viewer/?uri=github.com/mmcintosh/better-auth-id-jag)
 [![CodeQL](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml)
+[![Socket](https://socket.dev/api/badge/npm/package/better-auth-id-jag)](https://socket.dev/npm/package/better-auth-id-jag)
 
 ```
 person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP ─ID-JAG─▶ agent ─jwt-bearer─▶ MCP AS ─access token─▶ agent ─▶ /mcp
                   └──────────── idJagIssuer() ────────────┘                    └────── idJagGrant() ──────┘
 ```
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`); while the draft moves, a 0.x minor release may rename a claim or URN with it. [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> [!WARNING]
+> **Experimental: this implements a draft, not a finished standard.** ID-JAG is an IETF Internet-Draft, [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/), still being worked on in the OAuth working group, and MCP's Enterprise-Managed Authorization builds on it. Its claims, URNs and rules can still change, and while they do, a 0.x minor release follows them, even when that breaks your setup. 1.0 waits until the draft settles. The **issuer** (`idJagIssuer()`) is newer than the receiver, and experimental in its own right. Review it for your own threat model before you rely on it in production.
+
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
 If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
 
@@ -28,10 +33,10 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 - 🔐 **Strict at the receiver**: `typ` must be `oauth-id-jag+jwt`; RS256, ES256 and EdDSA (`EdDSA` or `Ed25519`) only, no `HS*`, no `none`; `aud` compared exactly with the issuer identifier; the ID-JAG's `client_id` must be the authenticated client; lifetime capped at 900 s; **single use** enforced by a database unique key.
 - 🤐 **Refusals that don't leak**: the caller can't tell an unknown user from a denied policy from an untrusted issuer. Only defects in what they sent themselves (a missing claim, a malformed JWT) are named; the real reason goes to the audit log.
 - 🏛️ **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
-- 👤 **Subject resolution you can reason about**: linked accounts first, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
+- 👤 **Subject resolution you can reason about**: users your IdP provisioned over SCIM (when you link the issuer to a SCIM connection), else linked accounts, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
 - 👥 **SCIM-provisioned users**: with `@better-auth/scim` at your app, ID-JAGs resolve to the users the IdP provisioned, and deprovisioning at the IdP stops the agent there too.
 - 🤖 **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token.
-- 📈 **Audit trail**: `onIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
+- 📈 **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
 - 🧪 **Tested as if it matters**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
 - ☁️ **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
 
@@ -45,7 +50,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 npm install better-auth-id-jag
 ```
 
-Requires Better Auth `>=1.7.5 <1.8.0`, `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp` and `@better-auth/sso` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
+Requires Better Auth `>=1.7.5 <1.8.0`, `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
 
 ## ⚡ Quick start
 
@@ -439,20 +444,22 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## 🧩 Runtimes and databases
 
-The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1. CI runs it on Node 24 with Better Auth 1.7.5 and the latest 1.7.x, and on Node 22 with 1.7.5. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, and concurrent first use. The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
+The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.5 and the latest 1.7.x, and on Node 22 with 1.7.5. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
 
 ## 🧭 Not yet
 
 - **A later draft:** -04 expires on 2026-11-22. When -05 appears, [src/core/urns.ts](src/core/urns.ts) and this README will say which draft is implemented.
 - The rows marked ❌ in [Conformance](#-conformance). Each one is refused by name, not silently ignored.
 - No admin API for trusted issuers yet: configure them in code, through `@better-auth/sso`, or in the table directly.
+- SCIM-provisioned users on Cloudflare D1: `@better-auth/scim` needs a database with native transactions.
 
 ## 🔒 Security
 
 - [docs/security.md](docs/security.md) has the threat model, what your app must configure, and the known limitations.
 - [DECISIONS.md](DECISIONS.md) records every security-relevant decision, with its tests and mutation proofs.
 - Each security check is mutation-tested: `scripts/mutate.py` removes it, and CI fails if no test notices. It runs weekly on `main`.
-- All GitHub Actions are pinned by SHA, with least-privilege tokens, and the history is scanned with gitleaks.
+- All GitHub Actions are pinned by SHA, with least-privilege tokens, and the history is scanned with gitleaks. CodeQL and OpenSSF Scorecard run on every push, and every dependency install in CI goes through Socket Firewall.
+- Releases are published from CI with npm provenance, each with a CycloneDX SBOM on its GitHub release.
 
 Please report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, not in public issues. Versioning, the draft and Better Auth compatibility are in [docs/versioning.md](docs/versioning.md).
 
