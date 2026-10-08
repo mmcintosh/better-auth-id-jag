@@ -44,6 +44,31 @@ export interface StaticTrustedIssuer {
   samlSubjects?: SamlSubjectMappingInput[] | undefined;
   /** Refuse an ID-JAG without a SAML NameID `sub_id` (needs `samlSubjects`). Default false. */
   requireSubId?: boolean | undefined;
+  /**
+   * Resolve users through SCIM provisioning (`@better-auth/scim` installed here): the user that this
+   * SCIM connection provisioned with `externalId` = the ID-JAG's `sub`, while it is active. With
+   * better-auth-scim-provisioning at the IdP, `sub` (the IdP's user id) is its default `externalId`.
+   * Looked up after the `resolveSubject` hook and before any other step.
+   */
+  scim?: ScimTrustInput | undefined;
+}
+
+/**
+ * `@better-auth/scim`'s `acquireActiveSCIMUserLink`: the active provisioned user for a connection and
+ * externalId, inside the caller's transaction, or null; a 409 SCIM conflict on a concurrent lifecycle change.
+ */
+export type AcquireActiveScimUserLink = (reference: { connectionId: string; externalId: string }, context: { database: never }) => Promise<{ scimUserId: string; userId: string } | null>;
+
+/** A trust entry's SCIM link. */
+export interface ScimTrustInput {
+  /** The `@better-auth/scim` connection id (its `scim({ connections: [{ id }] })`) that provisions this issuer's users. */
+  connectionId: string;
+  /**
+   * Refuse a subject with no active provisioned user, so a deprovisioned user can't come back through
+   * an account link, the email fallback or JIT. Default true. false falls through to those steps
+   * (a migration aid: a deprovisioned user who is linked by `sub` is then still found).
+   */
+  required?: boolean | undefined;
 }
 
 /** One SAML namespace whose NameIDs a trust entry resolves users by. */
@@ -103,6 +128,8 @@ export interface TrustedIssuerView {
   issuer: string;
   organizationId?: string | undefined;
   accountProviderId: string;
+  /** The entry's SCIM connection, when it has `scim`: then the SCIM step decides unless the hook links first. */
+  scimConnectionId?: string | undefined;
 }
 
 export interface IdJagGrantOptions extends AuditOptions {
@@ -112,6 +139,12 @@ export interface IdJagGrantOptions extends AuditOptions {
   /** Also read trusted issuers from the `idJagTrustedIssuer` table (adds the table). Default false. */
   trustedIssuerTable?: boolean | undefined;
   resolveSubject?: ((input: ResolveSubjectInput) => SubjectResolution | Promise<SubjectResolution>) | undefined;
+  /**
+   * For trust entries with `scim`: `@better-auth/scim`'s `acquireActiveSCIMUserLink`, passed in
+   * (`import { acquireActiveSCIMUserLink } from "@better-auth/scim"`) so that hosts without SCIM
+   * never load or bundle it. Required when an entry has `scim`.
+   */
+  scim?: { acquireActiveSCIMUserLink: AcquireActiveScimUserLink } | undefined;
   /** The resource used when neither the ID-JAG nor the request names one. Must be a registered resource. */
   defaultResource?: string | undefined;
   /** Accept public clients (the draft: SHOULD be confidential only). Default false; logs a warning when set. */
@@ -173,6 +206,7 @@ const staticIssuer = z
     jitRole: z.string().min(1).max(256).optional(),
     samlSubjects: z.array(samlSubjectSchema).min(1).max(100).optional(),
     requireSubId: z.boolean().optional(),
+    scim: z.strictObject({ connectionId: id, required: z.boolean().optional() }).optional(),
   })
   .refine((t) => t.jwksUri !== undefined || t.discoveryUri !== undefined, "jwksUri or discoveryUri is required")
   .refine((t) => t.jitRole === undefined || t.organizationId !== undefined, "jitRole needs organizationId")
@@ -188,6 +222,7 @@ const optionsSchema = z.strictObject({
     .optional(),
   trustedIssuerTable: z.boolean().optional(),
   resolveSubject: fn.optional(),
+  scim: z.strictObject({ acquireActiveSCIMUserLink: fn }).optional(),
   defaultResource: id.optional(),
   allowPublicClients: z.boolean().optional(),
   allowEmptyScope: z.boolean().optional(),
@@ -225,6 +260,8 @@ export interface TrustEntry extends TrustedIssuerView {
   samlSubjects?: SamlSubjectMapping[] | null | undefined;
   /** Refuse an ID-JAG without a SAML NameID `sub_id`. */
   requireSubId?: boolean | undefined;
+  /** The SCIM link (static and table entries); unset or null: no SCIM step. */
+  scim?: { connectionId: string; required: boolean } | null | undefined;
 }
 
 export interface ResolvedSsoTrust {
@@ -246,6 +283,7 @@ export interface ResolvedReceiverOptions {
   requireResourceClaim: boolean;
   defaultResource?: string | undefined;
   resolveSubject?: IdJagGrantOptions["resolveSubject"] | undefined;
+  acquireScimLink?: AcquireActiveScimUserLink | undefined;
   audit: AuditOptions;
   jwks: JwksCache;
   clock: () => Date;
@@ -341,9 +379,13 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
       jit: jitOption(t.jitProvisioning),
       jitRole: t.jitRole,
       ...samlOptions(t),
+      scim: t.scim ? { connectionId: t.scim.connectionId, required: t.scim.required !== false } : null,
     };
   });
   checkAccountProvidersAcrossEntries(trustedIssuers);
+  const scimEntries = trustedIssuers.filter((t) => t.scim);
+  if (scimEntries.length > 0 && !options.scim)
+    throw new Error(`id-jag receiver: trusted issuer ${scimEntries.map((t) => t.issuer).join(", ")} has scim, but scim.acquireActiveSCIMUserLink is not set (import it from @better-auth/scim)`);
   const sso = options.sso === undefined || options.sso === false ? null : options.sso === true ? {} : options.sso;
   const settings: JwksSettings = {
     timeoutMs: options.jwks?.timeoutMs ?? 5000,
@@ -366,6 +408,7 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
     requireResourceClaim: options.requireResourceClaim === true,
     defaultResource: options.defaultResource,
     resolveSubject: options.resolveSubject,
+    acquireScimLink: options.scim?.acquireActiveSCIMUserLink,
     audit: { ...(options.events ? { events: options.events } : {}), ...(options.auditLog ? { auditLog: options.auditLog } : {}) },
     jwks: new JwksCache(fetchImpl, settings, () => clock().getTime()),
     clock,

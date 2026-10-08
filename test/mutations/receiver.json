@@ -1506,5 +1506,151 @@
   "paths": [
    "test/receiver/jwks.test.ts"
   ]
+ },
+ {
+  "name": "D-027 SCIM step skipped",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (trust.scim) {\n    const userId = await scimLinkedUserId(",
+  "b": "  if (false) {\n    const userId = await scimLinkedUserId(",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM required ignored (a deprovisioned user falls through to links, email, JIT)",
+  "file": "src/receiver/resolve.ts",
+  "a": "    if (trust.scim.required) refuse(\"unknown_subject\", \"SCIM: no active provisioned user for this sub\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM-found user not checked for a ban",
+  "file": "src/receiver/resolve.ts",
+  "a": "return { user: assertNotBanned(user, now), via: \"scim\" };",
+  "b": "return { user, via: \"scim\" };",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM link to a missing local user not refused",
+  "file": "src/receiver/resolve.ts",
+  "a": "      if (!user) refuse(\"unknown_subject\", \"SCIM: the provisioned user is gone\");\n",
+  "b": "",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ],
+  "expect": "survive",
+  "why": "acquireActiveSCIMUserLink itself returns null when the user row is gone, so this only matters if the row disappears between that call and findUserById; then the missing guard would still end in an audited subject_rejected, not an acceptance."
+ },
+ {
+  "name": "D-027 SCIM externalId taken from something other than sub",
+  "file": "src/receiver/resolve.ts",
+  "a": "trust.scim.connectionId, claims.sub);",
+  "b": "trust.scim.connectionId, claims.jti);",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM conflict not retried",
+  "file": "src/receiver/scim.ts",
+  "a": "      if (attempt >= 2) refuse(",
+  "b": "      if (attempt >= 1) refuse(",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM conflict retried forever",
+  "file": "src/receiver/scim.ts",
+  "a": "      if (attempt >= 2) refuse(",
+  "b": "      if (attempt >= 3) refuse(",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM conflict not recognised (retries any error)",
+  "file": "src/receiver/scim.ts",
+  "a": "      if (!isConflict(e)) throw e;\n",
+  "b": "",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM lookup without the function doesn't fail closed",
+  "file": "src/receiver/scim.ts",
+  "a": "    refuse(\"subject_rejected\", \"SCIM: acquireActiveSCIMUserLink not configured\");\n",
+  "b": "    return null;\n",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM entries without the function accepted at startup",
+  "file": "src/receiver/options.ts",
+  "a": "  if (scimEntries.length > 0 && !options.scim)\n",
+  "b": "  if (false)\n",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 SCIM entries accepted without the scim plugin",
+  "file": "src/receiver/plugin.ts",
+  "a": "      if (scimEntries.length > 0 && !ctx.hasPlugin(\"scim\"))\n",
+  "b": "      if (false)\n",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 static scim.required defaults to false",
+  "file": "src/receiver/options.ts",
+  "a": "required: t.scim.required !== false }",
+  "b": "required: t.scim.required === true }",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 table scimRequired null defaults to false",
+  "file": "src/receiver/trust.ts",
+  "a": ".transform((v) => !(v === false || v === 0)),",
+  "b": ".transform((v) => v === true || v === 1),",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-027 accepted event without resolvedBy",
+  "file": "src/receiver/grant.ts",
+  "a": "      resolvedBy: via,\n",
+  "b": "",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-028 SCIM step before the sub_id rules (the review's finding)",
+  "edits": [
+   {
+    "a": "  const key = subjectKey(trust, claims);\n\n  // 1a. SCIM provisioning",
+    "b": "  // 1a. SCIM provisioning",
+    "file": "src/receiver/resolve.ts"
+   },
+   {
+    "a": "  const owner = await findAccountOwner(ctx, key.providerId, key.accountId);",
+    "b": "  const key = subjectKey(trust, claims);\n  const owner = await findAccountOwner(ctx, key.providerId, key.accountId);",
+    "file": "src/receiver/resolve.ts"
+   }
+  ],
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
  }
 ]

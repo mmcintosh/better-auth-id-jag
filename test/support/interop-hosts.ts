@@ -67,6 +67,8 @@ export interface IdpOptions {
   keyPairConfig?: Record<string, unknown>;
   /** Force a database (Node tests that serve the IdP over HTTP pass nothing and get node:sqlite). */
   database?: "sqlite" | "memory";
+  /** More plugins (e.g. better-auth-scim-provisioning). */
+  plugins?: BetterAuthPlugin[];
 }
 
 /** Our issuer. Shaped like issuer-host's IssuerHost, so its Browser / signUp / createClient / getIdToken work. */
@@ -89,6 +91,7 @@ export async function idpHost(o: IdpOptions) {
         ...o.issuer,
         events: { onIssued: (e) => void recorded.issued.push(e), onRefused: (e) => void recorded.refused.push(e), onAdminChanged: (e) => void recorded.admin.push(e) },
       }) as unknown as BetterAuthPlugin,
+      ...(o.plugins ?? []),
     ],
     advanced: { backgroundTasks: { handler: tasks.handler } },
   });
@@ -122,6 +125,8 @@ export interface McpOptions {
   base: string;
   resource: string;
   receiver: Omit<IdJagGrantOptions, "events">;
+  /** More plugins (e.g. @better-auth/scim), installed before the receiver. */
+  plugins?: BetterAuthPlugin[];
 }
 
 /** Our receiver: an MCP server's authorization server. */
@@ -140,6 +145,7 @@ export async function mcpHost(o: McpOptions) {
       jwt(),
       mcp({ loginPage: "/login", consentPage: "/consent", allowDynamicClientRegistration: false, resource: o.resource, scopes: ["openid", "profile", "email", "offline_access", "read", "write"] }) as unknown as BetterAuthPlugin,
       cimd({ fetchClientMetadataResource: () => Promise.reject(new Error("no client metadata fetch in this test")) }),
+      ...(o.plugins ?? []),
       idJagGrant({ ...o.receiver, events: { onAccepted: (e) => void accepted.push(e), onRefused: (e) => void refused.push(e) } }),
     ],
     advanced: { backgroundTasks: { handler: tasks.handler } },

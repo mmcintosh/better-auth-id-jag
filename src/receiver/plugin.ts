@@ -29,6 +29,9 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
       warnIfReplayUnsafe(ctx, "idJagGrant");
       if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs. The draft says this grant SHOULD be for confidential clients only.");
       if (resolved.trustedIssuers.length === 0 && !resolved.sso && !resolved.trustedIssuerTable) ctx.logger.warn("[id-jag] no trusted issuers configured: every ID-JAG will be refused.");
+      const scimEntries = resolved.trustedIssuers.filter((t) => t.scim);
+      if (scimEntries.length > 0 && !ctx.hasPlugin("scim"))
+        throw new Error(`id-jag receiver: trusted issuer ${scimEntries.map((t) => t.issuer).join(", ")} has scim, but the @better-auth/scim plugin is not installed`);
       if (resolved.sso && !ctx.hasPlugin("sso")) ctx.logger.warn("[id-jag] sso trust is on but the sso plugin is not installed: no sso providers will be trusted.");
       const orgEntries = resolved.trustedIssuers.filter((t) => t.jit && t.organizationId !== undefined);
       if (orgEntries.length > 0 && !ctx.hasPlugin("organization"))

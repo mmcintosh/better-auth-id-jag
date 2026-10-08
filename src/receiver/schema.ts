@@ -26,6 +26,10 @@ export function trustedIssuerSchema() {
         samlSubjects: { type: "string", required: false, input: false },
         /** Refuse ID-JAGs without a SAML NameID `sub_id` (needs samlSubjects); null = false. */
         requireSubId: { type: "boolean", required: false, input: false },
+        /** The `@better-auth/scim` connection that provisions this issuer's users (`scim.connectionId`); null = no SCIM step. */
+        scimConnectionId: { type: "string", required: false, input: false },
+        /** Refuse a subject with no active SCIM-provisioned user (`scim.required`); null = true. */
+        scimRequired: { type: "boolean", required: false, input: false },
         tenant: { type: "string", required: false, input: false },
         organizationId: { type: "string", required: false, input: false },
         enabled: { type: "boolean", required: true, defaultValue: true, input: false },

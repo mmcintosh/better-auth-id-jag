@@ -64,6 +64,8 @@ export interface AcceptedEvent extends EventBase {
   scopes: string[];
   jti: string;
   organizationId?: string | undefined;
+  /** How the user was found: the host's hook, SCIM provisioning, a linked account, the email fallback, or JIT. */
+  resolvedBy?: "hook" | "scim" | "account" | "email" | "jit" | undefined;
 }
 
 /** Either side refused. `reason` is ours; the caller only saw the public description. */
