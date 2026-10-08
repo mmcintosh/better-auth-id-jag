@@ -20,9 +20,8 @@ jobs:
         with: { node-version: 24 }
       - run: pnpm audit --prod --audit-level low
 
-  # Needs GitHub Advanced Security on a private repository: runs once the repository is public.
   review:
-    if: github.event_name == 'pull_request' && !github.event.repository.private
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v4
@@ -37,9 +36,8 @@ jobs:
           allow-dependencies-licenses: pkg:npm/npm, pkg:npm/%40img/sharp-libvips-darwin-arm64, pkg:npm/%40img/sharp-libvips-darwin-x64, pkg:npm/%40img/sharp-libvips-linux-arm64, pkg:npm/%40img/sharp-libvips-linux-arm, pkg:npm/%40img/sharp-libvips-linuxmusl-arm64, pkg:npm/%40img/sharp-libvips-linuxmusl-x64, pkg:npm/%40img/sharp-libvips-linux-ppc64, pkg:npm/%40img/sharp-libvips-linux-riscv64, pkg:npm/%40img/sharp-libvips-linux-s390x, pkg:npm/%40img/sharp-libvips-linux-x64, pkg:npm/%40img/sharp-wasm32, pkg:npm/%40img/sharp-win32-arm64, pkg:npm/%40img/sharp-win32-ia32, pkg:npm/%40img/sharp-win32-x64
           comment-summary-in-pr: never
 
-  # Uploads to code scanning, which a private repository only has with GitHub Advanced Security.
   osv:
-    if: github.event_name != 'pull_request' && !github.event.repository.private
+    if: github.event_name != 'pull_request'
     permissions: { contents: read, security-events: write, actions: read }
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
     with:

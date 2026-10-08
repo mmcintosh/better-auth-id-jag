@@ -60,8 +60,9 @@ turn on `main`, and the run fails if no test notices.
 - **Actions:** every GitHub Action is pinned to a commit SHA, with least-privilege tokens.
 - **Automated checks:**
   - Runtime dependencies are audited on every push and PR, and daily; a vulnerability blocks the build.
-  - Dependency review on every PR blocks a vulnerable or wrongly licensed runtime dependency (once the repository is public: GitHub requires Advanced Security for it on private repositories).
-  - OSV-Scanner scans the whole lockfile, development tools included, daily (likewise once public).
+  - Dependency review on every PR blocks a vulnerable or wrongly licensed runtime dependency.
+  - OSV-Scanner scans the whole lockfile, development tools included, daily.
 - **Installs:** every dependency install in CI and in the release runs through **Socket Firewall** (free edition), which refuses packages Socket has confirmed as malware before they download. pnpm won't resolve a version less than a day old, and Dependabot waits 3 days before proposing one (Better Auth, tested at its newest on purpose, is exempt from the wait).
 - **Releases:** they will be published from CI with **npm provenance**, and each GitHub release carries a CycloneDX **SBOM** of the installed dependency tree.
+- **Static analysis:** CodeQL (the `security-extended` queries, over the TypeScript and the workflows) on every push and PR, and weekly; OpenSSF Scorecard weekly. Secret scanning with push protection is on.
 - **Other:** gitleaks scans the full history on every push.

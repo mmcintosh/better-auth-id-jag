@@ -8,9 +8,6 @@ on:
 permissions: { contents: read }
 jobs:
   analyze:
-    # Code scanning needs GitHub Advanced Security on a private repository: this runs once it is public
-    # (on push and pull request events; a scheduled event carries no repository, so it is skipped).
-    if: ${{ github.event.repository.private == false }}
     runs-on: ubuntu-24.04
     permissions: { contents: read, security-events: write, actions: read }
     strategy:
