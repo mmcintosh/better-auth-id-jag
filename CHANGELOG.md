@@ -25,4 +25,10 @@
   instead of a 500; `jwks.maxStaleSeconds`; `jitRole`.
 - Both: options accept `undefined` for every optional field (strict TypeScript hosts); one `events` object can serve
   both plugins. Tested on Postgres, MySQL, MongoDB, Drizzle and Prisma.
-- Verified live against Okta Cross App Access, and against Keycloak 26.8.0 and node-oauth2-server in the interop suite.
+- Receiver: while an issuer's key set can't be fetched, its cached keys answer every request for up to
+  `jwks.maxStaleSeconds` past their TTL, including the one whose refetch failed (logged as a warning). Core:
+  `AUDIT_EVENT_TYPES`, every audit event type.
+- Verified live against Okta Cross App Access (including the refresh-token subject and Okta's connection, assignment
+  and deactivation controls) and Okta's xaa.dev testers (OIDC and SAML), and against Keycloak 26.8.0 and
+  node-oauth2-server in the interop suite.
+- Published from CI with npm provenance and a CycloneDX SBOM; every install in CI runs through Socket Firewall.
