@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-08
+
+The first release: Identity Assertion JWT Authorization Grants for Better Auth, an issuer (experimental) and a receiver, draft -04.
+
 - `idJagIssuer()`: issue ID-JAGs from a Better Auth IdP (RFC 8693 token exchange, ID-token subject tokens, policy hook
   and registry with an admin API, `better-auth-id-jag/client`).
 - `idJagGrant()`: accept ID-JAGs at an MCP server's authorization server (RFC 7523 jwt-bearer, trusted issuers from
@@ -32,3 +36,4 @@
   and deactivation controls) and Okta's xaa.dev testers (OIDC and SAML), and against Keycloak 26.8.0 and
   node-oauth2-server in the interop suite.
 - Published from CI with npm provenance and a CycloneDX SBOM; every install in CI runs through Socket Firewall.
+
