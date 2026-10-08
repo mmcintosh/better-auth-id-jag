@@ -75,7 +75,10 @@ const orUndef = <T>(v: T | null | undefined): T | undefined => (v === null ? und
 
 /** The well-known OpenID configuration URL of an issuer (OIDC Discovery §4). */
 export function openIdConfigurationUrl(issuer: string): string {
-  return `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
+  // Trailing slashes, without a regex (CodeQL js/polynomial-redos).
+  let end = issuer.length;
+  while (end > 0 && issuer[end - 1] === "/") end--;
+  return `${issuer.slice(0, end)}/.well-known/openid-configuration`;
 }
 
 async function fromSso(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, iss: string): Promise<TrustEntry[]> {

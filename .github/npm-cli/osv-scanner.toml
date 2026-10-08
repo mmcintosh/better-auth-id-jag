@@ -1,0 +1,66 @@
+# OSV-Scanner (and OpenSSF Scorecard, which reads this file) ignores these advisories in this folder.
+# This folder only installs the npm CLI that the release job stages with (D-026). These are
+# npm's own *bundled* dependencies: they can't be updated on their own, never reach the published
+# package, and run only inside the release job on GitHub's runner, on inputs we control. Dependabot
+# ignores them too (.github/dependabot.yml); they go when a newer npm bundles fixed versions. Each
+# entry expires, so it is looked at again.
+
+[[IgnoredVulns]]
+id = "GHSA-6j4f-fj2g-mc7p"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "brace-expansion, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-q2hr-2g5m-vwhr"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "brace-expansion, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-qhr7-859c-m2p7"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "brace-expansion, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "http-cache-semantics, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-2vr4-cq9g-pvrc"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "ip-address, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-h3mg-xc3c-68pw"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "ip-address, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-j6r3-76f7-8jcv"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "ip-address, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-rpw4-54j3-4h4q"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "ip-address, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-rj75-hqrm-r3gf"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "postcss-selector-parser, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-3wwx-pv8p-q78v"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-r53p-7pc4-xj5r"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-rfgv-xxqx-mfg5"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"

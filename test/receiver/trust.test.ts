@@ -182,3 +182,15 @@ describe("trust: static config and the idJagTrustedIssuer table", () => {
     expect((await s.attempt(idp)).reason).toBe("untrusted_issuer");
   });
 });
+
+describe("openIdConfigurationUrl", () => {
+  it("drops trailing slashes, in linear time (CodeQL js/polynomial-redos)", async () => {
+    const { openIdConfigurationUrl } = await import("../../src/receiver/trust");
+    expect(openIdConfigurationUrl("https://idp.example/t1")).toBe("https://idp.example/t1/.well-known/openid-configuration");
+    expect(openIdConfigurationUrl("https://idp.example/t1///")).toBe("https://idp.example/t1/.well-known/openid-configuration");
+    const slow = `https://idp.example/${"/".repeat(200_000)}x`;
+    const start = performance.now();
+    expect(openIdConfigurationUrl(slow).endsWith("x/.well-known/openid-configuration")).toBe(true);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+});

@@ -43,7 +43,10 @@ export function decodeSaml2SubjectToken(token: string): string {
   if (token.length > MAX_SAML2_TOKEN_LENGTH) bad(`longer than ${MAX_SAML2_TOKEN_LENGTH} characters`);
   const urlSafe = URL_SAFE.test(token);
   if (!urlSafe && !STANDARD.test(token)) bad("not base64url or base64");
-  const body = token.replace(/=+$/, "");
+  // Trailing padding, without a regex (CodeQL js/polynomial-redos; the checks above allow at most two).
+  let end = token.length;
+  while (end > 0 && token[end - 1] === "=") end--;
+  const body = token.slice(0, end);
   const padded = body.length !== token.length;
   if (padded && token.length % 4 !== 0) bad("wrong padding");
   if (body.length % 4 === 1) bad("truncated");

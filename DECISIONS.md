@@ -531,3 +531,24 @@ and all three mutation lists (402 caught, 15 expected survivors, 0 problems). It
 
 Also from the review: the Mutations workflow runs its three lists in parallel (a matrix), and it is dispatched at
 the release commit so a green run is on record.
+
+## D-026: the repository public; its settings and the first scans (2026-10-07)
+
+The maintainer made the repository public. Settings, matched to better-auth-saml-idp: private vulnerability
+reporting, Dependabot alerts and security updates, **secret scanning with push protection**, merged branches
+deleted, and an **`npm` environment** (the maintainer as required reviewer, deployments only from `v*` tags). The
+private-repository gates came out of CodeQL, Scorecard, dependency review and OSV; they had also skipped the weekly
+CodeQL and Scorecard runs (a scheduled event carries no repository).
+
+The first scans:
+- **CodeQL, two `js/polynomial-redos` in shipped code**, neither reachable: `decodeSaml2SubjectToken` strips padding
+  only after a pattern that allows at most two `=`; `openIdConfigurationUrl` sees only configured or stored issuers.
+  Both now strip trailing characters with a loop, and a test pins the URL helper's linear time.
+- **CodeQL, dismissed with reasons:** the link checker's HTML stripping (a slug, never rendered), the demo CLIs
+  saving the user's own tokens to a file they name, the interop job's commit-pinned `npm install`.
+- **Scorecard, Vulnerabilities:** the 12 advisories in npm's bundled dependencies (`.github/npm-cli`, release job
+  only), already dismissed in Dependabot. `.github/npm-cli/osv-scanner.toml` ignores them, each with a reason and an
+  expiry (2027-01-06), as in better-auth-saml-idp.
+- **Scorecard, left to resolve:** Maintained (the repository is new), SAST (CodeQL has just started), Branch
+  protection and Code review (a ruleset, the maintainer's decision), CII Best Practices (the badge, registered by the
+  maintainer at bestpractices.dev).
