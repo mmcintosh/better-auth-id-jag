@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Breaking
+
+- **The public API is now an explicit list** (`src/index.ts`, `docs/versioning.md`; D-031): 52 runtime exports
+  instead of 106. Removed, as internals nothing documented uses: `emit`, `auditRow`, `sweepAudit`, `refuse`,
+  `logSafe`, `toApiError`, `providerErrorCode`, `providerRefusalReason`, `publicDescription`, `IdJagRefusal`, `jtiKey`,
+  `recordJti`, `hasJti`, `jtiExpiresAt`, `sweepJtis`, `warnIfReplayUnsafe`, `JTI_RETENTION_MARGIN_SECONDS`,
+  `checkTimes`, `newJti`, `isIdJagTyp`, `idJagClaimsSchema`, `lifetimeOption`, `skewOption`, `MAX_TOKEN_LENGTH`,
+  `MAX_ACT_DEPTH`, `UNSUPPORTED_CLAIMS`, `parseSamlNameIdSubId`, `samlNameIdSubIdSchema`, `TRANSIENT_NAMEID_FORMAT`,
+  `decide`, `checkBlocks`, `checkBlocksWithoutAudience`, `RegistryDirectory`, `normalizeAudience`,
+  `verifyOwnIdToken`, `verifyOwnRefreshToken`, `verifyOwnSamlAssertion`, `decodeSaml2SubjectToken`,
+  `MAX_SAML2_TOKEN_LENGTH`, `getSamlIdpExchange`, `assertionExchangeErrorCode`, `ASSERTION_EXCHANGE_ERROR_CODES`,
+  `SAML_IDP_EXCHANGE_KEY`, `resolveSubject` (the function; the option is unchanged), `subjectKey`,
+  `findTrustedIssuer`, `openIdConfigurationUrl`, `registeredResources`, `STRIPPED_SCOPES`, `addJitMembership`,
+  `organizationRoles`, `unknownRoles`, `BUILT_IN_ORGANIZATION_ROLES`, `JwksCache`, and the internal types that went
+  with them. If you used one of these, open an issue: adding an export back is not a breaking change.
+
+### Added
+
+- The SCIM option types `ScimTrustInput` and `AcquireActiveScimUserLink` are exported (they were missing in 0.2).
+
 ## [0.2.1] - 2026-10-08
 
 Fixes the SCIM step from 0.2.0: parallel redemptions for one user are no longer refused.

@@ -24,7 +24,15 @@ A change to any of these that could break an app using them as documented counts
 - **The admin API**: the `/id-jag/*` routes' paths, their parameters, what they return, and who may call them (`canManage`).
 - **Audit events**: the five event types, their fields, and the reason codes in `REASONS` ([src/core/errors.ts](../src/core/errors.ts)). New fields and new reason codes can come in a minor release, so handlers should ignore what they don't know and give an unknown reason a `default` branch.
 - **The database schema**: the tables (`idJagJti`, `idJagBlock`, and with their options `idJagTrustedIssuer`, `idJagResourceServer`, `idJagPolicy`, `idJagAudit`) and their columns. A new or changed column needs a migration, so from 1.0 it comes only in a major release, announced at the top of its notes with the migration; a table that exists only with a new option can come in a minor release, since turning the option on is when you migrate. The rows are internal: read them through the admin API and the events.
-- **The exports** of `better-auth-id-jag`, with their types. The lower-level ones (`handleTokenExchange`, `handleIdJagGrant`, `checkIssuerHost`, `createIssuerState`, the schema builders) are public too, for hosts that compose the grants themselves.
+- **The exports** listed in [src/index.ts](../src/index.ts), with their types, and nothing else (pinned by `test/api/public-api.test.ts`):
+  - the plugins, and composing them yourself: `idJagIssuer`, `idJagGrant`, `handleTokenExchange`, `handleIdJagGrant`, `createIssuerState`, `checkIssuerHost`, `idJagGrantExtension`, `resolveIssuerOptions`, `resolveReceiverOptions`, the plugin ids;
+  - the tables: the schema builders and table names;
+  - the protocol constants, defaults and limits (`SUPPORTED_DRAFT`, the token and grant types, the metadata fields, the algorithms, the lifetimes and clock skew);
+  - the refusal reasons and events: `REASONS`, `AUDIT_EVENT_TYPES`, `ID_JAG_REGISTRY_ERROR_CODES` and the event types;
+  - an ID-JAG toolkit: `parseIdJag`, `verifyIdJag`, `buildIdJag`;
+  - the option and record types.
+
+  Everything else under `src/` is internal and can change in any release; `package.json` exposes only `.` and `./client`, so nothing else can be imported. A new export can come in a minor release; removing one is breaking.
 
 ## What doesn't
 
