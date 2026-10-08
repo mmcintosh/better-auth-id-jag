@@ -8,6 +8,7 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 [![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--04-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mmcintosh/better-auth-id-jag/badge)](https://scorecard.dev/viewer/?uri=github.com/mmcintosh/better-auth-id-jag)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15294/badge)](https://www.bestpractices.dev/projects/15294)
 [![CodeQL](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml)
 
 ```
