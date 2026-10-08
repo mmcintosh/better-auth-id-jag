@@ -15,7 +15,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
                   └──────────── idJagIssuer() ────────────┘                    └────── idJagGrant() ──────┘
 ```
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **pre-release**: npm has only a 0.0.1 placeholder under this name; 0.1.0 is the first usable release. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`); while the draft moves, a 0.x minor release may rename a claim or URN with it. [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. The **issuer is experimental** (see below). It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`); while the draft moves, a 0.x minor release may rename a claim or URN with it. [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
 If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
 
@@ -39,8 +39,6 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 [Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [What ID-JAG controls](#-what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#-conformance) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
 
 ## 📦 Install
-
-> The 0.0.1 on npm is a name placeholder with no code. Until 0.1.0, install from a clone (`pnpm build`, then `pnpm add ../better-auth-id-jag`).
 
 ```sh
 npm install better-auth-id-jag
