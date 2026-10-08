@@ -7,6 +7,8 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 [![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#-runtimes-and-databases)
 [![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--04-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mmcintosh/better-auth-id-jag/badge)](https://scorecard.dev/viewer/?uri=github.com/mmcintosh/better-auth-id-jag)
+[![CodeQL](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/codeql.yml)
 
 ```
 person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP ─ID-JAG─▶ agent ─jwt-bearer─▶ MCP AS ─access token─▶ agent ─▶ /mcp
