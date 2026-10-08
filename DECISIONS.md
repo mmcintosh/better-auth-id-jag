@@ -582,3 +582,12 @@ built straight after 0.1.0. It should have been flagged as unbuilt before the re
   `test/interop/scim-provisioning.test.ts`: better-auth-scim-provisioning 1.0.0 at the IdP, our issuer, `@better-auth/scim`
   and our receiver: provisioned → resolved by SCIM; banned or deleted at the IdP → an ID-JAG issued before is refused;
   unbanned → the same user. Fourteen mutations: 13 caught, 1 expected survivor (a race guard; reason recorded).
+- **Independent test** by the better-auth-scim-provisioning maintainer at `c9a38e9`, from the packed tarball with
+  their 1.1.0 and only public entry points, through the real sign-in → code → ID token → exchange → jwt-bearer flow,
+  three runs: 14 scenarios passed, no defects. Among them: another connection's or another IdP's user with the same
+  externalId never matches; an organization-scoped target (member, added, removed); a `mapUser` overriding
+  `externalId`; a same-email unprovisioned local user with the email fallback and JIT on (refused while required);
+  20 users deprovisioned while redeeming concurrently (200s before delivery, 400s after, never a 500); an old
+  account link not bringing a banned user back. Their mutations on our built `dist` (the SCIM step skipped,
+  `required` ignored) were caught. Two notes became README lines: SCIM-created users have `emailVerified: false`
+  (so the email fallback never matches them), and the fallbacks need the issuer to send `email`.
