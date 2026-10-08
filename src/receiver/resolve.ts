@@ -1,11 +1,11 @@
 // The ID-JAG's subject → a local user (plan §3.4 step 10), first hit wins:
 // 1. the host's `resolveSubject` hook: link / continue / reject (a throw is a reject: gates fail closed);
-// 1a. for an entry with `scim`: the user its SCIM connection provisioned with externalId = `sub`, while
-//    active (scim.ts, D-027); none found is refused unless `scim.required` is false, so a deprovisioned
-//    user can't come back through steps 2–4;
 // then the subject's key (subjectKey): (the trust entry's account provider id, `sub`), or, for an
 // entry with `samlSubjects`, (the matching mapping's accountProviderId, the SAML NameID of `sub_id`),
 // a malformed, transient or unmapped `sub_id` being refused (draft -04 §3.2.2, §9.5; D-A27–D-A30);
+// 1a. for an entry with `scim`, after the key so the sub_id rules hold (D-028): the user its SCIM
+//    connection provisioned with externalId = `sub`, while active (scim.ts, D-027); none found is
+//    refused unless `scim.required` is false, so a deprovisioned user can't come back through 2–4;
 // 2. an account linked under that key: for sso-trusted issuers the sso providerId and `sub`, for a
 //    SAML mapping the sso SAML providerId and the NameID: what `@better-auth/sso` creates at sign-in;
 // 3. the `email` claim, only when the trust entry allows it and the domain is listed or verified;
@@ -80,7 +80,7 @@ export function subjectKey(trust: TrustEntry, claims: IdJagClaims): SubjectKey {
 }
 
 function view(t: TrustEntry): TrustedIssuerView {
-  return { source: t.source, id: t.id, issuer: t.issuer, organizationId: t.organizationId, accountProviderId: t.accountProviderId };
+  return { source: t.source, id: t.id, issuer: t.issuer, organizationId: t.organizationId, accountProviderId: t.accountProviderId, scimConnectionId: t.scim?.connectionId };
 }
 
 function assertNotBanned(user: User, now: Date): User {
@@ -222,7 +222,12 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
     if (decision?.action !== "continue") refuse("subject_rejected", "resolveSubject returned no decision");
   }
 
-  // 1a. SCIM provisioning: authoritative for this entry's users (D-027).
+  // After the hook (which sees the raw claims), before any lookup: which key this subject has here.
+  // This applies the sub_id rules (requireSubId, malformed, transient, unmapped) on every path,
+  // the SCIM step's included (D-028).
+  const key = subjectKey(trust, claims);
+
+  // 1a. SCIM provisioning: authoritative for this entry's users (D-027). By `sub`, the IdP's user id.
   if (trust.scim) {
     const userId = await scimLinkedUserId(ctx, o.acquireScimLink, trust.scim.connectionId, claims.sub);
     if (userId !== null) {
@@ -233,8 +238,6 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
     if (trust.scim.required) refuse("unknown_subject", "SCIM: no active provisioned user for this sub");
   }
 
-  // After the hook (which sees the raw claims), before any lookup: which key this subject has here.
-  const key = subjectKey(trust, claims);
   const owner = await findAccountOwner(ctx, key.providerId, key.accountId);
   if (owner?.kind === "owned") return { user: assertNotBanned(owner.user, now), via: "account" };
   // An account row whose user is gone: never re-link it to someone else by email.

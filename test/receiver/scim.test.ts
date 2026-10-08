@@ -12,17 +12,31 @@ const CONNECTION = "acme-idp";
 const TOKEN = "scim-bearer-token-that-is-long-enough-for-the-plugin";
 const SCIM_USER = "urn:ietf:params:scim:schemas:core:2.0:User";
 const PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
+const SAML_IDP = "https://saml.acme.example/idp";
+const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
 
 type Acquire = NonNullable<IdJagGrantOptions["scim"]>["acquireActiveSCIMUserLink"];
 
-async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire | null; connections?: string[]; table?: boolean; admin?: boolean } = {}) {
+async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire | null; connections?: string[]; table?: boolean; admin?: boolean; saml?: { requireSubId?: boolean } } = {}) {
   const idp = await testIdp();
   const rec = recorder();
   const scimEntry = { connectionId: CONNECTION, ...(o.required === undefined ? {} : { required: o.required }) };
   const acquire = o.acquire === undefined ? (acquireActiveSCIMUserLink as unknown as Acquire) : o.acquire;
   const h = await receiverHost("mcp", {
     receiver: {
-      ...(o.table ? { trustedIssuerTable: true } : { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: scimEntry, ...(o.jit ? { jitProvisioning: { trustEmailVerified: true } } : {}) }] }),
+      ...(o.table
+        ? { trustedIssuerTable: true }
+        : {
+            trustedIssuers: [
+              {
+                issuer: idp.issuer,
+                jwksUri: idp.jwksUri,
+                scim: scimEntry,
+                ...(o.jit ? { jitProvisioning: { trustEmailVerified: true } } : {}),
+                ...(o.saml ? { samlSubjects: [{ issuer: SAML_IDP, accountProviderId: "acme-saml" }], ...(o.saml.requireSubId ? { requireSubId: true } : {}) } : {}),
+              },
+            ],
+          }),
       ...(acquire ? { scim: { acquireActiveSCIMUserLink: acquire } } : {}),
       fetch: network(idp).fetch,
     },
@@ -165,6 +179,41 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     await rec.settle();
     expect(r.status, r.text).toBe(200);
     expect(rec.accepted.at(-1)).toMatchObject({ userId: chosen.id, resolvedBy: "hook" });
+  });
+
+  it("D-028: on an entry with samlSubjects too, the sub_id rules still hold for a SCIM-provisioned user; a valid sub_id resolves by SCIM", async () => {
+    const w = await world({ saml: { requireSubId: true } });
+    const sub = crypto.randomUUID();
+    const { email } = await w.provision(sub);
+    const local = await w.localUserOf(email);
+    const subId = (over: Record<string, unknown>) => ({ format: "saml-nameid", issuer: SAML_IDP, nameid: `nameid-${sub}`, nameid_format: PERSISTENT, ...over });
+    // requireSubId: none at all is refused.
+    expect(await w.attempt(sub)).toMatchObject({ reason: "subject_rejected" });
+    // Malformed (no nameid), and from a SAML issuer this entry doesn't map: refused, never resolved by SCIM.
+    expect(await w.attempt(sub, { sub_id: { format: "saml-nameid", issuer: SAML_IDP } })).toMatchObject({ reason: "subject_rejected" });
+    expect(await w.attempt(sub, { sub_id: subId({ issuer: "https://other-saml.example/idp" }) })).toMatchObject({ reason: "subject_rejected" });
+    // A valid, mapped sub_id: the SCIM step resolves by sub.
+    expect(await w.attempt(sub, { sub_id: subId({}) })).toMatchObject({ reason: "accepted", userId: local?.id, resolvedBy: "scim" });
+  });
+
+  it("the hook's trusted-issuer view names the entry's SCIM connection", async () => {
+    const idp = await testIdp();
+    const seen: unknown[] = [];
+    const h = await receiverHost("mcp", {
+      receiver: {
+        trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: { connectionId: CONNECTION } }],
+        scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as unknown as Acquire },
+        resolveSubject: ({ trustedIssuer }) => {
+          seen.push(trustedIssuer);
+          return { action: "reject" };
+        },
+        fetch: network(idp).fetch,
+      },
+      scim: { connections: [{ id: CONNECTION, credentials: [{ type: "bearer", id: "t", token: `${TOKEN}-${CONNECTION}` }] }] },
+    });
+    const client = await createClient(h);
+    await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: crypto.randomUUID() })));
+    expect(seen).toEqual([expect.objectContaining({ issuer: idp.issuer, scimConnectionId: CONNECTION })]);
   });
 
   it("a concurrent lifecycle change (a 409 SCIM conflict) is retried once, then refused", async () => {

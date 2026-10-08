@@ -128,6 +128,8 @@ export interface TrustedIssuerView {
   issuer: string;
   organizationId?: string | undefined;
   accountProviderId: string;
+  /** The entry's SCIM connection, when it has `scim`: then the SCIM step decides unless the hook links first. */
+  scimConnectionId?: string | undefined;
 }
 
 export interface IdJagGrantOptions extends AuditOptions {

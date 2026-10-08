@@ -1634,5 +1634,23 @@
   "paths": [
    "test/receiver/scim.test.ts"
   ]
+ },
+ {
+  "name": "D-028 SCIM step before the sub_id rules (the review's finding)",
+  "edits": [
+   {
+    "a": "  const key = subjectKey(trust, claims);\n\n  // 1a. SCIM provisioning",
+    "b": "  // 1a. SCIM provisioning",
+    "file": "src/receiver/resolve.ts"
+   },
+   {
+    "a": "  const owner = await findAccountOwner(ctx, key.providerId, key.accountId);",
+    "b": "  const key = subjectKey(trust, claims);\n  const owner = await findAccountOwner(ctx, key.providerId, key.accountId);",
+    "file": "src/receiver/resolve.ts"
+   }
+  ],
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
  }
 ]

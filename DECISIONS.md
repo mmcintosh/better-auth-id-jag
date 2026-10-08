@@ -591,3 +591,21 @@ built straight after 0.1.0. It should have been flagged as unbuilt before the re
   account link not bringing a banned user back. Their mutations on our built `dist` (the SCIM step skipped,
   `required` ignored) were caught. Two notes became README lines: SCIM-created users have `emailVerified: false`
   (so the email fallback never matches them), and the fallbacks need the issuer to send `email`.
+
+## D-028: the fresh-eyes review of the SCIM step (2026-10-08)
+
+A review of PR #8 at `7dd6289`: "merge and release 0.2.0 after one low finding". A deprovisioned, wrong or
+unprovisioned user can't get a token through the SCIM step, and hosts without `scim` are unchanged (the built bundle
+doesn't import `@better-auth/scim`). Its run: 890 tests, the 14 D-027 mutations as recorded, PR CI green.
+
+1. **Low: the SCIM step ran before the `sub_id` rules.** On an entry with both `scim` and `samlSubjects`, a
+   provisioned user was accepted with no `sub_id` under `requireSubId`, a malformed one, or an unmapped SAML issuer's
+   (three documented refusals). Not a wrong user (SCIM maps the trusted issuer's `sub`), but the refusals must hold.
+   Fixed by computing the subject key, which applies those rules, before the SCIM step; combined entries keep
+   working. A test (fails before the fix) and a mutation that restores the old order.
+2. **Info:** the hook's `trustedIssuer` view now has `scimConnectionId`, so a hook can tell its `link` overrides SCIM.
+3. **Info:** the README's sentence on the table's columns rewritten.
+
+Also, after the review (from the better-auth-scim-provisioning maintainer): their 1.1.0 is published, but our
+minimum release age (D-024, one day) holds the end-to-end test on 1.0.0 until it is a day old; and the README says how to run the SCIM step on Cloudflare (Postgres through Hyperdrive, verified locally
+under wrangler dev only; harness `~/Infowall/backups/hyperdrive-scim-test-2026-10-07/`).
