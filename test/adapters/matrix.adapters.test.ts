@@ -172,10 +172,11 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
   // @better-auth/scim needs native transactions; the MongoDB rows run without them (D-019).
   it.skipIf(KIND === "mongodb")("SCIM (D-027): a provisioned user resolves by sub, inside the adapter's transaction; deactivated, refused", async () => {
     const idp = await testIdp();
+    const refusals: { reason: string; detail?: string | undefined }[] = [];
     const token = "scim-bearer-token-that-is-long-enough-for-the-plugin";
     const make = await prepare((database, migrate) =>
       receiverHost("mcp", {
-        receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: { connectionId: "acme" } }], scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as never }, fetch: network(idp).fetch },
+        receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: { connectionId: "acme" } }], scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as never }, fetch: network(idp).fetch, events: { onRefused: (e) => void refusals.push(e) } },
         scim: { connections: [{ id: "acme", credentials: [{ type: "bearer", id: "acme-token", token }] }] },
         database,
         migrate,
@@ -194,6 +195,12 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
     const scimId = ((await created.json()) as { id: string }).id;
     const ok = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub })));
     expect(ok.status, ok.text).toBe(200);
+    // D-029: parallel redemptions for ONE user all succeed (16 by default, SCIM_PARALLEL to change) (each lookup bumps the SCIM revision, so they
+    // conflict with each other; the retries with backoff must absorb that on a database that runs them
+    // concurrently).
+    const parallel = await Promise.all(Array.from({ length: Number(process.env.SCIM_PARALLEL ?? 16) }, async () => redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub })))));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(parallel.map((r) => r.status), JSON.stringify(refusals.map((e) => [e.reason, e.detail]))).toEqual(Array(Number(process.env.SCIM_PARALLEL ?? 16)).fill(200));
     const off = await scimCall("PATCH", `/Users/${scimId}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "replace", path: "active", value: false }] });
     expect(off.status).toBe(200);
     const refused = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub })));

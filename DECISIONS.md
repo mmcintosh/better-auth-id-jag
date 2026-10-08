@@ -609,3 +609,54 @@ doesn't import `@better-auth/scim`). Its run: 890 tests, the 14 D-027 mutations 
 Also, after the review (from the better-auth-scim-provisioning maintainer): their 1.1.0 is published, but our
 minimum release age (D-024, one day) holds the end-to-end test on 1.0.0 until it is a day old; and the README says how to run the SCIM step on Cloudflare (Postgres through Hyperdrive, verified locally
 under wrangler dev only; harness `~/Infowall/backups/hyperdrive-scim-test-2026-10-07/`).
+
+## D-029: SCIM lookups of one user conflicting with each other (2026-10-08)
+
+Found after 0.2.0 was tagged and staged (not yet approved on npm), by the better-auth-scim-provisioning maintainer on
+a deployed Worker with Neon Postgres through Hyperdrive, then reproduced on Neon from Node, and here on Postgres 17:
+8 parallel redemptions for one active, untouched user got 2–3 tokens; every refusal was "SCIM: the provisioned
+identity changed concurrently".
+
+- **Cause.** `acquireActiveSCIMUserLink` takes the link with an optimistic `incrementOne` on `scimSubject.revision`
+  on every lookup. Lifecycle changes bump the same revision, which is the point (D-027), but so does every other
+  lookup: readers conflict with readers. D-027's single retry without delay assumed conflicts were rare lifecycle
+  races. node:sqlite runs one transaction at a time, so the unit tests couldn't see it; Postgres and MySQL run them
+  concurrently.
+- **Fix.** Retry a 409 from fresh state with exponential backoff and full jitter (random within
+  [0, min(250, 10·2ⁿ)] ms), for up to `SCIM_RETRY_BUDGET_MS` (5 s) or `MAX_SCIM_ATTEMPTS` (40), then refuse as
+  before. A deprovisioning makes the next attempt return null, so only racing readers keep retrying; the budget is
+  how many arrive at once. Ten attempts weren't enough for 32 at once on MySQL; the time budget is.
+- **Evidence.** The adapter matrix's SCIM test redeems 16 at once for one user (`SCIM_PARALLEL`), asserting all
+  succeed: before the fix 3 of 8 on Postgres; after it, Postgres, MySQL, Drizzle and Prisma pass, and 16 and 32 at
+  once pass repeatedly on Postgres and MySQL. Unit tests: a few conflicts then accepted; endless conflicts refused
+  within the budget. Mutations: no retry and no bound are caught; no backoff is an expected survivor (only real
+  concurrency shows it; the matrix does).
+- **Considered.** A row lock (`SELECT … FOR UPDATE` on the subject) would serialize lookups instead, but the adapter
+  has no locking API, so it means raw SQL per dialect. Upstream, a non-mutating lookup (readers not conflicting with
+  readers) would remove the hotspot: an issue draft for the maintainer's approval.
+- **0.2.0** is not approved on npm; 0.2.1 replaces it. Also from that test: Hyperdrive's default query cache kept a
+  revoked Better Auth session valid for about a minute; the README now says to disable caching for the auth database.
+
+## D-030: one in-flight SCIM lookup per user (2026-10-08)
+
+The better-auth-scim-provisioning maintainer ran D-029's fix against Neon Postgres 45 ms away (median): 8 at once
+8/8, but 16 at once 12–14/16 and 32 at once 10–12/32, the slowest after 5–7 s, whatever the pool size. Lookups of
+one user commit strictly one at a time (each bumps the same revision), about 8–10 round trips each, so about two a
+second at that distance: a 5 s budget yields 10–12 whatever the fan-out. Locally (under 1 ms) 32 fit, which is why
+the matrix passed. A row lock wouldn't raise that throughput either.
+
+- **Single-flight.** Concurrent requests for the same (connection, externalId) on the same database adapter share
+  one in-flight lookup; the entry is removed when it settles, so a later request always looks up again (a cached
+  answer would miss a deprovisioning). The shared answer is no staler than if the request had arrived a moment
+  earlier. On one Node server this removes same-user contention; on Workers, within each isolate.
+- **The retries stay** (D-029) for lookups across processes.
+- **The limit is documented:** lookups of one user commit one at a time across processes; keep the auth server
+  near its database. The real fix is upstream (a lookup that doesn't conflict with other lookups): an issue drafted
+  for the maintainer's approval.
+- **Evidence.** A unit test with a 30 ms lookup (node:sqlite otherwise answers at once, so lookups never overlap):
+  8 at once all succeed with fewer than 8 lookups, and a later one looks up again. Two mutations (no
+  single-flight; a settled lookup kept) caught.
+- **On Neon** (the better-auth-scim-provisioning maintainer, `bc85fd6`, 45 ms away, 3 runs each): one receiver,
+  8/16/32 at once all succeeded, the slowest 0.9 / 1.4 / 1.9 s (a single redemption takes 0.84–0.95 s); two
+  receivers on the same database, requests alternating, all succeeded too, the slowest 1.5 / 1.5 / 1.9 s. Before:
+  3/8; with D-029 alone 8/8 at 5.2 s and 11/32.

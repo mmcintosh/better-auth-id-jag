@@ -6,6 +6,7 @@ import { acquireActiveSCIMUserLink } from "@better-auth/scim";
 import { APIError } from "better-auth/api";
 import { describe, expect, it } from "vitest";
 import type { IdJagGrantOptions } from "../../src/receiver";
+import { MAX_SCIM_ATTEMPTS, SCIM_RETRY_BUDGET_MS } from "../../src/receiver/scim";
 import { BASE, createClient, decodePayload, linkedUser, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
 
 const CONNECTION = "acme-idp";
@@ -216,18 +217,56 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     expect(seen).toEqual([expect.objectContaining({ issuer: idp.issuer, scimConnectionId: CONNECTION })]);
   });
 
-  it("a concurrent lifecycle change (a 409 SCIM conflict) is retried once, then refused", async () => {
-    let conflicts = 1;
+  it("D-030: concurrent redemptions for one user share one in-flight lookup; a later one looks up again", async () => {
+    let calls = 0;
+    // 30 ms per lookup, as a database over a network takes: node:sqlite answers at once, so the
+    // lookups would never overlap here otherwise.
+    const counting: Acquire = async (ref, c) => {
+      calls++;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return (acquireActiveSCIMUserLink as unknown as Acquire)(ref, c);
+    };
+    const w = await world({ acquire: counting });
+    const sub = crypto.randomUUID();
+    const { email } = await w.provision(sub);
+    const local = await w.localUserOf(email);
+    const tokens = await Promise.all(Array.from({ length: 8 }, () => w.idp.mint(w.idp.claims({ client_id: w.client.client_id, sub }))));
+    calls = 0;
+    const results = await Promise.all(tokens.map((t) => redeem(w.h, w.client, t)));
+    expect(results.map((r) => r.status)).toEqual(Array(8).fill(200));
+    expect(results.map((r) => decodePayload(r.body.access_token as string).sub)).toEqual(Array(8).fill(local?.id));
+    expect(calls).toBeLessThan(8);
+    // Nothing is kept once it settles: the next redemption looks up again, and sees a deactivation.
+    calls = 0;
+    expect((await w.attempt(sub)).reason).toBe("accepted");
+    expect(calls).toBe(1);
+  });
+
+  it("a SCIM conflict is retried with backoff, within MAX_SCIM_ATTEMPTS and SCIM_RETRY_BUDGET_MS, then refused (D-029)", { timeout: 20_000 }, async () => {
+    let conflicts = 0;
+    let calls = 0;
     const flaky: Acquire = async (ref, c) => {
+      calls++;
       if (conflicts-- > 0) throw new APIError("CONFLICT", { detail: "The SCIM identity changed concurrently; retry the request" });
       return (acquireActiveSCIMUserLink as unknown as Acquire)(ref, c);
     };
     const w = await world({ acquire: flaky });
     const sub = crypto.randomUUID();
     await w.provision(sub);
+    // A few conflicts (lookups racing each other): retried, then accepted.
+    conflicts = 4;
+    calls = 0;
     expect((await w.attempt(sub)).reason).toBe("accepted");
-    conflicts = 2;
+    expect(calls).toBe(5);
+    // Conflicts that never end: refused once the attempts or the time budget run out, never more.
+    conflicts = Number.POSITIVE_INFINITY;
+    calls = 0;
+    const started = Date.now();
     expect(await w.attempt(sub)).toMatchObject({ reason: "subject_rejected", detail: "SCIM: the provisioned identity changed concurrently" });
+    expect(calls).toBeGreaterThan(1);
+    expect(calls).toBeLessThanOrEqual(MAX_SCIM_ATTEMPTS);
+    // The budget bounds the wait (plus one backoff, at most 250 ms, and the request itself).
+    expect(Date.now() - started).toBeLessThan(SCIM_RETRY_BUDGET_MS + 1500);
   });
 
   it("any other error from the lookup is an audited subject_rejected, not a 500", async () => {
