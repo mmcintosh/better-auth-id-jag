@@ -1,17 +1,26 @@
 // The MCP client's side of Enterprise-Managed Authorization, step by step, against the two example
-// Workers. It prints every token it gets (decoded) and calls the MCP server's one tool.
+// Workers. It prints every token it gets (decoded) and calls the MCP server's tools.
 //
-//   SETUP_KEY_FILE=<file> node examples/workers/client.mjs <idp-origin> <mcp-origin> [--setup]
+//   SETUP_KEY_FILE=<file> node examples/workers/client.mjs <idp-origin> <mcp-origin> [--setup] [--as=reader] [--scope="read write"] [--cutoff]
 //
 // --setup registers the agent at both servers first (the MCP server issues it its own client id,
-// which the IdP records as the client's id "at the resource": the ID-JAG's client_id).
+// which the IdP records as the client's id "at the resource": the ID-JAG's client_id), and creates the
+// two demo users: agent-user@ (the IdP's WRITERS lets its agent have write) and reader-user@ (read only).
+// --as=reader signs in as the read-only user. --scope is what the agent asks for (default "read write").
+// The layers (README, "What ID-JAG controls"): the IdP decides who may have write; the MCP server decides
+// which tool each scope unlocks (add_note needs write: 403 insufficient_scope without it).
+// --cutoff then calls whoami every 10 s until the access token stops working, and reports how long that
+// took: how long an agent keeps access after the IdP stops issuing it ID-JAGs.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const [idp, mcp] = process.argv.slice(2, 4);
 if (!idp || !mcp) throw new Error("usage: node client.mjs <idp-origin> <mcp-origin> [--setup]");
 const STATE = new URL("./.client-state.json", import.meta.url);
 const key = process.env.SETUP_KEY_FILE ? readFileSync(process.env.SETUP_KEY_FILE, "utf8").trim() : "";
-const user = { email: "agent-user@example.com", password: "example-password-1234" };
+const asReader = process.argv.includes("--as=reader");
+const user = { email: asReader ? "reader-user@example.com" : "agent-user@example.com", password: "example-password-1234" };
+const scope = (process.argv.find((a) => a.startsWith("--scope=")) ?? "--scope=read write").slice("--scope=".length);
+const cutoff = process.argv.includes("--cutoff");
 const b64url = (bytes) => Buffer.from(bytes).toString("base64url");
 const decode = (jwt) => jwt.split(".").slice(0, 2).map((p) => JSON.parse(Buffer.from(p, "base64url").toString()));
 const basic = (c) => `Basic ${btoa(`${encodeURIComponent(c.client_id)}:${encodeURIComponent(c.client_secret)}`)}`;
@@ -34,7 +43,9 @@ if (process.argv.includes("--setup")) {
   if (!key) throw new Error("--setup needs SETUP_KEY_FILE");
   const json = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-setup-key": key }, body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(`${url}: ${r.status} ${await r.text()}`))));
   const atMcp = await json(`${mcp}/setup`, { email: "operator@example.com", password: user.password });
-  const atIdp = await json(`${idp}/setup`, { ...user, clientIdAtResource: atMcp.client_id });
+  const atIdp = await json(`${idp}/setup`, { email: "agent-user@example.com", password: user.password, clientIdAtResource: atMcp.client_id });
+  // The second demo user (the setup route also registers a client for it, which this script doesn't use).
+  await json(`${idp}/setup`, { email: "reader-user@example.com", password: user.password, clientIdAtResource: atMcp.client_id });
   state = { atIdp, atMcp };
   writeFileSync(STATE, JSON.stringify(state, null, 2), { mode: 0o600 });
   step(0, "Registered the agent at the MCP server, then at the IdP (with its MCP client id)", { idpClientId: atIdp.client_id, mcpClientId: atMcp.client_id });
@@ -74,7 +85,7 @@ const exchanged = await post(
     requested_token_type: "urn:ietf:params:oauth:token-type:id-jag",
     audience: asIssuer,
     resource: prm.resource,
-    scope: "read",
+    scope,
     subject_token: tokens.json.id_token,
     subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
   },
@@ -91,15 +102,43 @@ step(4, "JWT bearer grant at the MCP server: access token (claims)", { response:
 
 if (process.env.DEBUG_TOKEN_FILE) writeFileSync(process.env.DEBUG_TOKEN_FILE, granted.json.access_token, { mode: 0o600 });
 
-// 5. Call the MCP server.
-const call = await fetch(prm.resource, {
-  method: "POST",
-  headers: { "content-type": "application/json", authorization: `Bearer ${granted.json.access_token}` },
-  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "whoami", arguments: {} } }),
-});
-step(5, `MCP tools/call whoami → ${call.status}`, await call.json());
+// 5. Call the MCP server's tools: whoami and list_notes need read, add_note needs write.
+const tool = async (name, args = {}) => {
+  const r = await fetch(prm.resource, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${granted.json.access_token}` },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  });
+  const body = await r.json();
+  return { status: r.status, body, challenge: r.headers.get("www-authenticate") };
+};
+const call = await tool("whoami");
+step(5, `MCP tools/call whoami → ${call.status}`, call.body);
+const notes = await tool("list_notes");
+step("5a", `MCP tools/call list_notes (read) → ${notes.status}`, notes.body);
+const write = await tool("add_note", { text: "from the agent" });
+step("5b", `MCP tools/call add_note (write) → ${write.status}`, { ...write.body, ...(write.challenge ? { "WWW-Authenticate": write.challenge } : {}) });
+const hasWrite = String(granted.json.scope ?? "").split(" ").includes("write");
 
 // And the same ID-JAG once more: single use.
 const replay = await post(`${asMeta.token_endpoint}`, { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: exchanged.json.access_token }, { authorization: basic(state.atMcp) });
 step(6, `The same ID-JAG again → ${replay.status}`, replay.json);
-if (call.status !== 200 || replay.status !== 400) process.exit(1);
+
+// 7. How long the access token keeps working (an IdP decision now would only stop new ID-JAGs).
+if (cutoff) {
+  const issued = decode(granted.json.access_token)[1];
+  const started = Date.now();
+  step(7, `Polling whoami every 10 s until the access token stops working (expires_in ${granted.json.expires_in} s)`, "");
+  for (;;) {
+    const r = await tool("whoami");
+    const elapsed = Math.round((Date.now() - issued.iat * 1000) / 1000);
+    if (r.status !== 200) {
+      step("7a", `Stopped working ${elapsed} s after it was issued (${Math.round((Date.now() - started) / 1000)} s of polling) → ${r.status}`, r.challenge ?? r.body);
+      break;
+    }
+    if (Date.now() - started > 15 * 60_000) throw new Error("still working after 15 minutes");
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
+  }
+}
+// Expected: whoami 200; add_note 200 only with write, else 403; the replay refused.
+if (call.status !== 200 || notes.status !== 200 || write.status !== (hasWrite ? 200 : 403) || replay.status !== 400) process.exit(1);

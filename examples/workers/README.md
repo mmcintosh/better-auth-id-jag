@@ -69,6 +69,27 @@ in Okta.
 the ID token, `--negative` adds the replay, scope and audience refusals, and `--refresh-file=<path>` with `--reuse`
 replays a saved refresh token (after unassigning or deactivating the user in Okta). See the header of the script.
 
+## Layered permissions
+
+The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
+
+| Layer | Where | In the demo |
+|---|---|---|
+| Who may have which scope | The IdP's policy | `read` for everyone; `write` only for the emails in the IdP's `WRITERS` (here `agent-user@example.com`). `reader-user@example.com`'s agent asks for `read write` and gets `read` |
+| Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` needs `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
+| What an agent may do compared with a person | The MCP server | A token with `act` (an AI agent, as Okta sends) may only read, unless `AGENTS_MAY_WRITE=true` |
+| How long access outlives a cutoff | The MCP server's token lifetimes | `accessTokenExpiresIn: 300`, `scopeExpirations: { write: "2m" }` |
+
+```sh
+node examples/workers/client.mjs <idp> <mcp>                         # agent-user: read write, add_note 200, token 120 s
+node examples/workers/client.mjs <idp> <mcp> --as=reader             # reader-user: read only, add_note 403 insufficient_scope
+node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff    # polls until the token stops working
+```
+
+Measured on the deployed demo (2026-10-08): the write token stopped working 125 s after it was issued, the read
+token 305 s after (polled every 10 s). An IdP decision (a block, a deprovisioning) stops new ID-JAGs at once; an
+agent keeps what it already has for at most those lifetimes, instead of Better Auth's default hour.
+
 ## xaa.dev's resource-app tester
 
 Set `XAA_ISSUER` to `https://idp.xaa.dev` and `CORS_ORIGINS` to `https://xaa.dev` on the MCP server: the tester calls

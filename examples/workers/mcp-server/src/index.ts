@@ -44,7 +44,7 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
       grant_types: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
       response_types: [],
       token_endpoint_auth_method: "client_secret_basic",
-      scope: "read",
+      scope: "read write",
     },
   });
   return Response.json({ client_id: client.client_id, client_secret: client.client_secret });
@@ -62,11 +62,19 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   } catch {
     return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "invalid token" } }, { status: 401, headers: { "WWW-Authenticate": `${challenge["WWW-Authenticate"]}, error="invalid_token"` } });
   }
-  const rpc = (await request.json().catch(() => ({}))) as { id?: unknown; method?: string; params?: { protocolVersion?: string } };
-  // The minimum of MCP's Streamable HTTP for one tool: initialize, the initialized notification
-  // (202, no body), ping, tools/list and tools/call. Any other method is "method not found".
+  const rpc = (await request.json().catch(() => ({}))) as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> } };
+  // The minimum of MCP's Streamable HTTP: initialize, the initialized notification (202, no body),
+  // ping, tools/list and tools/call. Any other method is "method not found".
   const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
-  const whoami = { content: [{ type: "text", text: JSON.stringify({ tool: "whoami", sub: claims.sub, scope: claims.scope, aud: claims.aud, idjag: claims.idjag }) }] };
+  const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
+  // The layers this package doesn't decide (README, "What ID-JAG controls"): which tool a scope
+  // unlocks, and what an agent (the token's `act`, as Okta sends) may do compared with a person.
+  const scopes = typeof claims.scope === "string" ? claims.scope.split(" ") : [];
+  const forbid = (scope: string, message: string) =>
+    Response.json(
+      { jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32003, message } },
+      { status: 403, headers: { "WWW-Authenticate": `${challenge["WWW-Authenticate"]}, error="insufficient_scope", scope="${scope}"` } },
+    );
   switch (rpc.method) {
     case "initialize":
       return reply({ protocolVersion: rpc.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "id-jag-example-mcp", version: "0.1.0" } });
@@ -75,13 +83,27 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
     case "ping":
       return reply({});
     case "tools/list":
-      return reply({ tools: [{ name: "whoami", description: "Returns the authenticated user", inputSchema: { type: "object", properties: {} } }] });
-    case "tools/call":
-      return reply(whoami);
+      return reply({ tools: TOOLS.map(({ name, description, scope }) => ({ name, description: `${description} (scope: ${scope})`, inputSchema: { type: "object", properties: name === "add_note" ? { text: { type: "string" } } : {} } })) });
+    case "tools/call": {
+      const tool = TOOLS.find((t) => t.name === rpc.params?.name);
+      if (!tool) return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32602, message: "unknown tool" } });
+      if (!scopes.includes(tool.scope)) return forbid(tool.scope, `${tool.name} needs the ${tool.scope} scope; this token has: ${scopes.join(" ") || "none"}`);
+      if (tool.scope === "write" && claims.act !== undefined && env.AGENTS_MAY_WRITE !== "true") return forbid(tool.scope, `${tool.name}: an agent (act) may only read here`);
+      if (tool.name === "whoami") return reply(text({ tool: "whoami", sub: claims.sub, scope: claims.scope, act: claims.act ?? null, aud: claims.aud, idjag: claims.idjag, exp: claims.exp }));
+      if (tool.name === "list_notes") return reply(text({ tool: "list_notes", notes: ["(the demo keeps no notes)"] }));
+      return reply(text({ tool: "add_note", accepted: true, text: String(rpc.params?.arguments?.text ?? "").slice(0, 200), note: "the demo doesn't store it" }));
+    }
     default:
       return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32601, message: "method not found" } });
   }
 }
+
+/** The demo's tools and the scope each needs. */
+const TOOLS = [
+  { name: "whoami", description: "Returns the authenticated user and the token's scopes", scope: "read" },
+  { name: "list_notes", description: "Lists notes", scope: "read" },
+  { name: "add_note", description: "Adds a note", scope: "write" },
+] as const;
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
