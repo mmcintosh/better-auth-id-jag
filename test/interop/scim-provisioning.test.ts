@@ -20,7 +20,7 @@ const CONNECTION = "our-idp";
 const TOKEN = "receiver-scim-bearer-token-that-is-long-enough";
 const workerd = typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
-async function world() {
+async function world(o: { deprovision?: "deactivate" | "delete" } = {}) {
   const mapping: { atResource?: string } = {};
   const receiver: { host?: McpHost } = {};
   const idp = await idpHost({
@@ -28,7 +28,7 @@ async function world() {
     issuer: { authorize: (i) => (i.audience === MCP_ISSUER ? { decision: "allow", scopes: ["read"], ...(mapping.atResource ? { clientIdAtResource: mapping.atResource } : {}) } : { decision: "deny" }) },
     plugins: [
       scimProvisioning({
-        targets: [{ id: "mcp", type: "scim", url: `${MCP}/api/auth/scim/v2`, token: TOKEN, fetch: (input, init) => (receiver.host as McpHost).auth.handler(new Request(input, init)) }],
+        targets: [{ id: "mcp", type: "scim", url: `${MCP}/api/auth/scim/v2`, token: TOKEN, fetch: (input, init) => (receiver.host as McpHost).auth.handler(new Request(input, init)), ...(o.deprovision ? { deprovision: o.deprovision } : {}) }],
       }) as unknown as BetterAuthPlugin,
     ],
   });
@@ -91,6 +91,17 @@ describe.skipIf(workerd)("better-auth-scim-provisioning at the IdP → @better-a
     const again = await redeemAt(w.mcp, w.atMcp, await w.exchange(idToken));
     expect(again.status, again.text).toBe(200);
     expect(decodeJwtPart(again.body.access_token as string, 1).sub).toBe(provisioned?.userId);
+  });
+
+  it("deprovision: \"delete\" at the IdP deletes the SCIM user at the receiver: refused as well", async () => {
+    const w = await world({ deprovision: "delete" });
+    const { user, idJag } = await w.userWithIdJag();
+    await w.idp.ctx.internalAdapter.deleteUser(user.id);
+    await w.idp.settle();
+    expect(await w.scimUserFor(user.id)).toBeNull();
+    const r = await redeemAt(w.mcp, w.atMcp, idJag);
+    expect(r.status).toBe(400);
+    expect(w.mcp.refused.at(-1)).toMatchObject({ reason: "unknown_subject" });
   });
 
   it("deleted at the IdP: deprovisioned, and its last ID-JAG is refused at the receiver", async () => {

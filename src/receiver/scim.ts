@@ -4,8 +4,9 @@
 // never falls back to userName, email or tombstones; it returns null for an unknown, inactive,
 // deleted or decommissioned source. It also bumps the SCIM subject's revision, so it runs in the
 // adapter's transaction, and a concurrent lifecycle change (a 409 SCIM conflict) is retried once
-// from fresh state, then refused. On adapters without transactions (D1), the revision check still
-// detects a change between its read and its bump.
+// from fresh state, then refused. (@better-auth/scim itself refuses to start on an adapter without
+// native transactions, such as D1.) A database-level transaction error isn't a SCIM conflict: it
+// goes to resolveSubject's catch, an audited subject_rejected.
 import type { GenericEndpointContext } from "better-auth";
 import { isAPIError } from "better-auth/api";
 import { refuse } from "../core";

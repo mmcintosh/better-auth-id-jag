@@ -137,6 +137,36 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     expect(r.userId).toBe((await w.localUserOf(email))?.id);
   });
 
+  it("required: false: no SCIM user falls through to a linked account too (and only then)", async () => {
+    const w = await world({ required: false });
+    const sub = crypto.randomUUID();
+    const linked = await linkedUser(w.h, `id-jag:${w.idp.issuer}`, sub);
+    expect(await w.attempt(sub)).toMatchObject({ reason: "accepted", userId: linked.id, resolvedBy: "account" });
+    expect((await w.attempt(crypto.randomUUID())).reason).toBe("unknown_subject");
+  });
+
+  it("the resolveSubject hook runs before the SCIM step: a link from it overrides scim.required", async () => {
+    const idp = await testIdp();
+    const rec = recorder();
+    const chosen = { id: "" };
+    const h = await receiverHost("mcp", {
+      receiver: {
+        trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, scim: { connectionId: CONNECTION } }],
+        scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as unknown as Acquire },
+        resolveSubject: () => ({ action: "link", userId: chosen.id }),
+        fetch: network(idp).fetch,
+      },
+      scim: { connections: [{ id: CONNECTION, credentials: [{ type: "bearer", id: "t", token: `${TOKEN}-${CONNECTION}` }] }] },
+      recorder: rec,
+    });
+    chosen.id = (await h.ctx.internalAdapter.createUser({ email: uniqueEmail(), name: "Hooked", emailVerified: true }, { method: "admin" })).id;
+    const client = await createClient(h);
+    const r = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: crypto.randomUUID() })));
+    await rec.settle();
+    expect(r.status, r.text).toBe(200);
+    expect(rec.accepted.at(-1)).toMatchObject({ userId: chosen.id, resolvedBy: "hook" });
+  });
+
   it("a concurrent lifecycle change (a 409 SCIM conflict) is retried once, then refused", async () => {
     let conflicts = 1;
     const flaky: Acquire = async (ref, c) => {
