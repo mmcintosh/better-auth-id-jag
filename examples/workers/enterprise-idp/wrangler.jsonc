@@ -11,7 +11,9 @@
   "d1_databases": [{ "binding": "DB", "database_name": "id-jag-example-idp", "database_id": "REPLACE_WITH_YOUR_DATABASE_ID", "migrations_dir": "migrations" }],
   "vars": {
     "MCP_AS_ISSUER": "https://id-jag-example-mcp.REPLACE.workers.dev/api/auth",
-    "MCP_RESOURCE": "https://id-jag-example-mcp.REPLACE.workers.dev/mcp"
+    "MCP_RESOURCE": "https://id-jag-example-mcp.REPLACE.workers.dev/mcp",
+    // Whose agents may get the write scope (comma-separated emails); everyone gets read.
+    "WRITERS": "agent-user@example.com"
   }
   // Secrets: BETTER_AUTH_SECRET, SETUP_KEY (`wrangler secret put`).
 }

@@ -23,6 +23,8 @@ export interface Env {
   OKTA_JWKS_URI?: string;
   /** Optional: browser origins allowed to call the token endpoint and /mcp (comma-separated), e.g. xaa.dev's testers. */
   CORS_ORIGINS?: string;
+  /** Optional: "true" lets a token with `act` (an AI agent acting for a user) use write tools. Default: agents only read. */
+  AGENTS_MAY_WRITE?: string;
 }
 
 export function createAuth(env: Env, origin: string) {
@@ -53,7 +55,11 @@ export function createAuth(env: Env, origin: string) {
         consentPage: "/consent",
         resource: `${origin}/mcp`,
         allowDynamicClientRegistration: false,
-        scopes: ["read"],
+        scopes: ["read", "write"],
+        // Short-lived access tokens: after the IdP stops an agent, a token already issued works only this
+        // long, and a write token even less (README, "What ID-JAG controls").
+        accessTokenExpiresIn: 300,
+        scopeExpirations: { write: "2m" },
         clientPrivileges: ({ headers }) => !!env.SETUP_KEY && headers?.get("x-setup-key") === env.SETUP_KEY,
       }) as unknown as BetterAuthPlugin,
       idJagGrant({

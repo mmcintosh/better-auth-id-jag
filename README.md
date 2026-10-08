@@ -378,6 +378,8 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 
 **How fast a cutoff takes effect.** When the IdP stops an agent (a connection removed, a user unassigned or deactivated), it stops issuing ID-JAGs at once. An ID-JAG already issued lives at most its lifetime (300 s by default, 900 s at most) and works once. But an **access token already issued lives until it expires**: the provider's `accessTokenExpiresIn`, **an hour by default**. No refresh token is issued, so the agent then needs a new ID-JAG. For agents, set a short `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, and `scopeExpirations` (for example `{ write: "5m" }`) for the sensitive scopes.
 
+[The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents read-only, and tokens of 2 and 5 minutes, measured.
+
 ## ✅ Conformance
 
 Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice · ❌ not implemented (refused by name, never silently ignored).

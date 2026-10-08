@@ -678,3 +678,20 @@ proposal: keep 52, remove 54 (`private/exports-proposal.md`).
 - **Evidence:** `src/index.ts` lists exactly the API; `test/api/public-api.test.ts` pins the 52 names (on both
   runtimes); the strict-host types and Are the Types Wrong pass, so every kept signature names only public or
   declared types; the full suite passes.
+
+## D-032: layered permissions in the demo, and a draft watch (2026-10-08)
+
+The layers README "What ID-JAG controls" describes, shown on the deployed example rather than only written down
+(the solo part of the planned "session 2"; the Okta part needs the maintainer).
+
+- **The IdP** (`enterprise-idp`): `read` for everyone, `write` only for `WRITERS`. **The MCP server**: a scope per
+  tool (`add_note` needs `write`), a 403 `insufficient_scope` challenge naming the scope, agents (`act`) read-only
+  unless `AGENTS_MAY_WRITE`, and `accessTokenExpiresIn: 300` with `scopeExpirations: { write: "2m" }`.
+- **Measured on the deployed demo:** the writer's agent got `read write`, a 120 s token, `add_note` 200; the reader's
+  asked for `read write` and got `read`, a 300 s token, `add_note` 403. With `--cutoff`, the tokens stopped working
+  125 s and 305 s after issue (polled every 10 s). No package change was needed: these are host settings.
+- **Still to do with the maintainer (Okta):** different scopes per Okta group on the resource connection, if Okta
+  supports it; the `act` rule with Okta's agent tokens (our issuer doesn't mint `act`); a cutoff timed through Okta.
+- **Draft watch:** `scripts/draft-watch.mjs`, weekly (`.github/workflows/draft-watch.yml`), fails when the
+  datatracker lists a newer revision than `SUPPORTED_DRAFT`, and warns 30 days before the implemented one expires.
+  2026-10-08: -04 is the latest, expiring 2026-11-22.
