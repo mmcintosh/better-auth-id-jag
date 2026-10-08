@@ -636,3 +636,23 @@ identity changed concurrently".
   readers) would remove the hotspot: an issue draft for the maintainer's approval.
 - **0.2.0** is not approved on npm; 0.2.1 replaces it. Also from that test: Hyperdrive's default query cache kept a
   revoked Better Auth session valid for about a minute; the README now says to disable caching for the auth database.
+
+## D-030: one in-flight SCIM lookup per user (2026-10-08)
+
+The better-auth-scim-provisioning maintainer ran D-029's fix against Neon Postgres 45 ms away (median): 8 at once
+8/8, but 16 at once 12–14/16 and 32 at once 10–12/32, the slowest after 5–7 s, whatever the pool size. Lookups of
+one user commit strictly one at a time (each bumps the same revision), about 8–10 round trips each, so about two a
+second at that distance: a 5 s budget yields 10–12 whatever the fan-out. Locally (under 1 ms) 32 fit, which is why
+the matrix passed. A row lock wouldn't raise that throughput either.
+
+- **Single-flight.** Concurrent requests for the same (connection, externalId) on the same database adapter share
+  one in-flight lookup; the entry is removed when it settles, so a later request always looks up again (a cached
+  answer would miss a deprovisioning). The shared answer is no staler than if the request had arrived a moment
+  earlier. On one Node server this removes same-user contention; on Workers, within each isolate.
+- **The retries stay** (D-029) for lookups across processes.
+- **The limit is documented:** lookups of one user commit one at a time across processes; keep the auth server
+  near its database. The real fix is upstream (a lookup that doesn't conflict with other lookups): an issue drafted
+  for the maintainer's approval.
+- **Evidence.** A unit test with a 30 ms lookup (node:sqlite otherwise answers at once, so lookups never overlap):
+  8 at once all succeed with fewer than 8 lookups, and a later one looks up again. Two mutations (no
+  single-flight; a settled lookup kept) caught.

@@ -1663,5 +1663,23 @@
   ],
   "expect": "survive",
   "why": "Only real concurrency shows it: node:sqlite runs one transaction at a time, so the mutation runner (Node, SQLite) can't. The adapter matrix's 16-parallel test on Postgres and MySQL (CI's adapters job) fails without the backoff (3 of 8 succeeded before D-029)."
+ },
+ {
+  "name": "D-030 no single-flight (each request its own lookup)",
+  "file": "src/receiver/scim.ts",
+  "a": "  if (running) return running;\n",
+  "b": "",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-030 a settled lookup kept (a cached answer would miss a deprovisioning)",
+  "file": "src/receiver/scim.ts",
+  "a": ".finally(() => byKey.delete(key));",
+  "b": ";",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
  }
 ]

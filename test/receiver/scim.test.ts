@@ -217,6 +217,31 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     expect(seen).toEqual([expect.objectContaining({ issuer: idp.issuer, scimConnectionId: CONNECTION })]);
   });
 
+  it("D-030: concurrent redemptions for one user share one in-flight lookup; a later one looks up again", async () => {
+    let calls = 0;
+    // 30 ms per lookup, as a database over a network takes: node:sqlite answers at once, so the
+    // lookups would never overlap here otherwise.
+    const counting: Acquire = async (ref, c) => {
+      calls++;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return (acquireActiveSCIMUserLink as unknown as Acquire)(ref, c);
+    };
+    const w = await world({ acquire: counting });
+    const sub = crypto.randomUUID();
+    const { email } = await w.provision(sub);
+    const local = await w.localUserOf(email);
+    const tokens = await Promise.all(Array.from({ length: 8 }, () => w.idp.mint(w.idp.claims({ client_id: w.client.client_id, sub }))));
+    calls = 0;
+    const results = await Promise.all(tokens.map((t) => redeem(w.h, w.client, t)));
+    expect(results.map((r) => r.status)).toEqual(Array(8).fill(200));
+    expect(results.map((r) => decodePayload(r.body.access_token as string).sub)).toEqual(Array(8).fill(local?.id));
+    expect(calls).toBeLessThan(8);
+    // Nothing is kept once it settles: the next redemption looks up again, and sees a deactivation.
+    calls = 0;
+    expect((await w.attempt(sub)).reason).toBe("accepted");
+    expect(calls).toBe(1);
+  });
+
   it("a SCIM conflict is retried with backoff, within MAX_SCIM_ATTEMPTS and SCIM_RETRY_BUDGET_MS, then refused (D-029)", { timeout: 20_000 }, async () => {
     let conflicts = 0;
     let calls = 0;
