@@ -660,3 +660,21 @@ the matrix passed. A row lock wouldn't raise that throughput either.
   8/16/32 at once all succeeded, the slowest 0.9 / 1.4 / 1.9 s (a single redemption takes 0.84–0.95 s); two
   receivers on the same database, requests alternating, all succeeded too, the slowest 1.5 / 1.5 / 1.9 s. Before:
   3/8; with D-029 alone 8/8 at 5.2 s and 11/32.
+
+## D-031: the public API as an explicit list (2026-10-08) — the maintainer's
+
+Both pre-release reviews noted that the package re-exported everything (106 runtime names, 71 types) while
+`docs/versioning.md` declared every export public, so 1.0 would have frozen the internals. The maintainer approved the
+proposal: keep 52, remove 54 (`private/exports-proposal.md`).
+
+- **Kept:** the plugins and the composition layer (the escape hatch and a future grant router depend on it), the
+  tables, the protocol constants and documented defaults, `REASONS` and the events, and a small toolkit
+  (`parseIdJag`, `verifyIdJag`, `buildIdJag`) in the main entry point, not a new `/core` one. `BlockConfig` stays
+  public (the admin API's block input), and the SCIM option types, missing in 0.2, are added.
+- **Removed:** audit, error and replay plumbing, JWT and SAML internals, issuer and receiver internals, including
+  `IdJagRefusal` (it never leaves the package) and `publicDescription`.
+- **Why now:** published two days ago; the README, the examples and the sibling packages use only kept names.
+  Breaking, so 0.3.0, with every removed name in the CHANGELOG; adding one back is never breaking.
+- **Evidence:** `src/index.ts` lists exactly the API; `test/api/public-api.test.ts` pins the 52 names (on both
+  runtimes); the strict-host types and Are the Types Wrong pass, so every kept signature names only public or
+  declared types; the full suite passes.
