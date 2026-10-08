@@ -609,3 +609,30 @@ doesn't import `@better-auth/scim`). Its run: 890 tests, the 14 D-027 mutations 
 Also, after the review (from the better-auth-scim-provisioning maintainer): their 1.1.0 is published, but our
 minimum release age (D-024, one day) holds the end-to-end test on 1.0.0 until it is a day old; and the README says how to run the SCIM step on Cloudflare (Postgres through Hyperdrive, verified locally
 under wrangler dev only; harness `~/Infowall/backups/hyperdrive-scim-test-2026-10-07/`).
+
+## D-029: SCIM lookups of one user conflicting with each other (2026-10-08)
+
+Found after 0.2.0 was tagged and staged (not yet approved on npm), by the better-auth-scim-provisioning maintainer on
+a deployed Worker with Neon Postgres through Hyperdrive, then reproduced on Neon from Node, and here on Postgres 17:
+8 parallel redemptions for one active, untouched user got 2–3 tokens; every refusal was "SCIM: the provisioned
+identity changed concurrently".
+
+- **Cause.** `acquireActiveSCIMUserLink` takes the link with an optimistic `incrementOne` on `scimSubject.revision`
+  on every lookup. Lifecycle changes bump the same revision, which is the point (D-027), but so does every other
+  lookup: readers conflict with readers. D-027's single retry without delay assumed conflicts were rare lifecycle
+  races. node:sqlite runs one transaction at a time, so the unit tests couldn't see it; Postgres and MySQL run them
+  concurrently.
+- **Fix.** Retry a 409 from fresh state with exponential backoff and full jitter (random within
+  [0, min(250, 10·2ⁿ)] ms), for up to `SCIM_RETRY_BUDGET_MS` (5 s) or `MAX_SCIM_ATTEMPTS` (40), then refuse as
+  before. A deprovisioning makes the next attempt return null, so only racing readers keep retrying; the budget is
+  how many arrive at once. Ten attempts weren't enough for 32 at once on MySQL; the time budget is.
+- **Evidence.** The adapter matrix's SCIM test redeems 16 at once for one user (`SCIM_PARALLEL`), asserting all
+  succeed: before the fix 3 of 8 on Postgres; after it, Postgres, MySQL, Drizzle and Prisma pass, and 16 and 32 at
+  once pass repeatedly on Postgres and MySQL. Unit tests: a few conflicts then accepted; endless conflicts refused
+  within the budget. Mutations: no retry and no bound are caught; no backoff is an expected survivor (only real
+  concurrency shows it; the matrix does).
+- **Considered.** A row lock (`SELECT … FOR UPDATE` on the subject) would serialize lookups instead, but the adapter
+  has no locking API, so it means raw SQL per dialect. Upstream, a non-mutating lookup (readers not conflicting with
+  readers) would remove the hotspot: an issue draft for the maintainer's approval.
+- **0.2.0** is not approved on npm; 0.2.1 replaces it. Also from that test: Hyperdrive's default query cache kept a
+  revoked Better Auth session valid for about a minute; the README now says to disable caching for the auth database.

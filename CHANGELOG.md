@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+- **Fix (SCIM, new in 0.2.0): parallel redemptions for one user were refused.** `acquireActiveSCIMUserLink` bumps the
+  SCIM subject's revision on every lookup, so concurrent lookups of the same user conflict with each other, not only
+  with a lifecycle change; on Postgres, 8 parallel redemptions for one active user got 3 tokens and 5
+  `invalid_grant`. A conflict is now retried with exponential backoff and full jitter for up to 5 seconds (at most 40
+  attempts), then refused, as before. Found by the better-auth-scim-provisioning maintainer on Cloudflare with
+  Postgres through Hyperdrive (D-029).
+- Docs: on Cloudflare, create the auth database's Hyperdrive config with caching disabled.
+
 ## [0.2.0] - 2026-10-08
 
 SCIM-provisioned users at the receiver: deprovisioning at the IdP stops the agent at your app too.
