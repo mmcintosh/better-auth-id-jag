@@ -4,8 +4,7 @@
 
 ## [0.3.0] - 2026-10-10
 
-A smaller, explicit public API (breaking: 
-  internals no longer exported), the SCIM option types, and the layered-permissions example.
+A smaller, explicit public API (breaking: internals no longer exported), the SCIM option types, and the layered-permissions example.
 
 ### Breaking
 
