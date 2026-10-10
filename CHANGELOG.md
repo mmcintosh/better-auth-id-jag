@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+A smaller, explicit public API (breaking: internals no longer exported), the SCIM option types, and the layered-permissions example.
+
 ### Breaking
 
 - **The public API is now an explicit list** (`src/index.ts`, `docs/versioning.md`; D-031): 52 runtime exports
