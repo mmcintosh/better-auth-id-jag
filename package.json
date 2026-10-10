@@ -1,6 +1,6 @@
 {
   "name": "better-auth-id-jag",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Identity Assertion JWT Authorization Grants (ID-JAG, Cross App Access, MCP Enterprise-Managed Authorization) for Better Auth: issue them from your IdP, accept them at your MCP server.",
   "license": "MIT",
   "author": "Mark McIntosh",
