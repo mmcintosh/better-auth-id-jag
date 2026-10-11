@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **How the person signed in** (`docs/security.md`, README; D-033): an ID-JAG's `auth_time`, `acr` and `amr` are
+  copied from the subject token, never derived. From an ID token that is always `acr: "0"` and no `amr` (oauth-provider
+  fixes them); only a SAML Assertion's class can claim MFA, so the SAML IdP must state only what the session did. A
+  rule that requires MFA treats a missing value as not proven: at the receiver, in `resolveSubject`. Tests pin each
+  of these.
+
 ## [0.3.0] - 2026-10-10
 
 A smaller, explicit public API (breaking: internals no longer exported), the SCIM option types, and the layered-permissions example.

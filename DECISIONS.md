@@ -695,3 +695,22 @@ The layers README "What ID-JAG controls" describes, shown on the deployed exampl
 - **Draft watch:** `scripts/draft-watch.mjs`, weekly (`.github/workflows/draft-watch.yml`), fails when the
   datatracker lists a newer revision than `SUPPORTED_DRAFT`, and warns 30 days before the implemented one expires.
   2026-10-08: -04 is the latest, expiring 2026-11-22.
+
+## D-033: how the person signed in: copied, never derived (2026-10-10)
+
+From the Microsoft 365 findings of a sibling deployment (2026-10-08 to 2026-10-11), approved by the maintainer as
+docs and tests only.
+
+- **What we found in our own code:** the issuer copies `auth_time`/`acr`/`amr` from the subject token. oauth-provider
+  1.7.5 and 1.7.6 write `acr: "0"` into every ID token, never `amr`, and strip both from `customIdTokenClaims`; a
+  refresh token carries neither. So an ID-JAG from those paths never claims MFA. Only path (a), a SAML Assertion, can
+  (its AuthnContextClassRef). The comment in `id-token.ts` said a host claim could override `acr`; corrected.
+- **Docs:** `docs/security.md` "How the person signed in": copied, never derived; the SAML IdP states only what the
+  session did, from its own second-factor marker (Microsoft 365 skips its own MFA on `multipleauthn`, verified live
+  with per-user MFA and with Conditional Access); upstream Microsoft sign-in proves MFA only by a v1.0 token's `amr`;
+  a rule requiring MFA treats a missing value as not proven, at the receiver in `resolveSubject` (the access token
+  doesn't carry `acr`/`amr`). README points there from the issuer policy and the receiver's subject steps.
+- **Evidence:** `test/issuer/exchange.test.ts` (a host's `acr`/`amr` are stripped; the ID-JAG says `acr: "0"`, no
+  `amr`), `test/issuer/saml-subject.test.ts` (`multipleauthn` passes unchanged; no class, no `acr`),
+  `test/receiver/grant.test.ts` (the documented `resolveSubject` rule: `mfa` passes; `["pwd"]`, none, `acr: "0"`
+  refused). No runtime change.

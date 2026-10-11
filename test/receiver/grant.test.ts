@@ -268,6 +268,14 @@ describe("receiver: every refusal, by reason and by body", () => {
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid()), "subject_rejected");
   });
 
+  it("an MFA rule in resolveSubject (docs/security.md): only amr with mfa passes; no amr, or acr \"0\", is not proven and refused", async () => {
+    const s = await setup({ receiver: { resolveSubject: ({ claims }) => (claims.amr?.includes("mfa") ? { action: "continue" } : { action: "reject" }) } });
+    expect((await redeem(s.h, s.client, await s.valid({ amr: ["pwd", "mfa"] }))).status).toBe(200);
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ amr: ["pwd"] })), "subject_rejected");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid()), "subject_rejected");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ acr: "0" })), "subject_rejected");
+  });
+
   it("banned_user: a banned user is refused; one whose ban expired is accepted", async () => {
     const s = await setup({ admin: true });
     await s.h.ctx.internalAdapter.updateUser(s.userId, { banned: true });

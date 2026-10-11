@@ -44,6 +44,19 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(claims.email).toBeUndefined();
   });
 
+  it("an ID token can't claim MFA: oauth-provider fixes acr at \"0\" and strips a host's acr/amr, so the ID-JAG says acr \"0\" and has no amr", async () => {
+    const host = await createIssuerHost({
+      issuer: { authorize: allowRead },
+      provider: { customIdTokenClaims: () => ({ acr: "http://schemas.microsoft.com/claims/multipleauthn", amr: ["pwd", "mfa"] }) },
+    });
+    const { client, idToken } = await setup(host);
+    expect(decodeJwt(idToken)).toMatchObject({ acr: "0" });
+    expect(decodeJwt(idToken)).not.toHaveProperty("amr");
+    const claims = decodeJwt((await exchange(host, client, idToken)).body.access_token as string);
+    expect(claims.acr).toBe("0");
+    expect(claims).not.toHaveProperty("amr");
+  });
+
   it("client_id defaults to the client's own id here (D-004)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allowRead } });
     const { client, idToken } = await setup(host);
