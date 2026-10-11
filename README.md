@@ -140,7 +140,7 @@ Options are checked when the plugin starts: an unknown key, a misspelling or an 
 
 ### Policy
 
-The `authorize` hook gets the user as the database has it now, the requesting client (`clientId`, `name`, `referenceId`, `metadata`), the `audience`, the `resource` and the `requestedScopes`, and what the subject token said (`tokenType`, `sub`, `auth_time`, `acr`, `amr`, `raw`). An allow returns:
+The `authorize` hook gets the user as the database has it now, the requesting client (`clientId`, `name`, `referenceId`, `metadata`), the `audience`, the `resource` and the `requestedScopes`, and what the subject token said (`tokenType`, `sub`, `auth_time`, `acr`, `amr`, `raw`). The ID-JAG carries `auth_time`, `acr` and `amr` exactly as the subject token said them: the issuer never derives them. From an ID token that is always `acr: "0"` and no `amr`, because oauth-provider fixes them; only a SAML Assertion's class can say more. See [How the person signed in](docs/security.md#how-the-person-signed-in). An allow returns:
 
 | Field | |
 |---|---|
@@ -277,6 +277,8 @@ idJagGrant({
 5. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`.
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
+
+**To require MFA, do it in `resolveSubject`**: return `{ action: "reject" }` unless `claims.amr` includes `mfa` (or `claims.acr` is a class you trust). A missing `amr` or `acr`, or `acr: "0"`, means not proven, never done. The access token the receiver issues doesn't carry them, so your MCP server can't check later. See [How the person signed in](docs/security.md#how-the-person-signed-in).
 
 ### SCIM-provisioned users
 

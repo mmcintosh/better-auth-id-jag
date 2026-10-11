@@ -75,6 +75,25 @@ describe("path (a): saml2 → ID-JAG", () => {
     expect(host.recorded.issued[0]).toMatchObject({ userId: user.id, clientId: client.client_id, audience: AUDIENCE });
   });
 
+  it("acr is the assertion's class unchanged, never derived: an MFA class passes through, and no class means no acr", async () => {
+    const MFA = "http://schemas.microsoft.com/claims/multipleauthn";
+    const seen: AuthorizeInput[] = [];
+    const { host, client, assertion } = await world({
+      authorize: (i) => {
+        seen.push(i);
+        return allow();
+      },
+    });
+    const withMfa = await verifyWithHostJwks(host, (await exchangeSaml(host, client, samlToken(assertion({ acr: MFA }).xml))).body.access_token as string);
+    expect(withMfa.claims.acr).toBe(MFA);
+    expect(withMfa.claims.amr).toBeUndefined();
+    expect(seen[0]?.subjectToken).toMatchObject({ acr: MFA });
+    const without = await verifyWithHostJwks(host, (await exchangeSaml(host, client, samlToken(assertion().xml))).body.access_token as string);
+    expect(without.claims).not.toHaveProperty("acr");
+    expect(without.claims).not.toHaveProperty("amr");
+    expect(seen[1]?.subjectToken.acr).toBeUndefined();
+  });
+
   it("padded standard base64 works too; one ID-JAG per assertion", async () => {
     const { host, client, assertion } = await world();
     const a = assertion();

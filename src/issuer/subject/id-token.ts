@@ -7,9 +7,10 @@
 // What oauth-provider 1.7.6 puts in an ID token (dist, createIdToken): `iss` = jwt.issuer ??
 // baseURL, `aud` = the client id (a string), `sub` = the user id, or a pairwise value for a
 // pairwise client (refused here: it can't be resolved to a user without the user), `auth_time`,
-// `acr` ("0" unless a host claim overrides it), `iat`, `exp` = iat + idTokenExpiresIn (default
-// 36000: 10 hours), no `typ` header, and `sid` = the session's id only for a client with
-// `enableEndSession` or a `backchannelLogoutUri` (createIdToken's `emitSid`).
+// `acr` = "0" and no `amr` (customIdTokenClaims can't set either: reserved names are stripped),
+// `iat`, `exp` = iat + idTokenExpiresIn (default 36000: 10 hours), no `typ` header, and `sid` =
+// the session's id only for a client with `enableEndSession` or a `backchannelLogoutUri`
+// (createIdToken's `emitSid`).
 //
 // An ID token isn't tied to a session otherwise, so it would outlive sign-out: hence the age cap
 // on `iat` (D-B22) and, when `sid` is there, the session check (D-B23), as the provider's own

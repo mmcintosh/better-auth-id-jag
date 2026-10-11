@@ -16,6 +16,25 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 - **Restrict `canManage`.** The registry API (`registry.canManage`) decides who gets ID-JAGs for what, and the blocks API (`blocks.canManage`) who is cut off; either also reads the audit log. Each must return exactly `true`; give them to administrators only.
 - **On Workers, give Better Auth `waitUntil`** (`advanced.backgroundTasks`). Without it, audit rows and event handlers are cut off when the response is sent.
 - **Keep the audience exact.** Configure the receiver's issuer identifier, and enter it at the IdP (Okta's Resource Server tab, your registry, your policy), exactly as `/.well-known/oauth-authorization-server` publishes it, path included.
+- **Don't take "how they signed in" on faith.** See the next section.
+
+## How the person signed in
+
+An ID-JAG may carry `auth_time`, `acr` and `amr`. Both plugins pass them along and neither checks them, so they are only as honest as whoever first stated them.
+
+- **The issuer copies, never derives.** They come from the subject token unchanged, and the `authorize` hook sees the same values.
+  - **From an ID token or refresh token:** oauth-provider (1.7.x) always writes `acr: "0"` and no `amr`, and strips both from `customIdTokenClaims`. A refresh token carries neither. So these ID-JAGs never claim MFA, even after a real second factor.
+  - **From a SAML Assertion (experimental):** `acr` is the Assertion's AuthnContextClassRef, as better-auth-saml-idp's `authnContext` set it; no `amr`. This is the one path that can claim MFA.
+- **At the SAML IdP, state only what the session did.** Derive the class from the session's own record of a second factor (for example, when it was completed and whether that is recent enough), not from the user's settings such as "has MFA set up". Use the same marker your access rules check, so the class can never claim more than they did. Systems downstream trust it as stated: Microsoft 365, with `federatedIdpMfaBehavior: acceptIfMfaDoneByFederatedIdp`, skips its own MFA when the class is `http://schemas.microsoft.com/claims/multipleauthn`, both with per-user MFA and with a Conditional Access "require MFA" policy (verified live, 2026-10-11).
+- **When the IdP's users sign in upstream through Microsoft:** only a v1.0 ID token's `amr` says whether MFA happened (`["pwd","mfa"]` after it, `["pwd"]` without). A v2.0 token carries no `amr` or `acr`, even after a real second factor, and Microsoft's security defaults don't mean MFA happened. So "MFA done upstream" means a v1.0 token whose `amr` contains `mfa`, and anything else needs your own second factor.
+- **A rule that requires MFA treats a missing value as not proven.** No `amr`, no `acr`, `acr: "0"` or a class you don't recognise is a refusal, never a pass. At the receiver, check in `resolveSubject` and return `{ action: "reject" }`: the access token the receiver issues doesn't carry `acr` or `amr` (oauth-provider strips them), so your MCP server can't check later. At the issuer, check in `authorize`.
+
+```ts
+idJagGrant({
+  resolveSubject: ({ claims }) =>
+    claims.amr?.includes("mfa") ? { action: "continue" } : { action: "reject" },
+});
+```
 
 ## What the package enforces
 
