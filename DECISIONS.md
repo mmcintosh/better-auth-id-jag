@@ -714,3 +714,16 @@ docs and tests only.
   `amr`), `test/issuer/saml-subject.test.ts` (`multipleauthn` passes unchanged; no class, no `acr`),
   `test/receiver/grant.test.ts` (the documented `resolveSubject` rule: `mfa` passes; `["pwd"]`, none, `acr: "0"`
   refused). No runtime change.
+
+## D-034: an Entra watch (2026-10-10)
+
+The maintainer's request. Entra is expected to be the second production ID-JAG issuer after Okta, with no public
+preview or date yet (its release notes, Microsoft's July 2026 MCP post and the MCP announcement were checked
+2026-10-10).
+
+- **`scripts/entra-watch.mjs`**, a second job in the weekly draft watch: fails when the MicrosoftDocs/entra-docs
+  source of Entra's release notes names ID-JAG, the grant, Cross App Access or Enterprise-Managed Authorization.
+  Exact names only, because "identity assertions" alone matches an unrelated External ID item. A match that has
+  been looked at goes in `ACKNOWLEDGED`.
+- **docs/interop.md:** a "not possible yet" row for Entra as issuer. Its on-behalf-of flow is jwt-bearer too but
+  not ID-JAG; our receiver refuses those tokens by `typ`.
