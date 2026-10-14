@@ -105,9 +105,17 @@ const REQUIRED = ["iss", "sub", "aud", "client_id", "jti", "exp", "iat"] as cons
 
 export interface IdJagHeader {
   alg: IdJagAlgorithm;
-  kid: string;
+  /** The signing key's id. Absent only when the header names the key by certificate thumbprint instead (PingFederate). */
+  kid?: string | undefined;
+  /** RFC 7515 §4.1.7: the SHA-1 thumbprint of the key's certificate, base64url. */
+  x5t?: string | undefined;
+  /** RFC 7515 §4.1.8: the SHA-256 thumbprint of the key's certificate, base64url. */
+  "x5t#S256"?: string | undefined;
   typ: string;
 }
+
+/** A base64url SHA-1 (27 characters) or SHA-256 (43) digest. */
+const THUMBPRINT = { x5t: /^[A-Za-z0-9_-]{27}$/, "x5t#S256": /^[A-Za-z0-9_-]{43}$/ } as const;
 
 export interface ParsedIdJag {
   header: IdJagHeader;
@@ -159,7 +167,13 @@ export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {
   }
   if (!isIdJagTyp(rawHeader.typ)) refuse("wrong_typ", describe(rawHeader.typ));
   if (typeof rawHeader.alg !== "string" || !(ALLOWED_ALGORITHMS as readonly string[]).includes(rawHeader.alg)) refuse("disallowed_alg", describe(rawHeader.alg));
-  if (typeof rawHeader.kid !== "string" || rawHeader.kid.length === 0) refuse("missing_kid");
+  // The header must name the key: a kid, or else a certificate thumbprint (PingFederate sends x5t, never a kid; D-042).
+  // A thumbprint that is present must be well formed, kid or not.
+  for (const name of ["x5t", "x5t#S256"] as const)
+    if (rawHeader[name] !== undefined && (typeof rawHeader[name] !== "string" || !THUMBPRINT[name].test(rawHeader[name]))) refuse("invalid_claim", name);
+  const kid = typeof rawHeader.kid === "string" && rawHeader.kid.length > 0 ? rawHeader.kid : undefined;
+  if (rawHeader.kid !== undefined && kid === undefined) refuse("missing_kid", "empty or not a string");
+  if (kid === undefined && rawHeader.x5t === undefined && rawHeader["x5t#S256"] === undefined) refuse("missing_kid");
   // Critical header parameters we don't understand mean "don't accept" (RFC 7515 §4.1.11).
   if (rawHeader.crit !== undefined) refuse("invalid_claim", "crit");
 
@@ -174,7 +188,13 @@ export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {
   if (claims.exp - claims.iat > max) refuse("lifetime_too_long", `${claims.exp - claims.iat}s > ${max}s`);
 
   return {
-    header: { alg: rawHeader.alg as IdJagAlgorithm, kid: rawHeader.kid, typ: rawHeader.typ as string },
+    header: {
+      alg: rawHeader.alg as IdJagAlgorithm,
+      ...(kid !== undefined ? { kid } : {}),
+      ...(typeof rawHeader.x5t === "string" ? { x5t: rawHeader.x5t } : {}),
+      ...(typeof rawHeader["x5t#S256"] === "string" ? { "x5t#S256": rawHeader["x5t#S256"] } : {}),
+      typ: rawHeader.typ as string,
+    },
     claims,
     audience: typeof claims.aud === "string" ? claims.aud : claims.aud[0],
   };
@@ -211,7 +231,7 @@ async function verifySignature(token: string, key: IdJagKey, algorithms: string[
           return;
         } catch {}
       }
-      refuse("bad_signature", "no matching key among several with this kid");
+      refuse("bad_signature", "no matching key among several candidates");
     }
     // jose's codes are strings; a DOMException's legacy `code` is a number (WebCrypto refusing a key: 12).
     const raw = (error as { code?: unknown } | null)?.code;

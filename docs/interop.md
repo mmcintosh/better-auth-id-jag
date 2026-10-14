@@ -28,6 +28,7 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
 | MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
 | identity-provider.net ("ZipIdP", a stub IdP on xaa.rocks) | Our receiver | **Verified live** 2026-10-14, weekly in the Interop workflow: ID token and refresh token → ZipIdP's ID-JAG (RS256) → our access token; replay, another client id and an ML-DSA-signed ID-JAG refused (see below). |
+| PingFederate 13.1.3 (issuer) | Our receiver | **Verified live** 2026-10-14, PingFederate in Docker (`pingidentity/pingfederate:13.1.3-latest`, a DevOps evaluation license), refresh-token subject: ID-JAG → our access token; replay refused. **Differs:** Ping names its signing key by `x5t` only, never `kid` (accepted since D-042); `client_id` and a 5-minute lifetime need two settings on the connection (see below). |
 | Oracle OCI IAM identity domain (issuer) | Our receiver | **Refused, by design** (checked live 2026-10-14, a Free-type identity domain, Oracle's ID-JAG from 2026-10-09): Oracle's ID-JAG has **no `aud`**, which the draft requires, so our receiver refuses it (`missing_claim`). **Found:** Oracle's signing key lists `key_ops` `["wrapKey", "encrypt", "verify"]`, which WebCrypto won't import for RS256; our receiver returned a 500 until D-041 (see below). |
 
 ## Our issuer → our receiver
@@ -382,6 +383,33 @@ All 4 passed. ZipIdP's ID-JAG: `typ` `oauth-id-jag+jwt`, RS256 with a key from `
 ZipIdP's JWKS mixes its RS256 key with ML-DSA keys (`kty: "AKP"`); that doesn't affect picking the RS256 key.
 It puts a `sub_id` in the ID-JAG only for users who signed in through an upstream IdP, so SAML subjects aren't
 tested here (MCPJam and xaa.dev cover them).
+
+## PingFederate → our receiver
+
+Run live on 2026-10-14 (issue #24) against PingFederate 13.1.3 in Docker on a developer machine, with a Ping DevOps
+evaluation license. Configured through the admin API: a token-exchange processor policy over the OAuth Refresh Token
+Token Processor, an **OAuth Token Exchange SP connection** for our receiver with `idJagEnabled`, and a client allowed
+the password, refresh-token and token-exchange grants. The subject was a refresh token (PingFederate also takes an ID
+token, through the JWT Token Processor 2.0).
+
+| Header / claim | Out of the box | Setting that changes it |
+|---|---|---|
+| `typ`, `alg` | `oauth-id-jag+jwt`, RS256 | |
+| `kid` | **none**: the key is named by `x5t` (its certificate's SHA-1 thumbprint) | none; the receiver matches `x5t` (D-042) |
+| signing key | the SP connection's own key pair, **not in `/pf/JWKS`** | publish that key pair as the static RSA key (OAuth/OpenID Connect keys, static keys on, "publish x5c"), so `/pf/JWKS` carries it with `x5t` |
+| `iss` | the engine's base URL | |
+| `aud` | the connection's Partner's Entity ID (our receiver's issuer), or the request's `audience` | |
+| `client_id` | **none** | an extended attribute `client_id` on the connection, fulfilled with the agent's client id **at our receiver** (Okta's model, D-004) |
+| `sub` | the refresh token's user (here the user name) | |
+| `scope`, `resource` | the request's; the connection is chosen by `resource`, and an unknown one is `invalid_target` | |
+| lifetime | **30 minutes** (`exp` − `iat` = 1800), with `nbf` = `iat` − 300 | the connection's "minutes after" (5) |
+
+**Result:** with those settings, the ID-JAG is accepted: our access token, the user found by the account linked under
+PingFederate's subject, and the same ID-JAG again refused (`replay`). Before D-042 our receiver refused every
+PingFederate ID-JAG (`missing_kid`); out of the box it also lacks `client_id` (`missing_claim`) and lives longer than our
+300-second cap (`lifetime_too_long`).
+
+A trust entry for it: `{ issuer: "<the engine's base URL>", jwksUri: "<engine>/pf/JWKS" }`.
 
 ## Oracle OCI IAM → our receiver
 

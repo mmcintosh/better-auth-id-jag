@@ -29,6 +29,16 @@ const b64url = (v: unknown) => btoa(unescape(encodeURIComponent(JSON.stringify(v
 const raw = (header: object, payload: object) => `${b64url(header)}.${b64url(payload)}.c2ln`;
 const HEADER = { alg: "ES256", kid: "k1", typ: "oauth-id-jag+jwt" };
 
+function reasonOfSync(f: () => unknown): string {
+  try {
+    f();
+    return "accepted";
+  } catch (e) {
+    if (e instanceof IdJagRefusal) return e.reason;
+    throw e;
+  }
+}
+
 async function reasonOf(p: Promise<unknown> | (() => unknown)): Promise<string> {
   try {
     await (typeof p === "function" ? p() : p);
@@ -170,6 +180,27 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
     expect(await reasonOf(verifyIdJag(forged, k.jwks, at()))).toBe("bad_signature");
   });
 
+  it("D-042: a header without kid parses when it names the key by certificate thumbprint", () => {
+    const x5t = "A".repeat(27);
+    const s256 = "B".repeat(43);
+    const { kid: _, ...noKid } = HEADER;
+    expect(parseIdJag(raw({ ...noKid, x5t }, claims())).header).toEqual({ alg: "ES256", x5t, typ: "oauth-id-jag+jwt" });
+    expect(parseIdJag(raw({ ...noKid, "x5t#S256": s256 }, claims())).header).toEqual({ alg: "ES256", "x5t#S256": s256, typ: "oauth-id-jag+jwt" });
+    expect(parseIdJag(raw({ ...HEADER, x5t }, claims())).header).toEqual({ ...HEADER, x5t });
+    // A thumbprint must be base64url of the right length, with a kid or without; an empty kid is still refused.
+    for (const [h, reason] of [
+      [{ ...noKid, x5t: "A".repeat(26) }, "invalid_claim"],
+      [{ ...noKid, x5t: `${"A".repeat(26)}=` }, "invalid_claim"],
+      [{ ...noKid, "x5t#S256": "A".repeat(27) }, "invalid_claim"],
+      [{ ...HEADER, x5t: 7 }, "invalid_claim"],
+      [{ ...HEADER, kid: "", x5t }, "missing_kid"],
+      [{ ...noKid, kid: 7, x5t }, "missing_kid"],
+      [noKid, "missing_kid"],
+    ] as const) {
+      expect(reasonOfSync(() => parseIdJag(raw(h, claims()))), JSON.stringify(h)).toBe(reason);
+    }
+  });
+
   it("keys that can't be loaded are jwks_unavailable, not a forged token", async () => {
     const k = await keyPair("ES256");
     const token = await sign(k, claims());
@@ -267,7 +298,7 @@ describe("parseIdJag: properties (S9)", () => {
         parsedCount++;
         expect(isIdJagTyp(parsed.header.typ)).toBe(true);
         expect(["ES256", "RS256", "EdDSA", "Ed25519"]).toContain(parsed.header.alg);
-        expect(parsed.header.kid.length).toBeGreaterThan(0);
+        expect(parsed.header.kid ?? parsed.header.x5t ?? parsed.header["x5t#S256"]).toBeTruthy();
         expect(typeof parsed.audience).toBe("string");
         expect(parsed.claims.exp - parsed.claims.iat).toBeGreaterThan(0);
         expect(parsed.claims.exp - parsed.claims.iat).toBeLessThanOrEqual(900);

@@ -1,7 +1,7 @@
 // The receiver (Track A): accept ID-JAGs over the jwt-bearer grant and issue audience-restricted
 // access tokens.
 export { handleIdJagGrant, registeredResources, STRIPPED_SCOPES } from "./grant";
-export { type FetchLike, type IssuerKeys, JwksCache, type JwksSettings, type KeySource } from "./jwks";
+export { type FetchLike, type IssuerKeys, JwksCache, type JwksSettings, type KeyRef, type KeySource } from "./jwks";
 export {
   type IdJagGrantOptions,
   type ResolvedReceiverOptions,

@@ -282,7 +282,7 @@ describe("through the grant", () => {
     const client = await createClient(h);
     const sub = crypto.randomUUID();
     await linkedUser(h, `id-jag:${idp.issuer}`, sub);
-    const mint = (over: Record<string, unknown> = {}, key = idp.key) => idp.mint(idp.claims({ sub, client_id: client.client_id, ...over }), {}, key);
+    const mint = (over: Record<string, unknown> = {}, key = idp.key, header: Record<string, unknown> = {}) => idp.mint(idp.claims({ sub, client_id: client.client_id, ...over }), header, key);
     return { idp, net, rec, h, client, mint };
   }
 
@@ -321,6 +321,50 @@ describe("through the grant", () => {
     await redeem(s.h, s.client, await s.mint());
     await s.rec.settle();
     expect(s.rec.refused.map((e) => [e.reason, e.detail])).toEqual([["jwks_unavailable", "JWKS has no signing keys"]]);
+  });
+
+  it("D-042: no kid, the key named by certificate thumbprint (x5t, x5t#S256), as PingFederate signs", async () => {
+    const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const digest = async (alg: string, der: Uint8Array) => b64u(new Uint8Array(await crypto.subtle.digest(alg, der as Uint8Array<ArrayBuffer>)));
+    // A stand-in for each key's certificate: the receiver only hashes x5c[0], the trust comes from the JWKS URL.
+    const cert = () => crypto.getRandomValues(new Uint8Array(300));
+    const s = await host({ alg: "RS256" });
+    const old = s.idp.key;
+    const fresh = await s.idp.rotate();
+    const [oldDer, freshDer] = [cert(), cert()];
+    // The JWKS publishes x5c only (thumbprints worked out by the receiver), two keys of one algorithm.
+    s.idp.publish([
+      { ...old.jwk, kid: "ping-old", x5c: [btoa(String.fromCharCode(...oldDer))] },
+      { ...fresh.jwk, kid: "ping-new", x5c: [btoa(String.fromCharCode(...freshDer))] },
+    ]);
+    const noKid = { kid: undefined };
+    for (const header of [{ x5t: await digest("SHA-1", freshDer) }, { "x5t#S256": await digest("SHA-256", freshDer) }]) {
+      const r = await redeem(s.h, s.client, await s.mint({}, fresh, { ...noKid, ...header }));
+      expect(r.status, `${JSON.stringify(header)}: ${r.text}`).toBe(200);
+    }
+    // The older key, named by its own thumbprint: found among several.
+    expect((await redeem(s.h, s.client, await s.mint({}, old, { ...noKid, x5t: await digest("SHA-1", oldDer) }))).status).toBe(200);
+    // Named key A, signed with key B (both published): only A is tried, so it's a bad signature.
+    await redeem(s.h, s.client, await s.mint({}, fresh, { ...noKid, x5t: await digest("SHA-1", oldDer) }));
+    // A thumbprint of no published key.
+    await redeem(s.h, s.client, await s.mint({}, fresh, { ...noKid, x5t: await digest("SHA-1", cert()) }));
+    // Neither kid nor thumbprint; a malformed thumbprint (wrong length), even beside a kid.
+    await redeem(s.h, s.client, await s.mint({}, fresh, noKid));
+    await redeem(s.h, s.client, await s.mint({}, fresh, { x5t: "too-short" }));
+    await s.rec.settle();
+    expect(s.rec.refused.map((e) => [e.reason, e.detail])).toEqual([
+      ["bad_signature", "ERR_JWS_SIGNATURE_VERIFICATION_FAILED"],
+      ["bad_signature", "no key with this certificate thumbprint"],
+      ["missing_kid", undefined],
+      ["invalid_claim", "x5t"],
+    ]);
+    // Thumbprints the JWKS publishes are used as they are, with x5c or without (never recomputed over them).
+    for (const x5c of [undefined, [btoa(String.fromCharCode(...cert()))]]) {
+      const p = await host({ alg: "ES256" });
+      const t = "abcdefghijklmnopqrstuvwxyz0";
+      p.idp.publish([{ ...p.idp.key.jwk, kid: "pub", x5t: t, ...(x5c ? { x5c } : {}) }]);
+      expect((await redeem(p.h, p.client, await p.mint({}, p.idp.key, { kid: undefined, x5t: t }))).status, `x5c ${x5c ? "published" : "absent"}`).toBe(200);
+    }
   });
 
   it("refetch rate limit: unknown kids within a minute cause no fetch and fail as bad_signature", async () => {
