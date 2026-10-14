@@ -9,4 +9,6 @@ case "$want" in
   *) v="$want" ;;
 esac
 echo "better-auth $want -> $v"
-pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v"
+# Every @better-auth/* package the dev dependencies pin, so none keeps an older @better-auth/utils peer in the tree
+# (1.7.8 moved to utils 0.5.0; drizzle-adapter 1.7.6 pins 0.4.2, which made two copies of @better-auth/core).
+pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v" "@better-auth/drizzle-adapter@$v"
