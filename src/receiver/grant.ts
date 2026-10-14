@@ -185,6 +185,9 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
       resources: [resource],
       // `act` (who acts for the user, e.g. an AI agent) goes into the access token as RFC 8693 says.
       accessTokenClaims: { idjag: { iss: claims.iss, jti: claims.jti, ...(claims.tenant ? { tenant: claims.tenant } : {}) }, ...(claims.act ? { act: claims.act } : {}) },
+      // No effect today: oauth-provider 1.7.x puts authTime only into ID tokens and refresh-token rows, and this grant
+      // issues neither (and it strips auth_time/acr/amr from access-token claims). Kept so it flows through if upstream carries authentication context into access tokens
+      // (better-auth/better-auth#11267); test/receiver/grant.test.ts notices that change (#26).
       ...(claims.auth_time !== undefined ? { authTime: new Date(claims.auth_time * 1000) } : {}),
       tokenResponse: {},
     });
