@@ -20,6 +20,12 @@ interface EventBase {
   userAgent?: string | undefined;
 }
 
+/** RFC 8693 §4.1 `act`, as the audit records it: the actor and its profile, log-safe. */
+export interface ActSummary {
+  sub: string;
+  sub_profile?: string | undefined;
+}
+
 /** The issuer minted an ID-JAG. */
 export interface IssuedEvent extends EventBase {
   type: "id-jag.issued";
@@ -34,6 +40,8 @@ export interface IssuedEvent extends EventBase {
   jti: string;
   expiresAt: Date;
   organizationId?: string | undefined;
+  /** The ID-JAG's `act` (D-036): the requesting client named as the actor. */
+  act?: ActSummary | undefined;
 }
 
 /**
@@ -66,6 +74,8 @@ export interface AcceptedEvent extends EventBase {
   organizationId?: string | undefined;
   /** How the user was found: the host's hook, SCIM provisioning, a linked account, the email fallback, or JIT. */
   resolvedBy?: "hook" | "scim" | "account" | "email" | "jit" | undefined;
+  /** The ID-JAG's `act`: who acts for the user (an AI agent, say). The current actor only; earlier ones in a chain are left out. */
+  act?: ActSummary | undefined;
 }
 
 /** Either side refused. `reason` is ours; the caller only saw the public description. */
@@ -164,11 +174,16 @@ type Sink = {
   runInBackground(p: Promise<unknown>): void;
 };
 
-/** Every string (top level and in arrays) made log-safe; dates and numbers kept. */
+/** Every string (top level, in arrays, and in `act`) made log-safe; dates and numbers kept. */
 function safeEvent<T extends Record<string, unknown>>(e: T): T {
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(e)) out[k] = typeof v === "string" ? logSafe(v) : Array.isArray(v) ? v.map((x) => (typeof x === "string" ? logSafe(x) : x)) : v;
+  for (const [k, v] of Object.entries(e)) out[k] = typeof v === "string" ? logSafe(v) : Array.isArray(v) ? v.map((x) => (typeof x === "string" ? logSafe(x) : x)) : k === "act" && v ? safeAct(v as ActSummary) : v;
   return out as T;
+}
+
+/** Only `sub` and `sub_profile`, whatever else the claim carried (a receiver's `act` comes from another IdP). */
+function safeAct(a: ActSummary): ActSummary {
+  return { sub: logSafe(String(a.sub)), ...(typeof a.sub_profile === "string" ? { sub_profile: logSafe(a.sub_profile, 256) } : {}) };
 }
 
 /** Hand the event to its handler and the audit table, in the background. Never throws. */

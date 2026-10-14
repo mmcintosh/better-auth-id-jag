@@ -55,8 +55,9 @@ interface Allow {
   act?: { sub_profile?: string | undefined } | undefined;
 }
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
-const subProfile = z.string().min(1).max(256).refine((v) => !/[\u0000-\u001f\u007f-\u009f]/.test(v), "control characters");
+// Space-separated profile names, as Okta's "ai_agent web_app": nothing blank, no leading, trailing or doubled space, and no
+// control, format (zero-width, bidi override) or separator characters (U+2028) that could disguise it in a log or a UI.
+const subProfile = z.string().max(256).regex(/^[^\p{Cc}\p{Cf}\p{Z}\s]+(?: [^\p{Cc}\p{Cf}\p{Z}\s]+)*$/u, "space-separated names");
 
 const verdictSchema = z.discriminatedUnion("decision", [
   z.object({

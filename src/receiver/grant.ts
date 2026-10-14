@@ -202,6 +202,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
       jti: claims.jti,
       organizationId: trust.organizationId,
       resolvedBy: via,
+      ...(claims.act ? { act: claims.act } : {}),
     });
     return response;
   } catch (error) {

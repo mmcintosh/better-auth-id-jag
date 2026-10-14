@@ -136,6 +136,9 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(c.client_id).toBe("agent-at-resource");
     act = { sub_profile: "ai_agent web_app" };
     expect((await claims()).act).toEqual({ sub: client.client_id, sub_profile: "ai_agent web_app" });
+    // The issued event records the act it signed; none when there was none.
+    await host.settle();
+    expect(host.recorded.issued.map((e) => e.act)).toEqual([undefined, undefined, { sub: client.client_id }, { sub: client.client_id, sub_profile: "ai_agent web_app" }]);
   });
 
   it("a resource the hook names is used when the client sent none", async () => {

@@ -830,3 +830,23 @@ Each finding prints its next step and a key; acknowledging the key (`ACKNOWLEDGE
 Public GitHub and npm APIs only; the workflow's token only raises the rate limit. Verified: green on 2026-10-14; a probe
 copy pointed at a merged PR, a closed issue with a merged linked PR, and the 1.6/1.7 lines fails with one finding each.
 
+## D-040: `act` in the audit, and a stricter `sub_profile` (2026-10-14)
+
+Follow-ups from the D-036 review.
+
+- **The audit records `act`.** `id-jag.issued` carries the `act` the issuer signed; `id-jag.accepted` carries the
+  ID-JAG's `act`. Both are `{ sub, sub_profile? }` (`ActSummary`): the current actor only, never the rest of the
+  claim or the earlier actors of a chain (a receiver's `act` comes from another IdP and may carry anything), each
+  string made log-safe like every other event string. It is in the event and the row's `details`; no new column.
+- **`sub_profile` is space-separated names**, as Okta's `"ai_agent web_app"`: at most 256 characters, no blank, no
+  leading, trailing or doubled space, and no control, format (zero-width, bidi override, BOM, word joiner) or
+  separator (NBSP, U+2028/9) characters, which could disguise a profile in a log or an admin UI. Anything else is a
+  malformed verdict (`policy_denied`), as before. The receiver doesn't apply this to other IdPs' `act`: it stays
+  liberal in what it accepts and the audit makes the value log-safe.
+- **Evidence:** `test/issuer/exchange.test.ts` (the issued events' `act`), `test/issuer/refusals.test.ts` (twelve
+  refused `sub_profile` values, four accepted), `test/receiver/grant.test.ts` (the accepted event's `act`, a chained
+  claim with extra keys and invisible characters reduced to `{ sub, sub_profile }` log-safe). Mutations: twelve added
+  (nine to `issuer.json` for D-036 and the issued event, one to `receiver.json`, two to `core.json`), all caught.
+- **Not changed (open):** whether the receiver should add the IdP's `iss` to the `act` it carries into its own access
+  token, since `act.sub` is a client id at the IdP, not at the receiver.
+
