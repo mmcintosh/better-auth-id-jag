@@ -1,6 +1,6 @@
 // The jwt-bearer grant for ID-JAGs (plan §3.4, with the order D-007 settled):
 //  1. client authentication (confidential only by default; a CIMD client only with private_key_jwt)
-//  2. parse the assertion (typ, alg, kid, required claims, lifetime), then its time claims, then
+//  2. parse the assertion (typ, alg, kid or x5t, required claims, lifetime), then its time claims, then
 //     `resource` when requireResourceClaim is on
 //  3. trust lookup from the unverified `iss`
 //  4. verifyIdJag with that issuer's keys: iss, signature, aud = our issuer (exact)
@@ -141,7 +141,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     // The keys are fetched lazily, when the signature is checked, so nothing is fetched for a
     // token verifyIdJag refuses earlier (a self-issued one).
     const key: CompactVerifyGetKey = async (header, token) => {
-      const keys = await o.jwks.keysFor(trust, parsed.header.kid, (e) =>
+      const keys = await o.jwks.keysFor(trust, parsed.header, (e) =>
         ctx.context.logger.warn(`[id-jag] JWKS refetch for ${logSafe(trust.issuer)} failed; using its cached keys (within jwks.maxStaleSeconds): ${logSafe(e instanceof IdJagRefusal ? (e.detail ?? e.reason) : String(e))}`),
       );
       // Narrowed to what this issuer publishes; not public, or it would reveal the trust (S8).

@@ -37,7 +37,7 @@ export const REASONS = {
   malformed_token: { error: "invalid_grant", public: true, description: "The assertion is not a well-formed JWT." },
   wrong_typ: { error: "invalid_grant", public: true, description: "The assertion is not an ID-JAG (typ)." },
   disallowed_alg: { error: "invalid_grant", public: true, description: "The assertion's signature algorithm is not accepted." },
-  missing_kid: { error: "invalid_grant", public: true, description: "The assertion has no kid." },
+  missing_kid: { error: "invalid_grant", public: true, description: "The assertion names no key (kid, x5t or x5t#S256)." },
   missing_claim: { error: "invalid_grant", public: true, description: "The assertion is missing a required claim." },
   unsupported_claim: { error: "invalid_grant", public: true, description: "The assertion carries a claim this server does not support (authorization_details, cnf)." },
   invalid_claim: { error: "invalid_grant", public: true, description: "The assertion has an invalid claim." },

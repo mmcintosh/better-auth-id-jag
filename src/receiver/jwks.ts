@@ -24,6 +24,16 @@ export interface JwksSettings {
   maxStaleMs: number;
 }
 
+/**
+ * How an ID-JAG names its key: by `kid`, or (PingFederate's, which sends no kid; D-042) by the SHA-1 or SHA-256
+ * thumbprint of the key's certificate. A `kid`, when there is one, is used alone.
+ */
+export interface KeyRef {
+  kid?: string | undefined;
+  x5t?: string | undefined;
+  "x5t#S256"?: string | undefined;
+}
+
 /** Where an issuer's keys come from. */
 export interface KeySource {
   issuer: string;
@@ -71,11 +81,13 @@ export class JwksCache {
   ) {}
 
   /**
-   * The keys to verify an ID-JAG with `kid` from this issuer; fetches (or refetches) as the rules allow.
+   * The keys to verify an ID-JAG from this issuer naming `ref` (a kid, or a KeyRef); fetches (or refetches) as the rules allow.
+   * Named by thumbprint, only the keys with that thumbprint are offered (a key not found: no keys, a bad signature).
    * A failed refetch doesn't refuse the request while the cached keys are within `maxStale` past their
    * TTL: they answer, and `onStaleRefetchError` hears about the failure (the operator should know).
    */
-  async keysFor(source: KeySource, kid: string, onStaleRefetchError?: (e: unknown) => void): Promise<IssuerKeys> {
+  async keysFor(source: KeySource, ref: string | KeyRef, onStaleRefetchError?: (e: unknown) => void): Promise<IssuerKeys> {
+    const named = typeof ref === "string" ? { kid: ref } : ref;
     const cacheKey = JSON.stringify([source.issuer, source.jwksUri ?? "", source.discoveryUri ?? ""]);
     let entry = this.entries.get(cacheKey);
     if (!entry) {
@@ -84,8 +96,8 @@ export class JwksCache {
     }
     const now = this.now();
     const fresh = entry.keys !== null && now - entry.fetchedAt < this.settings.cacheTtlMs;
-    const hasKid = entry.keys?.some((k) => k.kid === kid) ?? false;
-    if (!(fresh && hasKid)) {
+    const known = entry.keys?.some((k) => matches(k, named)) ?? false;
+    if (!(fresh && known)) {
       if (entry.inflight !== null) await entry.inflight;
       else if (now - entry.lastAttemptAt >= this.settings.minRefetchMs)
         await this.refresh(entry, source).catch((e: unknown) => {
@@ -97,7 +109,11 @@ export class JwksCache {
     // Too stale to use (the refetches failed): discard the keys until a fetch succeeds.
     if (entry.keys !== null && !this.usable(entry)) entry.keys = null;
     if (!entry.keys) refuse("jwks_unavailable", "no keys (a recent fetch failed)");
-    return toIssuerKeys(entry.keys);
+    if (named.kid !== undefined) return toIssuerKeys(entry.keys);
+    // No kid: only the keys whose certificate the header names; jose then picks among them by alg and key type.
+    const selected = entry.keys.filter((k) => matches(k, named));
+    if (selected.length === 0) refuse("bad_signature", "no key with this certificate thumbprint");
+    return toIssuerKeys(selected, entry.keys);
   }
 
   /** Cached keys no more than `maxStale` past their TTL. */
@@ -132,7 +148,7 @@ export class JwksCache {
     }
     const doc = jwksSchema.safeParse(await this.getJson(jwksUri, "jwks"));
     if (!doc.success) refuse("jwks_unavailable", "JWKS document invalid");
-    const keys = doc.data.keys.filter((k) => (k.use === undefined || k.use === "sig") && verifies(k.key_ops)).map(verifyOnly) as JWK[];
+    const keys = (await Promise.all(doc.data.keys.filter((k) => (k.use === undefined || k.use === "sig") && verifies(k.key_ops)).map(verifyOnly).map(withThumbprints))) as JWK[];
     if (keys.length === 0) refuse("jwks_unavailable", "JWKS has no signing keys");
     // jose validates each key when it is used; a JWKS it can't load at all is unavailable.
     try {
@@ -218,8 +234,40 @@ function verifyOnly<K extends Record<string, unknown>>(k: K): K {
   return k.key_ops === undefined ? k : { ...k, key_ops: ["verify"] };
 }
 
-function toIssuerKeys(keys: JWK[]): IssuerKeys {
-  const named = keys.map((k) => k.alg);
+/** Whether the key is the one `ref` names: by kid when there is one, else by either certificate thumbprint. */
+function matches(k: JWK, ref: KeyRef): boolean {
+  if (ref.kid !== undefined) return k.kid === ref.kid;
+  const own = k as JWK & { "x5t#S256"?: unknown };
+  return (ref["x5t#S256"] !== undefined && own["x5t#S256"] === ref["x5t#S256"]) || (ref.x5t !== undefined && own.x5t === ref.x5t);
+}
+
+/**
+ * The key with its certificate thumbprints (RFC 7517 §4.8, §4.9) worked out from `x5c` when the JWKS doesn't publish
+ * them, so an ID-JAG naming its key by thumbprint finds it. Published values are kept as they are: a wrong one only
+ * means the key isn't found, since the signature is still checked with the key itself.
+ */
+async function withThumbprints<K extends Record<string, unknown>>(k: K): Promise<K> {
+  const cert = Array.isArray(k.x5c) && typeof k.x5c[0] === "string" ? k.x5c[0] : undefined;
+  if (cert === undefined || (typeof k.x5t === "string" && typeof k["x5t#S256"] === "string")) return k;
+  let der: Uint8Array<ArrayBuffer>;
+  try {
+    der = Uint8Array.from(atob(cert), (c) => c.charCodeAt(0));
+  } catch {
+    return k; // not base64: no thumbprints, the key is still usable by kid
+  }
+  const digest = async (alg: "SHA-1" | "SHA-256") => base64url(new Uint8Array(await crypto.subtle.digest(alg, der)));
+  return { ...k, ...(typeof k.x5t === "string" ? {} : { x5t: await digest("SHA-1") }), ...(typeof k["x5t#S256"] === "string" ? {} : { "x5t#S256": await digest("SHA-256") }) };
+}
+
+function base64url(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** The resolver over `keys`; the published algorithms from `all` (every key of the issuer, by default). */
+function toIssuerKeys(keys: JWK[], all: JWK[] = keys): IssuerKeys {
+  const named = all.map((k) => k.alg);
   const algorithms = named.every((a): a is string => typeof a === "string") ? ALLOWED_ALGORITHMS.filter((a) => named.includes(a)) : undefined;
   return { key: createLocalJWKSet({ keys } as JSONWebKeySet), algorithms };
 }

@@ -65,8 +65,8 @@
  {
   "name": "jwt: kid not required",
   "file": "src/core/jwt.ts",
-  "a": "rawHeader.kid.length === 0) refuse(\"missing_kid\")",
-  "b": "rawHeader.kid.length === 0) void 0",
+  "a": "if (kid === undefined && rawHeader.x5t === undefined && rawHeader[\"x5t#S256\"] === undefined) refuse(\"missing_kid\");",
+  "b": "",
   "paths": [
    "test/core"
   ]
@@ -74,8 +74,8 @@
  {
   "name": "jwt: empty kid allowed",
   "file": "src/core/jwt.ts",
-  "a": " || rawHeader.kid.length === 0) refuse(\"missing_kid\")",
-  "b": ") refuse(\"missing_kid\")",
+  "a": "if (rawHeader.kid !== undefined && kid === undefined) refuse(\"missing_kid\", \"empty or not a string\");",
+  "b": "",
   "paths": [
    "test/core"
   ]
@@ -236,8 +236,8 @@
  {
   "name": "jwt: jwks errors all bad_signature",
   "file": "src/core/jwt.ts",
-  "a": "    refuse(\"jwks_unavailable\", code || (error as Error).name);",
-  "b": "    refuse(\"bad_signature\", code);",
+  "a": "    refuse(\"jwks_unavailable\", code || (error instanceof Error ? error.name : \"error\"));",
+  "b": "    refuse(\"bad_signature\", code || (error instanceof Error ? error.name : \"error\"));",
   "paths": [
    "test/core"
   ]
@@ -531,6 +531,42 @@
   "b": "const code = (raw ?? \"\") as string;",
   "paths": [
    "test/core/jwt.test.ts"
+  ]
+ },
+ {
+  "name": "jwt D-042: thumbprint format not checked",
+  "file": "src/core/jwt.ts",
+  "a": "(typeof rawHeader[name] !== \"string\" || !THUMBPRINT[name].test(rawHeader[name]))",
+  "b": "(typeof rawHeader[name] !== \"string\")",
+  "paths": [
+   "test/core"
+  ]
+ },
+ {
+  "name": "jwt D-042: x5t#S256 length taken as x5t's",
+  "file": "src/core/jwt.ts",
+  "a": "\"x5t#S256\": /^[A-Za-z0-9_-]{43}$/",
+  "b": "\"x5t#S256\": /^[A-Za-z0-9_-]{27}$/",
+  "paths": [
+   "test/core"
+  ]
+ },
+ {
+  "name": "jwt D-042: x5t dropped from the parsed header",
+  "file": "src/core/jwt.ts",
+  "a": "...(typeof rawHeader.x5t === \"string\" ? { x5t: rawHeader.x5t } : {}),",
+  "b": "",
+  "paths": [
+   "test/core"
+  ]
+ },
+ {
+  "name": "jwt D-042: x5t#S256 alone not a key reference",
+  "file": "src/core/jwt.ts",
+  "a": "rawHeader.x5t === undefined && rawHeader[\"x5t#S256\"] === undefined) refuse(\"missing_kid\");",
+  "b": "rawHeader.x5t === undefined) refuse(\"missing_kid\");",
+  "paths": [
+   "test/core"
   ]
  }
 ]

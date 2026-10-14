@@ -146,7 +146,7 @@
  {
   "name": "S4 refetch: never refetch on an unknown kid (rotation breaks)",
   "file": "src/receiver/jwks.ts",
-  "a": "if (!(fresh && hasKid)) {",
+  "a": "if (!(fresh && known)) {",
   "b": "if (!(fresh || entry.keys)) {",
   "paths": [
    "test/receiver"
@@ -1705,6 +1705,60 @@
   "file": "src/receiver/jwks.ts",
   "a": "{ ...k, key_ops: [\"verify\"] }",
   "b": "k",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: no kid, every key offered (named key not enforced)",
+  "file": "src/receiver/jwks.ts",
+  "a": "    const selected = entry.keys.filter((k) => matches(k, named));",
+  "b": "    const selected = entry.keys;",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: x5t never matches",
+  "file": "src/receiver/jwks.ts",
+  "a": "(ref.x5t !== undefined && own.x5t === ref.x5t)",
+  "b": "false",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: x5t#S256 never matches",
+  "file": "src/receiver/jwks.ts",
+  "a": "(ref[\"x5t#S256\"] !== undefined && own[\"x5t#S256\"] === ref[\"x5t#S256\"])",
+  "b": "false",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: thumbprints not worked out from x5c",
+  "file": "src/receiver/jwks.ts",
+  "a": ".map(verifyOnly).map(withThumbprints)",
+  "b": ".map(verifyOnly).map(async (k) => k)",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: x5t from SHA-256",
+  "file": "src/receiver/jwks.ts",
+  "a": "{ x5t: await digest(\"SHA-1\") }",
+  "b": "{ x5t: await digest(\"SHA-256\") }",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks D-042: published thumbprint overwritten",
+  "file": "src/receiver/jwks.ts",
+  "a": "(typeof k.x5t === \"string\" ? {} : { x5t:",
+  "b": "(false ? {} : { x5t:",
   "paths": [
    "test/receiver/jwks.test.ts"
   ]

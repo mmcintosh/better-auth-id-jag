@@ -873,3 +873,27 @@ refuses an RSASSA (or ECDSA) key with any usage but `verify`, so every ID-JAG si
   a key without `verify` leaves no signing keys), `test/core/jwt.test.ts` (a `DOMException` is a refusal naming it).
   Both fail without their fix (a 500; a `TypeError`). Mutations: three, all caught.
 
+## D-042: a key named by certificate thumbprint, without `kid` (2026-10-14)
+
+The maintainer's decision, after running PingFederate 13.1.3 live (#24, docs/interop.md): its ID-JAGs never carry
+`kid`, only `x5t`, the SHA-1 thumbprint of the signing key's certificate. The receiver required `kid` (D-006's parse
+order), so it refused every one (`missing_kid`); with the check off in a scratch copy, the same ID-JAG was accepted.
+The draft doesn't require `kid`; RFC 7515 makes every key reference optional.
+
+- **The header must still name the key:** `kid`, or else `x5t` or `x5t#S256` (RFC 7515 §4.1.7, §4.1.8). None of the
+  three is `missing_kid`, as before; an empty or non-string `kid` is too. A thumbprint that is present must be
+  base64url of the right length (27 or 43 characters), with a `kid` or without; otherwise `invalid_claim`.
+- **A `kid`, when there is one, is used alone,** exactly as before.
+- **Without `kid`, only the keys with that thumbprint are offered** to the signature check: the JWKS's own `x5t` /
+  `x5t#S256`, or the thumbprint of its `x5c[0]` worked out when the JWKS publishes the certificate only. Published
+  thumbprints are never overwritten. No key with it is `bad_signature`; an unknown thumbprint refetches like an
+  unknown `kid` (at most once per interval). Several keys with one thumbprint are tried in turn, as for one `kid`.
+- **Why it is safe:** the reference only chooses which of the trusted issuer's keys to try; the signature, `iss`,
+  `aud` and every claim check are unchanged, and a key outside the issuer's JWKS is never used.
+- **Type change:** `IdJagHeader.kid` is optional now, with `x5t` and `x5t#S256`. `JwksCache.keysFor` takes a `kid` or a
+  `KeyRef`.
+- **Evidence:** `test/core/jwt.test.ts` (parsing: either thumbprint alone, formats, empty `kid`), `test/receiver/jwks.test.ts`
+  (through the grant: `x5t` and `x5t#S256` worked out from `x5c`, the right key among two, another key's thumbprint
+  and an unknown one refused, published thumbprints kept), and a live PingFederate ID-JAG redeemed with this code.
+  Mutations: ten added, all caught; four older ones updated to the code (two of them stale since D-041).
+

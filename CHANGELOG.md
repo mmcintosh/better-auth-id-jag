@@ -11,6 +11,10 @@
   carries it into the access token. `sub_profile` is space-separated names of letters, digits, punctuation and
   symbols (D-040); anything else (blank, padded or doubled spaces, invisible, combining or blank-rendering characters)
   is a malformed verdict (`policy_denied`).
+- **Receiver: ID-JAGs that name their key by certificate thumbprint** (D-042). A header without `kid` is accepted
+  when it carries `x5t` or `x5t#S256`; the key is the issuer's with that thumbprint (published, or worked out from its
+  `x5c`). PingFederate never sends `kid`, so every PingFederate ID-JAG was refused (`missing_kid`); verified live with
+  13.1.3 (docs/interop.md). `IdJagHeader.kid` is now optional.
 - **Audit: `act`** (D-040). `id-jag.issued` and `id-jag.accepted` events (and audit rows' `details`) carry the
   ID-JAG's `act` as `{ sub, sub_profile? }`: the current actor only, log-safe. New exported type `ActSummary`.
 
