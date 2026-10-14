@@ -183,7 +183,7 @@ function safeEvent<T extends Record<string, unknown>>(e: T): T {
 
 /** Only `sub` and `sub_profile`, whatever else the claim carried (a receiver's `act` comes from another IdP). */
 function safeAct(a: ActSummary): ActSummary {
-  return { sub: logSafe(String(a.sub)), ...(typeof a.sub_profile === "string" ? { sub_profile: logSafe(a.sub_profile, 256) } : {}) };
+  return { sub: logSafe(String(a.sub)), ...(typeof a.sub_profile === "string" ? { sub_profile: logSafe(a.sub_profile) } : {}) };
 }
 
 /** Hand the event to its handler and the audit table, in the background. Never throws. */

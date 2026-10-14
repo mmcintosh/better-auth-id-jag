@@ -1980,7 +1980,7 @@
  {
   "name": "D-036 sub_profile any string",
   "file": "src/issuer/policy.ts",
-  "a": ".regex(/^[^\\p{Cc}\\p{Cf}\\p{Z}\\s]+(?: [^\\p{Cc}\\p{Cf}\\p{Z}\\s]+)*$/u, \"space-separated names\")",
+  "a": ".regex(new RegExp(`^${subProfileName}(?: ${subProfileName})*$`, \"u\"), \"space-separated names\")",
   "b": ".min(1)",
   "paths": [
    "test/issuer/refusals.test.ts"
@@ -1989,8 +1989,8 @@
  {
   "name": "D-036 sub_profile format characters allowed",
   "file": "src/issuer/policy.ts",
-  "a": "[^\\p{Cc}\\p{Cf}\\p{Z}\\s]+(?: [^\\p{Cc}\\p{Cf}\\p{Z}\\s]+)*$",
-  "b": "[^\\p{Cc}\\s]+(?: [^\\p{Cc}\\s]+)*$",
+  "a": "\"(?:(?![\\\\u115f\\\\u1160\\\\u3164\\\\uffa0\\\\u2800])[\\\\p{L}\\\\p{N}\\\\p{P}\\\\p{S}])+\"",
+  "b": "\"[^\\\\p{Cc}\\\\s]+\"",
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
@@ -2011,6 +2011,24 @@
   "b": "      organizationId: grant.tenant,",
   "paths": [
    "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-040 sub_profile blank-rendering letters allowed",
+  "file": "src/issuer/policy.ts",
+  "a": "(?![\\\\u115f\\\\u1160\\\\u3164\\\\uffa0\\\\u2800])",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-040 sub_profile old blacklist (marks, private use, unassigned allowed)",
+  "file": "src/issuer/policy.ts",
+  "a": "[\\\\p{L}\\\\p{N}\\\\p{P}\\\\p{S}]",
+  "b": "[^\\\\p{Cc}\\\\p{Cf}\\\\p{Z}\\\\s]",
+  "paths": [
+   "test/issuer/refusals.test.ts"
   ]
  }
 ]

@@ -55,9 +55,12 @@ interface Allow {
   act?: { sub_profile?: string | undefined } | undefined;
 }
 
-// Space-separated profile names, as Okta's "ai_agent web_app": nothing blank, no leading, trailing or doubled space, and no
-// control, format (zero-width, bidi override) or separator characters (U+2028) that could disguise it in a log or a UI.
-const subProfile = z.string().max(256).regex(/^[^\p{Cc}\p{Cf}\p{Z}\s]+(?: [^\p{Cc}\p{Cf}\p{Z}\s]+)*$/u, "space-separated names");
+// Space-separated profile names, as Okta's "ai_agent web_app": nothing blank, no leading, trailing or doubled space. Names
+// are letters, digits, punctuation and symbols only, so nothing that could disguise one in a log or a UI: no control,
+// format (zero-width, bidi override), separator, combining (variation selectors), private-use, unassigned or lone
+// surrogate characters, and none of the letters and symbols that render blank (Hangul fillers, the blank braille cell).
+const subProfileName = "(?:(?![\\u115f\\u1160\\u3164\\uffa0\\u2800])[\\p{L}\\p{N}\\p{P}\\p{S}])+";
+const subProfile = z.string().max(256).regex(new RegExp(`^${subProfileName}(?: ${subProfileName})*$`, "u"), "space-separated names");
 
 const verdictSchema = z.discriminatedUnion("decision", [
   z.object({

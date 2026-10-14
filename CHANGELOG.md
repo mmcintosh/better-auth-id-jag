@@ -8,12 +8,17 @@
   `{ act: { sub_profile } }`) to name the requesting client as the actor in the ID-JAG, RFC 8693 `act` with `sub` =
   its client id at the IdP, as Okta does for AI agents. Off unless the hook asks; the actor is always the requesting
   client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
-  carries it into the access token. `sub_profile` is space-separated names (D-040): blank, padded or doubled spaces,
-  and control, format (zero-width, bidi override) or separator characters are a malformed verdict (`policy_denied`).
+  carries it into the access token. `sub_profile` is space-separated names of letters, digits, punctuation and
+  symbols (D-040); anything else (blank, padded or doubled spaces, invisible, combining or blank-rendering characters)
+  is a malformed verdict (`policy_denied`).
 - **Audit: `act`** (D-040). `id-jag.issued` and `id-jag.accepted` events (and audit rows' `details`) carry the
   ID-JAG's `act` as `{ sub, sub_profile? }`: the current actor only, log-safe. New exported type `ActSummary`.
 
 ### Fixed
+
+- **Audit: strings are cut in code points, and lone surrogates repaired** (D-040). An event string over the cap
+  (300; a refusal's detail, a long client id) could end in half a surrogate pair; a lone surrogate sent as a JSON
+  escape reached handlers and the audit table as is. Both are now valid UTF-16, cut whole, a lone surrogate as U+FFFD.
 
 - **Issuer: no assumption about Better Auth's default signing algorithm** (#19). The startup check took an unset
   `keyPairConfig.alg` to mean EdDSA, so `signingAlgorithm: "RS256"` would be refused on a Better Auth whose default is

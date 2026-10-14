@@ -139,6 +139,11 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     // The issued event records the act it signed; none when there was none.
     await host.settle();
     expect(host.recorded.issued.map((e) => e.act)).toEqual([undefined, undefined, { sub: client.client_id }, { sub: client.client_id, sub_profile: "ai_agent web_app" }]);
+    // The audit records exactly what was signed, even at the cap in astral characters (256 code points, 512 units).
+    act = { sub_profile: "🤖".repeat(256) };
+    expect((await claims()).act).toEqual({ sub: client.client_id, sub_profile: "🤖".repeat(256) });
+    await host.settle();
+    expect(host.recorded.issued.at(-1)?.act).toEqual({ sub: client.client_id, sub_profile: "🤖".repeat(256) });
   });
 
   it("a resource the hook names is used when the client sent none", async () => {
