@@ -132,7 +132,7 @@ export class JwksCache {
     }
     const doc = jwksSchema.safeParse(await this.getJson(jwksUri, "jwks"));
     if (!doc.success) refuse("jwks_unavailable", "JWKS document invalid");
-    const keys = doc.data.keys.filter((k) => k.use === undefined || k.use === "sig") as JWK[];
+    const keys = doc.data.keys.filter((k) => (k.use === undefined || k.use === "sig") && verifies(k.key_ops)).map(verifyOnly) as JWK[];
     if (keys.length === 0) refuse("jwks_unavailable", "JWKS has no signing keys");
     // jose validates each key when it is used; a JWKS it can't load at all is unavailable.
     try {
@@ -202,6 +202,20 @@ async function readCapped(res: Response, max: number, what: string): Promise<str
     offset += c.byteLength;
   }
   return new TextDecoder("utf-8", { fatal: false }).decode(all);
+}
+
+/** RFC 7517 §4.3: a key without `key_ops` may be used for anything; one with it, only for what it lists. */
+function verifies(ops: unknown): boolean {
+  return ops === undefined || (Array.isArray(ops) && ops.includes("verify"));
+}
+
+/**
+ * The key as jose imports it: `key_ops` reduced to `["verify"]`, the only use made of it here. WebCrypto refuses to
+ * import an RSA or EC signing key whose usages include anything else, so a key published for
+ * `["wrapKey", "encrypt", "verify"]` (Oracle's) would fail every ID-JAG signed with it.
+ */
+function verifyOnly<K extends Record<string, unknown>>(k: K): K {
+  return k.key_ops === undefined ? k : { ...k, key_ops: ["verify"] };
 }
 
 function toIssuerKeys(keys: JWK[]): IssuerKeys {

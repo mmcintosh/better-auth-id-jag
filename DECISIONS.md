@@ -857,3 +857,19 @@ Follow-ups from the D-036 review.
 - **Not changed (open):** whether the receiver should add the IdP's `iss` to the `act` it carries into its own access
   token, since `act.sub` is a client id at the IdP, not at the receiver.
 
+## D-041: a JWKS key's `key_ops`, and no 500 on a key WebCrypto refuses (2026-10-14)
+
+Found running the receiver against Oracle OCI IAM's ID-JAG (#24, docs/interop.md). Oracle publishes its RS256 key with
+`key_ops` `["wrapKey", "encrypt", "verify"]`. jose passes `key_ops` to WebCrypto as the key's usages, and WebCrypto
+refuses an RSASSA (or ECDSA) key with any usage but `verify`, so every ID-JAG signed with it failed.
+
+- **The receiver keeps a key only if it may verify:** no `key_ops`, or `key_ops` including `"verify"` (RFC 7517 §4.3),
+  besides `use` absent or `"sig"` as before. It hands jose the key with `key_ops: ["verify"]`, the only use made of it.
+- **A key WebCrypto refuses is `jwks_unavailable`, not a 500.** The signature check's fallback read `error.code` as
+  a string; a `DOMException`'s legacy `code` is a number (12), which crashed the log sanitiser. Only string codes
+  are used now; anything else is named by the error's `name`.
+- **Not changed:** `aud` stays required. Oracle's ID-JAG has none, so it is still refused (`missing_claim`).
+- **Evidence:** `test/receiver/jwks.test.ts` (RS256 and ES256 keys with Oracle's `key_ops` accepted through the grant;
+  a key without `verify` leaves no signing keys), `test/core/jwt.test.ts` (a `DOMException` is a refusal naming it).
+  Both fail without their fix (a 500; a `TypeError`). Mutations: three, all caught.
+

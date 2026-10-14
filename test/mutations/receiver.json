@@ -1690,5 +1690,23 @@
   "paths": [
    "test/receiver/grant.test.ts"
   ]
+ },
+ {
+  "name": "jwks: key_ops ignored when choosing keys (a key without verify kept)",
+  "file": "src/receiver/jwks.ts",
+  "a": " && verifies(k.key_ops))",
+  "b": ")",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "jwks: key_ops passed to WebCrypto as published",
+  "file": "src/receiver/jwks.ts",
+  "a": "{ ...k, key_ops: [\"verify\"] }",
+  "b": "k",
+  "paths": [
+   "test/receiver/jwks.test.ts"
+  ]
  }
 ]

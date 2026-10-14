@@ -28,6 +28,7 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
 | MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
 | identity-provider.net ("ZipIdP", a stub IdP on xaa.rocks) | Our receiver | **Verified live** 2026-10-14, weekly in the Interop workflow: ID token and refresh token → ZipIdP's ID-JAG (RS256) → our access token; replay, another client id and an ML-DSA-signed ID-JAG refused (see below). |
+| Oracle OCI IAM identity domain (issuer) | Our receiver | **Refused, by design** (checked live 2026-10-14, a Free-type identity domain, Oracle's ID-JAG from 2026-10-09): Oracle's ID-JAG has **no `aud`**, which the draft requires, so our receiver refuses it (`missing_claim`). **Found:** Oracle's signing key lists `key_ops` `["wrapKey", "encrypt", "verify"]`, which WebCrypto won't import for RS256; our receiver returned a 500 until D-041 (see below). |
 
 ## Our issuer → our receiver
 
@@ -381,6 +382,40 @@ All 4 passed. ZipIdP's ID-JAG: `typ` `oauth-id-jag+jwt`, RS256 with a key from `
 ZipIdP's JWKS mixes its RS256 key with ML-DSA keys (`kty: "AKP"`); that doesn't affect picking the RS256 key.
 It puts a `sub_id` in the ID-JAG only for users who signed in through an upstream IdP, so SAML subjects aren't
 tested here (MCPJam and xaa.dev cover them).
+
+## Oracle OCI IAM → our receiver
+
+Checked live on 2026-10-14 (issue #24) with a Free-type OCI IAM identity domain, a week after Oracle added ID-JAG
+issuance. Set up with the OCI CLI: a confidential app (the agent), a test user, and an outbound Identity Propagation
+Trust with `idJagEnabled`, naming the agent and the permitted scopes and resources. The subject was an ID token from an
+authorization-code sign-in (Oracle refuses `openid` with the password grant).
+
+| Header / claim | Value |
+|---|---|
+| `typ`, `alg`, `kid` | `oauth-id-jag+jwt`, `RS256`, `SIGNING_KEY` (also `x5t`, `x5t#S256`) |
+| `iss` | `https://identity.oraclecloud.com/`, **the same for every Oracle tenant**; the domain's own URL is only in the ID token's `tenant_iss` |
+| `aud` | **none** |
+| `client_id` | the agent's client id **at Oracle** |
+| `sub` | the user's user name (here an email address) |
+| `resource`, `scope` | the request's ∩ the trust's (one resource is a string) |
+| lifetime | 300 s; `iat`, `exp`, `jti` present |
+
+Oracle requires `resource` (`audience` alone is refused: "resource is required for ID-JAG") and refuses a resource the
+trust doesn't list. Its AS metadata lists `urn:ietf:params:oauth:token-type:id-jag` in
+`identity_chaining_requested_token_types_supported`, but `grant_types_supported` doesn't list token exchange.
+
+**Our receiver refuses it:** `missing_claim` (`aud`). The draft requires `aud` (the resource authorization server's
+issuer); it is what keeps an ID-JAG for one app from being redeemed at another, so the receiver doesn't relax it.
+
+**Found, and fixed (D-041):** Oracle's JWKS publishes its RSA key with `key_ops` `["wrapKey", "encrypt", "verify"]`.
+WebCrypto refuses to import an RSASSA key for any usage but `verify`, so jose (and any WebCrypto verifier) throws; the
+signature itself is valid once `key_ops` is ignored. Our receiver now keeps a key whose `key_ops` includes `verify`
+and imports it for `verify` only. The error had also been a 500: a `DOMException`'s numeric `code` reached the log
+sanitiser. Now any key WebCrypto won't import is `jwks_unavailable`.
+
+If Oracle adds `aud`, a trust entry would be `{ issuer: "https://identity.oraclecloud.com/", jwksUri:
+"https://idcs-<id>.identity.oraclecloud.com/admin/v1/SigningCert/jwk" }` (the domain's "Access signing certificate"
+setting on), with `allowedClientIds`, since every Oracle tenant shares that `iss` and only the keys tell them apart.
 
 ## CI
 

@@ -16,6 +16,12 @@
 
 ### Fixed
 
+- **Receiver: JWKS keys with `key_ops`, and no 500 on a key WebCrypto refuses** (D-041). A key published for
+  `["wrapKey", "encrypt", "verify"]` (Oracle OCI IAM's) failed every ID-JAG it signed, as a 500: WebCrypto won't import
+  an RSA or EC signing key for those usages, and the error's numeric `code` crashed the log sanitiser. A key whose
+  `key_ops` includes `verify` is now used for verify only; one without `verify` is skipped; any key WebCrypto still
+  refuses is `jwks_unavailable`.
+
 - **Audit: strings are cut in code points, and lone surrogates repaired** (D-040). An event string over the cap
   (300; a refusal's detail, a long client id) could end in half a surrogate pair; a lone surrogate sent as a JSON
   escape reached handlers and the audit table as is. Both are now valid UTF-16, cut whole, a lone surrogate as U+FFFD.

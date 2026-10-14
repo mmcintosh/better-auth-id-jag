@@ -181,6 +181,14 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
       throw new IdJagRefusal("jwks_unavailable", "status 503");
     }) as unknown as typeof k.jwks;
     expect(await reasonOf(verifyIdJag(token, refusing, at()))).toBe("jwks_unavailable");
+    // WebCrypto refusing to import a key throws a DOMException, whose legacy `code` is a number (12): a refusal
+    // naming the error, never a crash (it was a 500: the number reached logSafe).
+    const unimportable = (async () => {
+      throw new DOMException("Unsupported key usage for an RSASSA-PKCS1-v1_5 key", "SyntaxError");
+    }) as unknown as typeof k.jwks;
+    const e = await verifyIdJag(token, unimportable, at()).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(IdJagRefusal);
+    expect([(e as IdJagRefusal).reason, (e as IdJagRefusal).detail]).toEqual(["jwks_unavailable", "SyntaxError"]);
   });
 
   it("aud: exact string match, no trailing-slash or case games", async () => {

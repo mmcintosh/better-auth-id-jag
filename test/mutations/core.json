@@ -523,5 +523,14 @@
   "paths": [
    "test/core"
   ]
+ },
+ {
+  "name": "jwt: a numeric error code reaches logSafe",
+  "file": "src/core/jwt.ts",
+  "a": "const code = typeof raw === \"string\" ? raw : \"\";",
+  "b": "const code = (raw ?? \"\") as string;",
+  "paths": [
+   "test/core/jwt.test.ts"
+  ]
  }
 ]
