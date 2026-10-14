@@ -21,7 +21,8 @@ if (!idp || !mcp) throw new Error("usage: node client.mjs <idp-origin> <mcp-orig
 const STATE = new URL("./.client-state.json", import.meta.url);
 const key = process.env.SETUP_KEY_FILE ? readFileSync(process.env.SETUP_KEY_FILE, "utf8").trim() : "";
 const asReader = process.argv.includes("--as=reader");
-const which = process.argv.includes("--client=app") ? "app" : "agent";
+const which = (process.argv.find((a) => a.startsWith("--client=")) ?? "--client=agent").slice("--client=".length);
+if (which !== "agent" && which !== "app") throw new Error(`--client must be agent or app, not "${which}"`);
 const user = { email: asReader ? "reader-user@example.com" : "agent-user@example.com", password: "example-password-1234" };
 const scope = (process.argv.find((a) => a.startsWith("--scope=")) ?? "--scope=read write").slice("--scope=".length);
 const cutoff = process.argv.includes("--cutoff");
@@ -131,9 +132,10 @@ step("5a", `MCP tools/call list_notes (read) → ${notes.status}`, notes.body);
 const write = await tool("add_note", { text: "from the agent" });
 step("5b", `MCP tools/call add_note (write) → ${write.status}`, { ...write.body, ...(write.challenge ? { "WWW-Authenticate": write.challenge } : {}) });
 const hasWrite = String(granted.json.scope ?? "").split(" ").includes("write");
-// An agent (act in the token) may only read, unless the MCP server sets AGENTS_MAY_WRITE (mirror it here).
-const isAgent = decode(granted.json.access_token)[1].act !== undefined;
-const mayWrite = hasWrite && (!isAgent || process.env.AGENTS_MAY_WRITE === "true");
+// The IdP names the agent in act, and not the app (D-037): checked against the role this run plays.
+const hasAct = decode(granted.json.access_token)[1].act !== undefined;
+// An agent may only read, unless the MCP server sets AGENTS_MAY_WRITE=true (set it in this script's environment too).
+const mayWrite = hasWrite && (which === "app" || process.env.AGENTS_MAY_WRITE === "true");
 
 // And the same ID-JAG once more: single use.
 const replay = await post(`${asMeta.token_endpoint}`, { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: exchanged.json.access_token }, { authorization: basic(atMcp) });
@@ -155,5 +157,19 @@ if (cutoff) {
     await new Promise((resolve) => setTimeout(resolve, 10_000));
   }
 }
-// Expected: whoami 200; add_note 200 only with write and not as an agent, else 403; the replay refused.
-if (call.status !== 200 || notes.status !== 200 || write.status !== (mayWrite ? 200 : 403) || replay.status !== 400) process.exit(1);
+// Expected: whoami and list_notes 200; act for the agent only; add_note 200 only with write and not as an
+// agent, else 403; the replay refused.
+const failures = [
+  call.status !== 200 && `whoami → ${call.status}, expected 200`,
+  notes.status !== 200 && `list_notes → ${notes.status}, expected 200`,
+  hasAct !== (which === "agent") &&
+    (which === "agent" ? "the access token has no act: the IdP didn't name the agent (is the IdP updated, and was --setup re-run?)" : "the access token has act, but this run is the app"),
+  write.status !== (mayWrite ? 200 : 403) &&
+    `add_note → ${write.status}, expected ${mayWrite ? 200 : 403}${which === "agent" && hasWrite ? " (an agent may write only with AGENTS_MAY_WRITE=true on the MCP server and in this script's environment)" : ""}`,
+  replay.status !== 400 && `the same ID-JAG again → ${replay.status}, expected 400`,
+].filter(Boolean);
+if (failures.length) {
+  console.error(`\nFAILED:\n- ${failures.join("\n- ")}`);
+  process.exit(1);
+}
+console.log(`\nAll checks passed (${which}, ${user.email}).`);

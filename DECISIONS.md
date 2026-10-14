@@ -764,7 +764,7 @@ ID-JAG without `act`, and our issuer never minted one, while Okta always sends `
   (eight malformed values), `test/interop/self.test.ts` (our receiver carries it into the access token). Mutations:
   not minting it fails two tests; accepting extra keys fails one.
 - **Not changed:** the example IdP doesn't send `act`. Its demo keeps agents read-only when `act` is present
-  (D-032), so turning it on there changes the demo's documented results; a separate decision.
+  (D-032), so turning it on there changes the demo's documented results; a separate decision (D-037).
 
 ## D-037: the example IdP tells AI agents from apps (2026-10-14)
 
@@ -780,7 +780,10 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
 - **Verified locally** under `wrangler dev` (both Workers, the service binding connected), 2026-10-14, all four runs
   passing their check: app + writer → `add_note` 200; agent + writer → 403 ("an agent (act) may only read here");
   agent or app + reader → 403 `insufficient_scope`. `act` = `{ sub: <the agent's client id at the IdP>, sub_profile:
-  "ai_agent" }` in the ID-JAG and the access token. Running the demo locally needed probe-only patches: the
+  "ai_agent" }` in the ID-JAG and the access token. A fresh-eyes review found the first version of the script's
+  check took "agent" from the token's `act`, so it passed even when the IdP named nobody; it now checks `act`
+  against the role it plays and prints each failure (verified: an agent run without `act`, and a mismatched
+  `AGENTS_MAY_WRITE`, both fail). Running the demo locally needed probe-only patches: the
   example's `/setup` registers an http redirect URI, which oauth-provider refuses for web clients on loopback, and
   the receiver takes only an https `jwksUri`. Making the example runnable locally is a separate decision.
 - **The deployed demo Workers aren't updated yet**: a redeploy and a new `--setup` need the maintainer's go-ahead.

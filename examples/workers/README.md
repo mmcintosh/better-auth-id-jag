@@ -82,7 +82,7 @@ The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
 |---|---|---|
 | Who may have which scope | The IdP's policy | `read` for everyone; `write` only for the emails in the IdP's `WRITERS` (here `agent-user@example.com`). `reader-user@example.com`'s agent asks for `read write` and gets `read` |
 | Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` needs `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
-| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server |
+| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server (set it for `client.mjs` too, so its check expects the write) |
 | How long access outlives a cutoff | The MCP server's token lifetimes | `accessTokenExpiresIn: 300`, `scopeExpirations: { write: "2m" }` |
 
 ```sh
@@ -94,6 +94,8 @@ node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff         # poll
 ```
 
 A state file from before the AI agent and app were split needs `--setup` once more (it registers the two clients).
+Each run checks its results and prints what failed: an agent's token must carry `act` and an app's must not, so a
+run against an IdP that doesn't tell them apart fails instead of passing.
 
 Measured on the deployed demo (2026-10-08): the write token stopped working 125 s after it was issued, the read
 token 305 s after (polled every 10 s). An IdP decision (a block, a deprovisioning) stops new ID-JAGs at once; an

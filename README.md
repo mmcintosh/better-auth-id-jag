@@ -148,7 +148,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 | `resource` | Only when the client sent none; otherwise it must equal the one it sent. |
 | `lifetimeSeconds` | At most 900. The shortest wins when several sources allow. |
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
-| `claims` | `{ email?: boolean, tenant?: string, act?: true \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. |
+| `claims` | `{ email?: boolean, tenant?: string, act?: boolean \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. Tell agents apart by something only an administrator sets, not by metadata a client registers for itself (dynamic registration, a client ID metadata document): a client could otherwise drop the mark and lose the agent rules. |
 
 A deny's `reason` goes to the audit log only, never to the caller.
 
@@ -380,7 +380,7 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 
 **How fast a cutoff takes effect.** When the IdP stops an agent (a connection removed, a user unassigned or deactivated), it stops issuing ID-JAGs at once. An ID-JAG already issued lives at most its lifetime (300 s by default, 900 s at most) and works once. But an **access token already issued lives until it expires**: the provider's `accessTokenExpiresIn`, **an hour by default**. No refresh token is issued, so the agent then needs a new ID-JAG. For agents, set a short `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, and `scopeExpirations` (for example `{ write: "5m" }`) for the sensitive scopes.
 
-[The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents read-only, and tokens of 2 and 5 minutes, measured.
+[The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents read-only (any token with `act`: Okta's agents there, and the example IdP's own agent from D-037 on), and tokens of 2 and 5 minutes, measured.
 
 ## ✅ Conformance
 

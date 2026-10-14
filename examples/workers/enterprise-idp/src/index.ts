@@ -16,6 +16,7 @@ const authFor = (env: Env, origin: string) => {
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
   const body = (await request.json()) as { email: string; password: string; clientIdAtResource: string; agent?: boolean };
+  const agent = body.agent === true;
   const auth = authFor(env, origin);
   const ctx = await auth.$context;
   let user = (await ctx.internalAdapter.findUserByEmail(body.email, { includeAccounts: false }))?.user;
@@ -31,14 +32,14 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   const client = await api.adminCreateOAuthClient({
     headers,
     body: {
-      client_name: body.agent ? "Example MCP client (AI agent)" : "Example MCP client (app)",
+      client_name: agent ? "Example MCP client (AI agent)" : "Example MCP client (app)",
       redirect_uris: [`${origin}/callback`],
       grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"],
       response_types: ["code"],
       token_endpoint_auth_method: "client_secret_basic",
       scope: "openid profile email offline_access",
       skip_consent: true,
-      metadata: { clientIdAtResource: body.clientIdAtResource, agent: body.agent === true },
+      metadata: { clientIdAtResource: body.clientIdAtResource, agent },
     },
   });
   return Response.json({ userId: user.id, client_id: client.client_id, client_secret: client.client_secret });
