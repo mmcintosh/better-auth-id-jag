@@ -133,6 +133,16 @@ function maybeSweep(ctx: GenericEndpointContext, state: IssuerState): void {
 }
 
 /** The token-exchange grant handler. Returns the RFC 8693 response; throws APIError on refusal. */
+/**
+ * The key Better Auth signed an ID-JAG with (its default when nothing is configured, #19) must be one receivers accept
+ * (S4); otherwise nothing is issued. A server error: the host is misconfigured, and the log names the algorithm.
+ */
+export function assertIssuableAlgorithm(signed: string): void {
+  const used = decodeProtectedHeader(signed).alg;
+  if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(used ?? ""))
+    throw new Error(`idJagIssuer: the host's signing key is ${used}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
+}
+
 export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput, state: IssuerState): Promise<OAuthTokenResponse> {
   const { ctx, opts, provider } = input;
   const options = state.options;
@@ -239,10 +249,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     };
     const signer: IdJagSigner = async (payload, header) => {
       const signed = await signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
-      // The key Better Auth chose (its default when nothing is configured, #19) must be one receivers accept (S4).
-      const used = decodeProtectedHeader(signed).alg;
-      if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(used ?? ""))
-        throw new Error(`idJagIssuer: the host's signing key is ${used}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
+      assertIssuableAlgorithm(signed);
       return signed;
     };
     const token = await buildIdJag(claims, signer);

@@ -26,9 +26,9 @@ async function json(url, h = headers) {
   return res.json();
 }
 
-const findings = [];
+const findings = new Map();
 const found = (key, message) => {
-  if (!ACKNOWLEDGED.includes(key)) findings.push({ key, message });
+  if (!ACKNOWLEDGED.includes(key)) findings.set(key, message);
 };
 
 const pr = await json(`https://api.github.com/repos/${REPO}/pulls/${PR}`);
@@ -39,16 +39,18 @@ else if (pr.state === "closed") found(`pr:${PR}:closed`, `${REPO}#${PR} was clos
 
 for (const n of ISSUES) {
   const issue = await json(`https://api.github.com/repos/${REPO}/issues/${n}`);
-  const merged = [];
+  // Pull requests that mention the issue (cross-referenced). One linked only through GitHub's "Development" sidebar
+  // leaves no number in the timeline; it shows when the issue closes.
+  const merged = new Set();
   for (let page = 1; page <= 10; page++) {
     const events = await json(`https://api.github.com/repos/${REPO}/issues/${n}/timeline?per_page=100&page=${page}`);
     for (const e of events) {
       const source = e.event === "cross-referenced" ? e.source?.issue : undefined;
-      if (source?.pull_request?.merged_at && source.repository?.full_name === REPO) merged.push(source.number);
+      if (source?.pull_request?.merged_at && source.repository?.full_name === REPO) merged.add(source.number);
     }
     if (events.length < 100) break;
   }
-  console.log(`${REPO}#${n}: ${issue.state}; merged pull requests linked: ${merged.length ? merged.map((m) => `#${m}`).join(", ") : "none"}`);
+  console.log(`${REPO}#${n}: ${issue.state}; merged pull requests linked: ${merged.size ? [...merged].map((m) => `#${m}`).join(", ") : "none"}`);
   if (issue.state === "closed") found(`issue:${n}:closed`, `${REPO}#${n} was closed (${issue.state_reason ?? "no reason"}): ${next(n)}`);
   for (const m of merged) found(`issue:${n}:pr:${m}`, `${REPO}#${m}, linked to #${n}, was merged: ${next(n)}`);
 }
@@ -59,7 +61,8 @@ const atLeast18 = (v) => {
   return major > 1 || (major === 1 && minor >= 8);
 };
 for (const name of PACKAGES) {
-  const doc = await json(`https://registry.npmjs.org/${name.replace("/", "%2F")}`, { accept: "application/json" });
+  // The abbreviated document: versions and dist-tags, without every version's full manifest.
+  const doc = await json(`https://registry.npmjs.org/${name.replace("/", "%2F")}`, { accept: "application/vnd.npm.install-v1+json" });
   const newer = Object.keys(doc.versions ?? {}).filter(atLeast18);
   console.log(`npm ${name}: latest ${doc["dist-tags"]?.latest}; versions >= 1.8.0-0: ${newer.length ? newer.join(", ") : "none"}`);
   // One finding per minor line, pre-releases apart from releases: 1.8 betas once, then 1.8.0 itself again.
@@ -72,5 +75,5 @@ for (const name of PACKAGES) {
   for (const [line, versions] of lines) found(`npm:${name}@${line}`, `npm ${name} ${line.endsWith("-pre") ? "pre-releases" : "releases"} of ${line.replace("-pre", "")}: ${versions.slice(-5).join(", ")}: ${what.npm}`);
 }
 
-for (const f of findings) console.log(`::error::${f.message}. When done, acknowledge "${f.key}" in scripts/upstream-watch.mjs.`);
-process.exit(findings.length > 0 ? 1 : 0);
+for (const [key, message] of findings) console.log(`::error::${message}. When done, acknowledge "${key}" in scripts/upstream-watch.mjs.`);
+process.exit(findings.size > 0 ? 1 : 0);

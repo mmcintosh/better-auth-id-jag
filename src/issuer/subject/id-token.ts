@@ -129,7 +129,12 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
 
   const key = (await ourKeys(ctx, expected.jwtOptions, expected.now)).find((k) => k.id === header.kid);
   if (!key) return bad("unknown kid");
-  const jwk = JSON.parse(key.publicKey) as Record<string, unknown>;
+  let jwk: Record<string, unknown>;
+  try {
+    jwk = JSON.parse(key.publicKey) as Record<string, unknown>;
+  } catch {
+    return bad("signature");
+  }
   const alg = keyAlgorithm(key.alg, jwk, expected.jwtOptions?.jwks?.keyPairConfig?.alg);
   if (alg === undefined) return bad("key alg unknown");
   if (alg !== header.alg) bad("alg differs from the key's");

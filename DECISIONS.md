@@ -792,24 +792,28 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
 ## D-038: no assumption about Better Auth's signing default (2026-10-14)
 
 Issue #19. Better Auth 1.7's jwt plugin defaults to EdDSA; better-auth/better-auth#9935 (open, base `next`, breaking)
-makes it RS256. The issuer assumed EdDSA in two places, which would break on that release.
+makes it RS256 and exports it as `DEFAULT_JWT_ALGORITHM`. The issuer hard-coded EdDSA in two places, which would break on
+that release.
 
-- **Startup:** `signingAlgorithm` is checked against `keyPairConfig.alg` and `keyPairConfigs` only when
-  `keyPairConfig.alg` is set. When it isn't, the host's algorithm is Better Auth's to choose, and Better Auth itself
-  refuses a `signingAlgorithm` it can't mint a key for, at the first exchange.
-- **Every ID-JAG:** after `signJWT`, the header's `alg` must be RS256, ES256 or EdDSA (S4), or the exchange fails with
-  a server error naming the key's algorithm and no ID-JAG leaves. A misconfigured host can't issue ID-JAGs receivers
-  would refuse, whatever Better Auth's default.
+- **Startup:** an unset `keyPairConfig.alg` means Better Auth's own default, read from Better Auth: its
+  `DEFAULT_JWT_ALGORITHM` where it exports one, else EdDSA, the default of every release without it
+  (`betterAuthJwtDefault()`). So a `signingAlgorithm` Better Auth can't mint a key for is still refused at boot on 1.7
+  (a fresh-eyes review caught that the first version of this fix had dropped that check), and works on a release
+  whose default matches. If #9935 lands under another name, the upstream watch (D-039) flags it.
+- **Every ID-JAG:** after `signJWT`, the header's `alg` must be RS256, ES256 or EdDSA (S4)
+  (`assertIssuableAlgorithm`), or nothing is issued: a 500 with the algorithm in the server log, no `jti` recorded, no
+  `id-jag.issued` event. It also closes an older gap: Better Auth 1.7 signs with the latest key of any algorithm when
+  none has the configured one.
 - **The host's own ID tokens (subject tokens):** a stored key without `alg` takes the configured `keyPairConfig.alg`
   when it fits the key type, else the key type's own (RSA → RS256, P-256/384/521 → ES256/384/512, Ed25519 → EdDSA),
-  else it's refused (`key alg unknown`). Better Auth's own fallback (`?? "EdDSA"`) is not copied.
-- **Evidence:** `test/issuer/startup.test.ts` (no default assumed), `test/issuer/signing-default.test.ts` (a host
-  with no `keyPairConfig` signs ID-JAGs with its own key's algorithm, compared with its ID tokens, not hard-coded;
-  RS256 from `keyPairConfigs`), `test/issuer/signing-unaccepted.test.ts` (a PS256 key: 500, nothing issued),
-  `test/issuer/id-token.test.ts` (`keyAlgorithm` table; RS256, ES256, EdDSA and PS256 keys stored without `alg`).
-  Mutations: restoring each EdDSA assumption fails 1, 1 and 3 tests.
-- **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range
-  (the upstream watch, #20).
+  else it's refused (`key alg unknown`); a `publicKey` that isn't JSON is a refusal, not a server error.
+- **Evidence:** `test/issuer/startup.test.ts` (Better Auth's default read, not assumed; another algorithm refused),
+  `test/issuer/signing-default.test.ts` (a host with no `keyPairConfig` signs ID-JAGs with its own key's algorithm,
+  compared with its ID tokens, so it holds when the default changes), `test/issuer/signing-unaccepted.test.ts`
+  (`assertIssuableAlgorithm` directly; a PS256-only host: no ID-JAG on 1.7, an accepted algorithm on a Better Auth that
+  mints its default instead), `test/issuer/id-token.test.ts` (`keyAlgorithm` table; keys without `alg`; a corrupt key).
+  Mutations: a wrong default, no post-sign check and the parse outside `try` each fail at least one test.
+- **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range.
 
 ## D-039: a weekly watch for upstream changes (2026-10-14)
 

@@ -123,6 +123,12 @@ describe("a stored key without alg (#19): its algorithm comes from the key, not 
     });
   }
 
+  it("a stored key whose publicKey isn't JSON is a refusal, not a server error", async () => {
+    const k = await ours();
+    const corrupt = { adapter: { getJwks: async () => [{ ...k.jwk, publicKey: "not json" }] } } as unknown as JwtOptions;
+    expect(await outcome(await k.sign({}), corrupt)).toBe("invalid_subject_token:signature");
+  });
+
   it("refuses a stored key whose type has no algorithm it can name", async () => {
     const k = await ours();
     const x25519 = { adapter: { getJwks: async () => [{ ...k.jwk, alg: undefined, publicKey: JSON.stringify({ kty: "OKP", crv: "X25519", x: "AAAA" }) }] } } as unknown as JwtOptions;
