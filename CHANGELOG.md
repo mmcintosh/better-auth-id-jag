@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Issuer: `act` for agents** (D-036). The `authorize` hook can return `claims: { act: true }` (or
+  `{ act: { sub_profile } }`) to name the requesting client as the actor in the ID-JAG, RFC 8693 `act` with `sub` =
+  its client id at the IdP, as Okta does for AI agents. Off unless the hook asks; the actor is always the requesting
+  client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
+  carries it into the access token.
+
 ### Documentation
 
 - **How the person signed in** (`docs/security.md`, README; D-033): an ID-JAG's `auth_time`, `acr` and `amr` are

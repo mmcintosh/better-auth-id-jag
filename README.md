@@ -36,7 +36,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 - 🏛️ **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
 - 👤 **Subject resolution you can reason about**: users your IdP provisioned over SCIM (when you link the issuer to a SCIM connection), else linked accounts, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
 - 👥 **SCIM-provisioned users**: with `@better-auth/scim` at your app, ID-JAGs resolve to the users the IdP provisioned, and deprovisioning at the IdP stops the agent there too.
-- 🤖 **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token.
+- 🤖 **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token, and the issuer can send one for the clients your policy says are agents.
 - 📈 **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
 - 🧪 **Tested as if it matters**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
 - ☁️ **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
@@ -148,7 +148,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 | `resource` | Only when the client sent none; otherwise it must equal the one it sent. |
 | `lifetimeSeconds` | At most 900. The shortest wins when several sources allow. |
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
-| `claims` | `{ email?: boolean, tenant?: string }`: opt in to sending the user's email (only when verified) and a tenant. |
+| `claims` | `{ email?: boolean, tenant?: string, act?: true \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. |
 
 A deny's `reason` goes to the audit log only, never to the caller.
 

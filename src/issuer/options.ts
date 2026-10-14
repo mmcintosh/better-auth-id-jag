@@ -67,7 +67,12 @@ export interface AuthorizeAllow {
   lifetimeSeconds?: number | undefined;
   /** The client's id at the resource authorization server (D-004). Default: its id here. */
   clientIdAtResource?: string | undefined;
-  claims?: { email?: boolean | undefined; tenant?: string | undefined } | undefined;
+  /**
+   * `email`: the user's email, only when verified. `tenant`: a tenant id. `act` (D-036): name the requesting client as
+   * the actor, RFC 8693 §4.1, `{ sub: <its client id here> }`, as Okta does for an AI agent; an object adds a
+   * `sub_profile` (Okta's: "ai_agent web_app"). Set it for clients that act for the user, such as AI agents.
+   */
+  claims?: { email?: boolean | undefined; tenant?: string | undefined; act?: boolean | { sub_profile?: string | undefined } | undefined } | undefined;
 }
 
 export interface AuthorizeDeny {
