@@ -142,6 +142,9 @@ describe("JwksCache: network rules (S10)", () => {
     }
     idp.override = (url) => (url === idp.discoveryUri ? Response.json({ issuer: idp.issuer, jwks_uri: "http://plain.example/jwks" }) : Response.json({ keys: idp.published() }));
     expect(await reasonOf(new JwksCache(network(idp).fetch, SETTINGS, clock().now).keysFor(source, idp.key.kid))).toBe("jwks_unavailable: jwks: not https");
+    // No jwks_uri, as an Okta org's /.well-known/oauth-authorization-server (its openid-configuration has one; #21).
+    idp.override = (url) => (url === idp.discoveryUri ? Response.json({ issuer: idp.issuer, token_endpoint: `${idp.issuer}/v1/token` }) : Response.json({ keys: idp.published() }));
+    expect(await reasonOf(new JwksCache(network(idp).fetch, SETTINGS, clock().now).keysFor(source, idp.key.kid))).toBe("jwks_unavailable: discovery document invalid");
   });
 });
 

@@ -254,8 +254,8 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 idJagGrant({
   trustedIssuers: [
     {
-      issuer: "https://acme.okta.com/oauth2/default", // the exact `iss`
-      discoveryUri: "https://acme.okta.com/oauth2/default/.well-known/oauth-authorization-server", // or jwksUri
+      issuer: "https://acme.okta.com",         // the exact `iss`: Okta Cross App Access signs as the org itself
+      jwksUri: "https://acme.okta.com/oauth2/v1/keys", // or discoveryUri (see below)
       allowedClientIds: ["agent-1"],          // only these clients may present its ID-JAGs
       organizationId: "org_acme",             // recorded, and where JIT puts new users
       jitRole: "member",
@@ -266,7 +266,9 @@ idJagGrant({
 });
 ```
 
-`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly. An ID-JAG whose `iss` is this server itself is refused.
+`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
+
+**Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14).
 
 ### Who the subject is
 
@@ -314,8 +316,8 @@ When your users sign in through SAML (`@better-auth/sso`), the IdP can put the S
 
 ```ts
 trustedIssuers: [{
-  issuer: "https://acme.okta.com/oauth2/default",
-  jwksUri: "https://acme.okta.com/oauth2/default/v1/keys",
+  issuer: "https://acme.okta.com",
+  jwksUri: "https://acme.okta.com/oauth2/v1/keys",
   samlSubjects: [{
     issuer: "http://www.okta.com/exk123",                 // the SAML IdP entity ID (sub_id.issuer)
     spNameQualifier: "https://mcp.example.com/saml/sp",   // omit if the IdP sends none
