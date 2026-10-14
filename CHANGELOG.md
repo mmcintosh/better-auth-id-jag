@@ -10,6 +10,15 @@
   rule that requires MFA treats a missing value as not proven: at the receiver, in `resolveSubject`. Tests pin each
   of these.
 
+### Interoperability
+
+- **Two more ID-JAG implementations against the receiver**, in the weekly Interop workflow (`docs/interop.md`;
+  D-035): MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), the whole flow to an MCP `initialize` and each of
+  its ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id`
+  (`test/interop/mcpjam.test.ts`); and identity-provider.net, live, an independent issuer: ID token and refresh token
+  subjects accepted, replay, another client id and an ML-DSA-signed ID-JAG refused (`test/interop/zipidp.test.ts`).
+  Tests only; no runtime change.
+
 ## [0.3.0] - 2026-10-10
 
 A smaller, explicit public API (breaking: internals no longer exported), the SCIM option types, and the layered-permissions example.

@@ -1,5 +1,5 @@
 # Interop against other ID-JAG implementations (docs/interop.md). Not on every push: these pull
-# containers and code from outside the lockfile. Manual, and weekly so a moved upstream shows up.
+# containers and code from outside the lockfile, or a live service. Manual, and weekly so a moved upstream shows up.
 # Our issuer → our receiver runs in ci.yml on every push (test/interop/self.test.ts).
 # Images are pinned by digest and actions by SHA (as ci.yml); bump both deliberately.
 name: Interop
@@ -62,3 +62,46 @@ jobs:
           npm install --ignore-scripts --no-audit --no-fund "$NODE_OAUTH2_SERVER"
       - run: pnpm vitest run --project node test/interop/node-oauth2-server.test.ts
         env: { INTEROP_NODE_OAUTH2: "1", INTEROP_NODE_OAUTH2_DIR: "${{ runner.temp }}/noas" }
+
+  mcpjam:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # MCPJam's Cross App Access debugger engine (the `mcpjam xaa run` CLI is a wrapper over it), pinned.
+      MCPJAM_SDK: "@mcpjam/sdk@9.3.0"
+      # MCPJam sends usage telemetry unless told not to.
+      DO_NOT_TRACK: "1"
+      MCPJAM_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 24, cache: pnpm }
+      # Socket Firewall (D-024, as better-auth-saml-idp's D-073): blocks packages Socket has confirmed as malware before they download.
+      - uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with: { mode: firewall-free }
+      - run: sfw pnpm install --frozen-lockfile
+      # Outside the repository and its lockfile, with no install scripts.
+      - name: Install MCPJam's SDK
+        run: |
+          mkdir -p "$RUNNER_TEMP/mcpjam" && cd "$RUNNER_TEMP/mcpjam"
+          echo '{"name":"mcpjam-interop","private":true}' > package.json
+          sfw npm install --ignore-scripts --no-audit --no-fund "$MCPJAM_SDK"
+      - run: pnpm vitest run --project node test/interop/mcpjam.test.ts
+        env: { INTEROP_MCPJAM: "1", INTEROP_MCPJAM_DIR: "${{ runner.temp }}/mcpjam" }
+
+  # Live, on the internet: a fresh sandbox at identity-provider.net, deleted again after the run.
+  zipidp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 24, cache: pnpm }
+      # Socket Firewall (D-024, as better-auth-saml-idp's D-073): blocks packages Socket has confirmed as malware before they download.
+      - uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with: { mode: firewall-free }
+      - run: sfw pnpm install --frozen-lockfile
+      - run: pnpm vitest run --project node test/interop/zipidp.test.ts
+        env: { INTEROP_ZIPIDP: "1" }
