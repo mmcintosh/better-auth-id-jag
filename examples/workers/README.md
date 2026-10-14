@@ -24,6 +24,10 @@ person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP
   user. The IdP's policy names the agent as the actor in the ID-JAG (`act`, from the client's metadata `agent: true`),
   as Okta does for AI agents, and not the app. The MCP server carries `act` into the access token and keeps agents
   read-only (D-037).
+- **The MCP server lists MCP's Enterprise-Managed Authorization extension** in its `initialize` reply
+  (`capabilities.extensions`). The extension's own discovery is the authorization server's metadata
+  (`authorization_grant_profiles_supported`), which the receiver advertises; the `initialize` entry is for clients that
+  look there too (MCPJam does).
 - **The MCP server provisions users on first use (JIT)** from the ID-JAG's verified `email`. The IdP's policy opts
   into sending it.
 - **Audit events reach the D1 table** because `advanced.backgroundTasks` hands Better Auth's background work to the

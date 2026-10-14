@@ -77,7 +77,14 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
     );
   switch (rpc.method) {
     case "initialize":
-      return reply({ protocolVersion: rpc.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "id-jag-example-mcp", version: "0.1.0" } });
+      // MCP's Enterprise-Managed Authorization extension, listed for clients that look for it. The extension's own
+      // discovery is the authorization server's metadata (authorization_grant_profiles_supported, which the
+      // receiver advertises); this is the general MCP extensions mechanism, as of the 2025-11-25 handshake.
+      return reply({
+        protocolVersion: rpc.params?.protocolVersion ?? "2025-06-18",
+        capabilities: { tools: {}, extensions: { [EMA_EXTENSION]: {} } },
+        serverInfo: { name: "id-jag-example-mcp", version: "0.1.0" },
+      });
     case "notifications/initialized":
       return new Response(null, { status: 202 });
     case "ping":
@@ -97,6 +104,9 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
       return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32601, message: "method not found" } });
   }
 }
+
+/** MCP's Enterprise-Managed Authorization extension (ID-JAG): modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization */
+const EMA_EXTENSION = "io.modelcontextprotocol/enterprise-managed-authorization";
 
 /** The demo's tools and the scope each needs. */
 const TOOLS = [
