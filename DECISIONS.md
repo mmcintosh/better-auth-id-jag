@@ -746,3 +746,23 @@ non-Okta evidence was our own issuer.
 - **Probed but not added:** `@atlasauth/pca-idjag` 0.4.1 as a verifier of our issuer refuses every ID-JAG without
   `act`, which our issuer doesn't mint (D-036 changes that); with `act` it accepts ES256, RS256 and EdDSA.
 
+## D-036: the issuer can send `act` (2026-10-14)
+
+The maintainer's decision, after a probe on 2026-10-14: `@atlasauth/pca-idjag` 0.4.1's verifier refuses every
+ID-JAG without `act`, and our issuer never minted one, while Okta always sends `act` for an AI agent
+(`{ sub: <the agent's client id at Okta>, sub_profile: "ai_agent web_app" }`, docs/interop.md).
+
+- **Opt-in, from the `authorize` hook only:** `claims.act`, `true` or `{ sub_profile }`. The issuer can't tell an
+  agent from any other client; the host's policy can (client metadata, its registry of agents). The registry has
+  no setting for it yet; with both sources, the hook's answer is used.
+- **The actor is always the requesting client**, by its id at the IdP (as Okta's `act.sub`), while `client_id` stays
+  its id at the resource (D-004). A policy can describe it (`sub_profile`, 1 to 256 characters, no control
+  characters) but not name another actor: any other key, or a malformed value, is a malformed verdict
+  (`policy_denied`). No nested `act` (a delegation chain): nothing asks for one yet.
+- **Every subject path gets it** (ID token, refresh token, SAML), since all mint in one place (exchange.ts).
+- **Evidence:** `test/issuer/exchange.test.ts` (none by default, `true`, `sub_profile`), `test/issuer/refusals.test.ts`
+  (eight malformed values), `test/interop/self.test.ts` (our receiver carries it into the access token). Mutations:
+  not minting it fails two tests; accepting extra keys fails one.
+- **Not changed:** the example IdP doesn't send `act`. Its demo keeps agents read-only when `act` is present
+  (D-032), so turning it on there changes the demo's documented results; a separate decision.
+

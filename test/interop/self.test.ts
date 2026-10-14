@@ -22,7 +22,7 @@ const MCP_ISSUER = `${MCP}/api/auth`;
 const MCP_RESOURCE = `${MCP}/mcp`;
 
 /** Both hosts, the agent registered at each (two different client ids), and a user with an ID token. */
-async function world(o: { jit?: boolean; email?: boolean; anyAudience?: boolean } = {}) {
+async function world(o: { jit?: boolean; email?: boolean; anyAudience?: boolean; act?: boolean } = {}) {
   const mapping: { atResource?: string } = {};
   const idp = await idpHost({
     base: IDP,
@@ -30,7 +30,7 @@ async function world(o: { jit?: boolean; email?: boolean; anyAudience?: boolean 
       // The IdP's policy: this audience and resource only, scope read, the agent's id at the MCP AS.
       authorize: (input) =>
         (o.anyAudience || input.audience === MCP_ISSUER) && input.resource === MCP_RESOURCE
-          ? { decision: "allow", scopes: ["read"], ...(mapping.atResource ? { clientIdAtResource: mapping.atResource } : {}), ...(o.email ? { claims: { email: true } } : {}) }
+          ? { decision: "allow", scopes: ["read"], ...(mapping.atResource ? { clientIdAtResource: mapping.atResource } : {}), ...(o.email || o.act ? { claims: { ...(o.email ? { email: true } : {}), ...(o.act ? { act: { sub_profile: "ai_agent" } } : {}) } } : {}) }
           : { decision: "deny" },
     },
   });
@@ -125,6 +125,17 @@ describe("interop: our issuer → our receiver", () => {
     expect(local?.email).toBe(w.user.email);
     const accounts = await w.mcp.ctx.internalAdapter.findAccounts(sub);
     expect(accounts.map((a) => [a.providerId, a.accountId])).toContainEqual([`id-jag:${IDP_ISSUER}`, w.user.id]);
+  });
+
+  it("act (D-036): the IdP names the agent as the actor; the MCP AS carries it into the access token (D-010)", async () => {
+    const w = await world({ jit: true, email: true, act: true });
+    const x = await exchangeAt(w.idp, w.atIdp, w.idToken, { audience: MCP_ISSUER, resource: MCP_RESOURCE, scope: "read" });
+    expect(x.status, JSON.stringify(x.body)).toBe(200);
+    const act = { sub: w.atIdp.client_id, sub_profile: "ai_agent" };
+    expect(decodeJwtPart(x.body.access_token as string, 1)).toMatchObject({ client_id: w.atMcp.client_id, act });
+    const r = await redeemAt(w.mcp, w.atMcp, x.body.access_token as string);
+    expect(r.status, r.text).toBe(200);
+    expect(decodeJwtPart(r.body.access_token as string, 1).act).toEqual(act);
   });
 
   it("without the client-id mapping, the ID-JAG names the IdP's client id, and the MCP AS refuses it (client-id continuity)", async () => {

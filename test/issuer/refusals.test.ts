@@ -267,6 +267,16 @@ describe("refusals: policy (S1, S7)", () => {
     }
   });
 
+  it("a malformed act is policy_denied: not true/false/{ sub_profile }, and never another actor's sub (D-036)", async () => {
+    let act: unknown;
+    const host = await createIssuerHost({ issuer: { authorize: (() => ({ decision: "allow", scopes: ["read"], claims: { act } })) as never } });
+    const { client, idToken } = await setup(host);
+    for (const a of ["yes", 1, null, { sub: "someone-else" }, { sub_profile: "" }, { sub_profile: "ai\nagent" }, { sub_profile: "x".repeat(257) }, { sub_profile: 7 }]) {
+      act = a;
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+    }
+  });
+
   it("the hook's details stay in the audit log, made log-safe", async () => {
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "deny", reason: "line one\nfake line" }) } });
     const { client, idToken } = await setup(host);

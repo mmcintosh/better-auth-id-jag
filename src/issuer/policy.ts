@@ -2,8 +2,8 @@
 // (S1): no source configured, no resource server for the audience, or no matching policy is a
 // refusal, never "allow all". Each configured source must allow (code hook and registry), and the
 // narrower outcome wins: scopes intersect, the shortest lifetime wins, email only if every source
-// opts in. Scopes only narrow (S7): never wider than requested ∩ allowed. Before any source, an
-// administrator's block (blocks.ts) refuses outright.
+// opts in; `act` only from the hook (D-036). Scopes only narrow (S7): never wider than requested ∩
+// allowed. Before any source, an administrator's block (blocks.ts) refuses outright.
 //
 // S8 ordering: the refusals that would tell the caller something about our policies (no policy,
 // policy denied) are all `invalid_grant` with one generic body, like unknown or banned users. The
@@ -35,6 +35,8 @@ export interface Grant {
   clientIdAtResource: string;
   includeEmail: boolean;
   tenant?: string | undefined;
+  /** Name the requesting client as `act` (D-036), with this `sub_profile` when set. */
+  act?: { sub_profile?: string | undefined } | undefined;
   /** Which sources allowed (for the audit detail). */
   sources: ("registry" | "authorize")[];
 }
@@ -50,7 +52,11 @@ interface Allow {
   clientIdAtResource?: string | undefined;
   email: boolean;
   tenant?: string | undefined;
+  act?: { sub_profile?: string | undefined } | undefined;
 }
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+const subProfile = z.string().min(1).max(256).refine((v) => !/[\u0000-\u001f\u007f-\u009f]/.test(v), "control characters");
 
 const verdictSchema = z.discriminatedUnion("decision", [
   z.object({
@@ -59,7 +65,7 @@ const verdictSchema = z.discriminatedUnion("decision", [
     resource: z.string().refine(isResourceUri).optional(),
     lifetimeSeconds: z.number().int().min(1).optional(),
     clientIdAtResource: z.string().min(1).max(512).optional(),
-    claims: z.object({ email: z.boolean().optional(), tenant: z.string().min(1).max(512).optional() }).optional(),
+    claims: z.object({ email: z.boolean().optional(), tenant: z.string().min(1).max(512).optional(), act: z.union([z.boolean(), z.strictObject({ sub_profile: subProfile.optional() })]).optional() }).optional(),
   }),
   z.object({ decision: z.literal("deny"), reason: z.string().optional() }),
 ]);
@@ -145,6 +151,7 @@ async function fromHook(hook: (input: AuthorizeInput) => unknown, r: PolicyReque
     ...(v.clientIdAtResource !== undefined ? { clientIdAtResource: v.clientIdAtResource } : {}),
     email: truthy(v.claims?.email),
     ...(v.claims?.tenant !== undefined ? { tenant: v.claims.tenant } : {}),
+    ...(v.claims?.act === true ? { act: {} } : typeof v.claims?.act === "object" ? { act: v.claims.act } : {}),
   };
 }
 
@@ -176,6 +183,8 @@ export async function decide(options: ResolvedIssuerOptions, directory: Registry
   const resource = r.resource ?? agree("resource", allows.map((a) => a.resource));
   const clientIdAtResource = agree("the client id at the resource", allows.map((a) => a.clientIdAtResource)) ?? r.client.clientId;
   const tenant = agree("tenant", allows.map((a) => a.tenant));
+  // act: only the hook can ask for it (the registry has no such setting), so its answer is the one.
+  const act = allows.find((a) => a.act !== undefined)?.act;
 
   // Scopes: every source's ∩, then ∩ the requested ones when any were requested.
   let allowed = allows[0]?.scopes ?? [];
@@ -199,6 +208,7 @@ export async function decide(options: ResolvedIssuerOptions, directory: Registry
     clientIdAtResource,
     includeEmail: allows.length > 0 && allows.every((a) => a.email),
     ...(tenant !== undefined ? { tenant } : {}),
+    ...(act !== undefined ? { act } : {}),
     sources,
   };
 }

@@ -232,6 +232,8 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       ...(subject.amr !== undefined ? { amr: subject.amr } : {}),
       ...(email !== undefined ? { email } : {}),
       ...(grant.tenant !== undefined ? { tenant: grant.tenant } : {}),
+      // The actor is always the requesting client, by its id here; a policy can describe it, not name another (D-036).
+      ...(grant.act !== undefined ? { act: { sub: client.clientId, ...(grant.act.sub_profile !== undefined ? { sub_profile: grant.act.sub_profile } : {}) } } : {}),
     };
     const signer: IdJagSigner = (payload, header) => signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
     const token = await buildIdJag(claims, signer);

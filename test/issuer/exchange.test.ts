@@ -121,6 +121,23 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(host.recorded.issued.at(-1)?.organizationId).toBe("org-1");
   });
 
+  it("act (D-036): none by default; `act: true` names the requesting client by its id here, an object adds sub_profile", async () => {
+    let act: unknown;
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read"], clientIdAtResource: "agent-at-resource", ...(act !== undefined ? { claims: { act } } : {}) }) as never } });
+    const { client, idToken } = await setup(host);
+    const claims = async () => decodeJwt((await exchange(host, client, idToken)).body.access_token as string);
+    expect(await claims()).not.toHaveProperty("act");
+    act = false;
+    expect(await claims()).not.toHaveProperty("act");
+    act = true;
+    const c = await claims();
+    // The actor is the agent as this IdP knows it; client_id stays its id at the resource (as Okta's ID-JAGs).
+    expect(c.act).toEqual({ sub: client.client_id });
+    expect(c.client_id).toBe("agent-at-resource");
+    act = { sub_profile: "ai_agent web_app" };
+    expect((await claims()).act).toEqual({ sub: client.client_id, sub_profile: "ai_agent web_app" });
+  });
+
   it("a resource the hook names is used when the client sent none", async () => {
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: [], resource: RESOURCE }) } });
     const { client, idToken } = await setup(host);
