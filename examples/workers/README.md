@@ -64,6 +64,8 @@ node examples/workers/client.mjs https://<idp> https://<mcp>                    
 
 ## Okta Cross App Access
 
+For your own server, [docs/okta.md](../../docs/okta.md) is the whole guide. For these Workers:
+
 Set `OKTA_ISSUER` and `OKTA_JWKS_URI` on the MCP server. In Okta, the resource app's **Resource Server** tab takes the
 MCP server's issuer **exactly as its metadata publishes it**, path included: the `issuer` field of
 `https://<mcp>/.well-known/oauth-authorization-server/api/auth`, for example `https://<mcp>/api/auth`. The receiver

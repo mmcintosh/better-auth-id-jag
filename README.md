@@ -250,6 +250,8 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 
 ### Trusted issuers
 
+**Behind Okta Cross App Access?** [docs/okta.md](docs/okta.md) has the trust entry, the Okta console values and what each refusal means.
+
 ```ts
 idJagGrant({
   trustedIssuers: [
@@ -436,7 +438,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | Issuer | Our receiver | ✅ Verified, in every CI run, on Node and in workerd |
 | Issuer | Keycloak 26.8.0 (`identity-assertion-jwt`, experimental) | ✅ Verified; ES256, RS256 and EdDSA. Keycloak ignores `scope` and `resource` |
 | Issuer | node-oauth2-server ([PR #462](https://github.com/node-oauth/node-oauth2-server/pull/462), unreleased) | ✅ Verified; ES256 and RS256 (no EdDSA there) |
-| **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks |
+| **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks. Setup: [docs/okta.md](docs/okta.md) |
 | **xaa.dev** (Okta's playground), OIDC and SAML | Receiver on Workers + D1 | ✅ **Verified live** with its resource-app tester through to an MCP `tools/call`; SAML users resolved by NameID (`sub_id`) |
 | **MCPJam** (its Cross App Access debugger), OIDC and SAML | Receiver | ✅ Verified weekly: the whole flow to an MCP `initialize`, and each of its ten attacks refused with the matching reason |
 | **identity-provider.net** (a stub IdP on xaa.rocks) | Receiver | ✅ Verified live, weekly: ID token and refresh token subjects; replay, another client id and an ML-DSA signature refused |
