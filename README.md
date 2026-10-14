@@ -280,7 +280,7 @@ idJagGrant({
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
 
-**To require MFA, do it in `resolveSubject`**: return `{ action: "reject" }` unless `claims.amr` includes `mfa` (or `claims.acr` is a class you trust). A missing `amr` or `acr`, or `acr: "0"`, means not proven, never done. The access token the receiver issues doesn't carry them, so your MCP server can't check later. See [How the person signed in](docs/security.md#how-the-person-signed-in).
+**To require MFA, do it in `resolveSubject`**: return `{ action: "reject" }` unless `claims.amr` includes `mfa` (or `claims.acr` is a class you trust). A missing `amr` or `acr`, or `acr: "0"`, means not proven, never done. The access token the receiver issues doesn't carry them, nor `auth_time`, so your MCP server can't check later. See [How the person signed in](docs/security.md#how-the-person-signed-in).
 
 ### SCIM-provisioned users
 

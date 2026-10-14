@@ -60,6 +60,28 @@ async function expectRefusal(s: Setup, r: { status: number; body: Record<string,
 }
 
 describe("receiver: a valid ID-JAG", () => {
+  it("doesn't carry auth_time, acr or amr into the access token or its introspection (#26)", async () => {
+    const s = await setup();
+    const r = await redeem(s.h, s.client, await s.valid({ auth_time: Math.floor(Date.now() / 1000) - 60, acr: "urn:example:mfa", amr: ["pwd", "mfa"] }));
+    expect(r.status, r.text).toBe(200);
+    const token = r.body.access_token as string;
+    const introspected = (await (
+      await s.h.auth.handler(
+        new Request(`${ISSUER}/oauth2/introspect`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded", authorization: `Basic ${btoa(`${encodeURIComponent(s.client.client_id)}:${encodeURIComponent(s.client.client_secret)}`)}` },
+          body: new URLSearchParams({ token, token_type_hint: "access_token" }),
+        }),
+      )
+    ).json()) as Record<string, unknown>;
+    expect(introspected.active, JSON.stringify(introspected)).toBe(true);
+    // If this fails, oauth-provider now carries authentication context into access tokens (better-auth#11267):
+    // README and docs/security.md say the MCP server can't check these later; revisit them and grant.ts's authTime.
+    for (const [where, claims] of [["access token", decodePayload(token)], ["introspection", introspected]] as const) {
+      for (const claim of ["auth_time", "acr", "amr"]) expect(claims, `${claim} in the ${where}: upstream changed, see #26`).not.toHaveProperty(claim);
+    }
+  });
+
   it("carries act (who acts for the user, as Okta sends for an AI agent) into the access token (D-010)", async () => {
     const s = await setup();
     const act = { sub: "0oa-agent", sub_profile: "ai_agent web_app" };
