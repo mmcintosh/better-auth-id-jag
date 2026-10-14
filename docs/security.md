@@ -10,7 +10,7 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 
 - **A database that enforces UNIQUE.** Single use of each ID-JAG is a unique key on `idJagJti`: the INSERT is the check. Better Auth's memory adapter doesn't enforce it, and the plugin warns at startup. Use SQLite, D1, PostgreSQL, MySQL or another adapter that does.
 - **The issuer needs `jwt()`, with local keys.** ID tokens and ID-JAGs are signed with the jwt plugin's keys and verified with the keys in your database, with no outbound request. The plugin refuses to start with `oauthProvider({ disableJwtPlugin: true })` (HS256 under each client's secret) or with remote keys (`jwt.sign`, `jwks.remoteUrl`).
-- **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA (`jwt()`'s default). This is interop, not security, but a receiver that refuses your algorithm fails closed.
+- **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA (`jwt()`'s default through Better Auth 1.7). This is interop, not security, but a receiver that refuses your algorithm fails closed.
 - **Configure a policy.** With neither `authorize` nor `registry`, every token exchange is refused (`no_policy`), and the plugin warns at startup.
 - **Configure trusted issuers.** With none, every ID-JAG is refused, and the plugin warns at startup. With `sso: true` but no sso plugin, no sso provider is trusted (also a warning).
 - **Restrict `canManage`.** The registry API (`registry.canManage`) decides who gets ID-JAGs for what, and the blocks API (`blocks.canManage`) who is cut off; either also reads the audit log. Each must return exactly `true`; give them to administrators only.

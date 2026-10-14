@@ -128,7 +128,7 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | `blocks` | | `{ canManage? }`: who may manage [blocks](#blocks) over the API. Blocks are enforced either way. |
 | `maxIdTokenAgeSeconds` | `3600` | The oldest ID token (by `iat`) accepted as a subject token, even when it hasn't expired. 60 to 86400. An older one is refused as `subject_token_expired`; exchange the refresh token instead. |
 | `allowPublicClients` | `false` | The draft: "SHOULD only be supported for confidential clients". Turning it on logs a warning at startup. |
-| `signingAlgorithm` | the `jwt()` plugin's | `"RS256"`, `"ES256"` or `"EdDSA"`; must be the jwt plugin's `keyPairConfig.alg` or one of its `keyPairConfigs`. |
+| `signingAlgorithm` | the `jwt()` plugin's | `"RS256"`, `"ES256"` or `"EdDSA"`; must be the jwt plugin's `keyPairConfig.alg` (or Better Auth's default) or one of its `keyPairConfigs` (checked at startup). With `keyPairConfig.alg` unset, Better Auth's own default is used (EdDSA through 1.7). Whatever key Better Auth then signs with must be one of those three: an ID-JAG with any other is never issued (a 500, with the key's algorithm in the server log). |
 | `defaultLifetimeSeconds` | `300` | When no policy sets a lifetime. At most 900. |
 | `allowLoopbackHttpAudiences` | `false` | Allow `http://` audiences on `localhost`, `127.0.0.1` and `[::1]`, for local development. Otherwise audiences are https. |
 | `sweepIntervalSeconds` | `3600` | Seconds between opportunistic sweeps of expired rows, per isolate. `0` never sweeps. |
@@ -447,7 +447,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 
 Each row's date, version, commands and the ways the other side differs are in [docs/interop.md](docs/interop.md). Nothing there is claimed from reading docs alone.
 
-**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA, and node-oauth2-server, among others, refuses it.
+**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (through 1.7; its open PR better-auth#9935 changes the default to RS256), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way.
 
 ## ☁️ Example: two Workers
 

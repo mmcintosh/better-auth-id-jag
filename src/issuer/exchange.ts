@@ -16,7 +16,9 @@ import { isAPIError } from "better-auth/api";
 import type { JwtOptions } from "better-auth/plugins";
 import { signJWT } from "better-auth/plugins";
 import { getIssuer, type OAuthExtensionGrantHandlerInput, type OAuthTokenResponse } from "@better-auth/oauth-provider";
+import { decodeProtectedHeader } from "jose";
 import {
+  ALLOWED_ALGORITHMS,
   buildIdJag,
   emit,
   ID_JAG_TOKEN_TYPE,
@@ -131,6 +133,16 @@ function maybeSweep(ctx: GenericEndpointContext, state: IssuerState): void {
 }
 
 /** The token-exchange grant handler. Returns the RFC 8693 response; throws APIError on refusal. */
+/**
+ * The key Better Auth signed an ID-JAG with (its default when nothing is configured, #19) must be one receivers accept
+ * (S4); otherwise nothing is issued. A server error: the host is misconfigured, and the log names the algorithm.
+ */
+export function assertIssuableAlgorithm(signed: string): void {
+  const used = decodeProtectedHeader(signed).alg;
+  if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(used ?? ""))
+    throw new Error(`idJagIssuer: the host's signing key is ${used}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
+}
+
 export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput, state: IssuerState): Promise<OAuthTokenResponse> {
   const { ctx, opts, provider } = input;
   const options = state.options;
@@ -235,7 +247,11 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       // The actor is always the requesting client, by its id here; a policy can describe it, not name another (D-036).
       ...(grant.act !== undefined ? { act: { sub: client.clientId, ...(grant.act.sub_profile !== undefined ? { sub_profile: grant.act.sub_profile } : {}) } } : {}),
     };
-    const signer: IdJagSigner = (payload, header) => signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
+    const signer: IdJagSigner = async (payload, header) => {
+      const signed = await signJWT(ctx, { options: jwtOptions, header, payload, ...(options.signingAlgorithm ? { signingAlgorithm: options.signingAlgorithm } : {}) });
+      assertIssuableAlgorithm(signed);
+      return signed;
+    };
     const token = await buildIdJag(claims, signer);
 
     // 6. Record (audit, and the block-from-this-jti admin action), audit, respond.

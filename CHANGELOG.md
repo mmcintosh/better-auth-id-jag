@@ -12,6 +12,13 @@
 
 ### Fixed
 
+- **Issuer: no assumption about Better Auth's default signing algorithm** (#19). The startup check took an unset
+  `keyPairConfig.alg` to mean EdDSA, so `signingAlgorithm: "RS256"` would be refused on a Better Auth whose default is
+  RS256 (better-auth#9935); and verifying the host's own ID tokens assumed EdDSA for a stored key without `alg`. Now
+  an unset `keyPairConfig.alg` means Better Auth's own default, read from Better Auth (its `DEFAULT_JWT_ALGORITHM`
+  where exported, else 1.7's EdDSA); each ID-JAG's actual algorithm is also checked when it is signed (not
+  RS256/ES256/EdDSA: none is issued, a 500 with the algorithm in the server log); and a stored key's
+  algorithm comes from the key (its `alg`, else the configured one when it fits the key type, else the key type).
 - **README: the Okta trust-entry examples named `/oauth2/default`** (#21). Cross App Access ID-JAGs come from the
   org authorization server (`iss` `https://<org>.okta.com`, keys at `/oauth2/v1/keys`), so the examples refused every
   Okta ID-JAG (`untrusted_issuer`). Also: the org's `/.well-known/oauth-authorization-server` has no `jwks_uri`, so

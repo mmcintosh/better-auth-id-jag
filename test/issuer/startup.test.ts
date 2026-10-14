@@ -1,9 +1,11 @@
 // Hosts the issuer can't serve safely fail at startup, with a clear error; options are validated.
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
+import * as betterAuthPlugins from "better-auth/plugins";
 import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { describe, expect, it } from "vitest";
 import { type IdJagIssuerOptions, idJagIssuer, resolveIssuerOptions } from "../../src/issuer";
+import { betterAuthJwtDefault } from "../../src/issuer/plugin";
 import { BASE, SECRET } from "../support/issuer-host";
 
 const provider = (o: Record<string, unknown> = {}) => oauthProvider({ loginPage: "/login", consentPage: "/consent", ...o }) as unknown as BetterAuthPlugin;
@@ -42,6 +44,18 @@ describe("startup checks", () => {
 
   it("refuses a signingAlgorithm the jwt plugin has no key configuration for", async () => {
     expect(await boot([jwt({ jwks: { keyPairConfig: { alg: "ES256" } } }), provider(), issuer({ signingAlgorithm: "RS256" })])).toMatch(/signingAlgorithm RS256/);
+  });
+
+  it("keyPairConfig.alg unset: signingAlgorithm is checked against Better Auth's own default, read from Better Auth (#19)", async () => {
+    // Better Auth's DEFAULT_JWT_ALGORITHM where it exports one (better-auth#9935: RS256), else 1.7's EdDSA.
+    const exported = (betterAuthPlugins as Record<string, unknown>).DEFAULT_JWT_ALGORITHM;
+    const def = betterAuthJwtDefault();
+    expect(def).toBe(typeof exported === "string" ? exported : "EdDSA");
+    const allow = { authorize: () => ({ decision: "allow" as const, scopes: [] }) };
+    const other = def === "RS256" ? "ES256" : "RS256";
+    expect(await boot([jwt(), provider(), issuer({ ...allow, signingAlgorithm: def as "RS256" })])).toBe("ok");
+    expect(await boot([jwt(), provider(), issuer({ ...allow, signingAlgorithm: other })])).toMatch(new RegExp(`signingAlgorithm ${other}`));
+    expect(await boot([jwt({ jwks: { keyPairConfigs: [{ alg: other, ...(other === "RS256" ? { modulusLength: 2048 } : {}) }] } }), provider(), issuer({ ...allow, signingAlgorithm: other })])).toBe("ok");
   });
 
   it("refuses to sign ID-JAGs with an algorithm receivers refuse (S4)", async () => {

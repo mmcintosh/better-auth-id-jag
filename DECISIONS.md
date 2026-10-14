@@ -789,3 +789,44 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
 - **Deployed** 2026-10-14 with the maintainer's go-ahead (a new `SETUP_KEY` on both Workers, then `--setup`): the
   four runs pass on the live demo, the writer's tokens 120 s, the reader's 300 s.
 
+## D-038: no assumption about Better Auth's signing default (2026-10-14)
+
+Issue #19. Better Auth 1.7's jwt plugin defaults to EdDSA; better-auth/better-auth#9935 (open, base `next`, breaking)
+makes it RS256 and exports it as `DEFAULT_JWT_ALGORITHM`. The issuer hard-coded EdDSA in two places, which would break on
+that release.
+
+- **Startup:** an unset `keyPairConfig.alg` means Better Auth's own default, read from Better Auth: its
+  `DEFAULT_JWT_ALGORITHM` where it exports one, else EdDSA, the default of every release without it
+  (`betterAuthJwtDefault()`). So a `signingAlgorithm` Better Auth can't mint a key for is still refused at boot on 1.7
+  (a fresh-eyes review caught that the first version of this fix had dropped that check), and works on a release
+  whose default matches. If #9935 lands under another name, the upstream watch (D-039) flags it.
+- **Every ID-JAG:** after `signJWT`, the header's `alg` must be RS256, ES256 or EdDSA (S4)
+  (`assertIssuableAlgorithm`), or nothing is issued: a 500 with the algorithm in the server log, no `jti` recorded, no
+  `id-jag.issued` event. It also closes an older gap: Better Auth 1.7 signs with the latest key of any algorithm when
+  none has the configured one.
+- **The host's own ID tokens (subject tokens):** a stored key without `alg` takes the configured `keyPairConfig.alg`
+  when it fits the key type, else the key type's own (RSA → RS256, P-256/384/521 → ES256/384/512, Ed25519 → EdDSA),
+  else it's refused (`key alg unknown`); a `publicKey` that isn't JSON is a refusal, not a server error.
+- **Evidence:** `test/issuer/startup.test.ts` (Better Auth's default read, not assumed; another algorithm refused),
+  `test/issuer/signing-default.test.ts` (a host with no `keyPairConfig` signs ID-JAGs with its own key's algorithm,
+  compared with its ID tokens, so it holds when the default changes), `test/issuer/signing-unaccepted.test.ts`
+  (`assertIssuableAlgorithm` directly; a PS256-only host: no ID-JAG on 1.7, an accepted algorithm on a Better Auth that
+  mints its default instead), `test/issuer/id-token.test.ts` (`keyAlgorithm` table; keys without `alg`; a corrupt key).
+  Mutations: a wrong default, no post-sign check and the parse outside `try` each fail at least one test.
+- **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range.
+
+## D-039: a weekly watch for upstream changes (2026-10-14)
+
+Issue #20. Three Better Auth items change what this package does, and the peer range (`<1.8.0`) needs a deliberate
+test-and-widen step, so a third job in the weekly draft watch (`scripts/upstream-watch.mjs`) fails when:
+
+- better-auth/better-auth#9935 (the jwt default → RS256, ID-token authentication context; D-038) is merged or closed;
+- #8023 (RFC 8693 token exchange as an official plugin) or #11267 (authentication context in access tokens) is closed,
+  or a pull request in better-auth/better-auth linked to either is merged;
+- npm has a `better-auth` or `@better-auth/oauth-provider` version at or above 1.8.0, pre-releases included: one
+  finding per minor line, pre-releases apart from releases, so 1.8 betas fail once and 1.8.0 fails again.
+
+Each finding prints its next step and a key; acknowledging the key (`ACKNOWLEDGED`, as the Entra watch) makes it green.
+Public GitHub and npm APIs only; the workflow's token only raises the rate limit. Verified: green on 2026-10-14; a probe
+copy pointed at a merged PR, a closed issue with a merged linked PR, and the 1.6/1.7 lines fails with one finding each.
+

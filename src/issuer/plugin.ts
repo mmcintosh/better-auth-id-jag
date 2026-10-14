@@ -11,6 +11,7 @@
 // with `saml`, SAML assertions this IdP issued (through better-auth-saml-idp), for an ID-JAG
 // (`saml.subjectTokens`) or a refresh token (`saml.refreshTokens`, requested_token_type=refresh_token).
 import type { AuthContext, BetterAuthPlugin } from "better-auth";
+import * as betterAuthPlugins from "better-auth/plugins";
 import type { JwtOptions } from "better-auth/plugins";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
 import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXCHANGE_GRANT, warnIfReplayUnsafe } from "../core";
@@ -37,10 +38,13 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
   const o = jwt.options;
   if (o?.jwt?.sign || o?.jwks?.remoteUrl)
     throw new Error("idJagIssuer: a jwt plugin with jwt.sign / jwks.remoteUrl (remote keys) isn't supported: ID tokens are verified with the keys in this host's database, with no outbound request (S10)");
-  const primary = o?.jwks?.keyPairConfig?.alg ?? "EdDSA";
-  const configured = [primary, ...(o?.jwks?.keyPairConfigs ?? []).map((c) => c.alg)];
+  // An unset keyPairConfig.alg is Better Auth's own default, read from Better Auth (#19, D-038), not assumed. What
+  // Better Auth then signs with is also checked on every exchange (exchange.ts).
+  const primary = o?.jwks?.keyPairConfig?.alg ?? betterAuthJwtDefault();
+  const extra = (o?.jwks?.keyPairConfigs ?? []).map((c) => c.alg);
   const alg = state.options.signingAlgorithm ?? primary;
-  if (!configured.includes(alg)) throw new Error(`idJagIssuer: signingAlgorithm ${alg} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
+  if (![primary, ...extra].includes(alg))
+    throw new Error(`idJagIssuer: signingAlgorithm ${alg} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
   if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))
     throw new Error(`idJagIssuer: the ID-JAG would be signed with ${alg}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
   // SAML subject tokens (D-B26): the SAML IdP's exchange capability must already be on the context.
@@ -69,6 +73,15 @@ export function createIssuerState(options: IdJagIssuerOptions = {}): IssuerState
 }
 
 /** The ID-JAG issuer plugin. */
+/**
+ * Better Auth's default jwt signing algorithm: its own `DEFAULT_JWT_ALGORITHM` where it exports one (better-auth#9935
+ * adds it, RS256), else EdDSA, the default of every release without it (1.7 and before). D-038.
+ */
+export function betterAuthJwtDefault(): string {
+  const exported = (betterAuthPlugins as Record<string, unknown>).DEFAULT_JWT_ALGORITHM;
+  return typeof exported === "string" ? exported : "EdDSA";
+}
+
 export function idJagIssuer(options: IdJagIssuerOptions = {}) {
   const state = createIssuerState(options);
   const resolved = state.options;
