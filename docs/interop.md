@@ -26,6 +26,8 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). |
 | xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). |
 | xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
+| MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
+| identity-provider.net ("ZipIdP", a stub IdP on xaa.rocks) | Our receiver | **Verified live** 2026-10-14, weekly in the Interop workflow: ID token and refresh token → ZipIdP's ID-JAG (RS256) → our access token; replay, another client id and an ML-DSA-signed ID-JAG refused (see below). |
 
 ## Our issuer → our receiver
 
@@ -318,11 +320,92 @@ All 5 passed:
   the issuer identifier.
 - **The PR targets draft -03.** Its claim checks are the ones -04 requires.
 
+## MCPJam → our receiver
+
+`test/interop/mcpjam.test.ts`, 24 tests, Node only. It is skipped unless `INTEROP_MCPJAM=1` and
+`INTEROP_MCPJAM_DIR` are set.
+
+[MCPJam](https://github.com/MCPJam/inspector)'s Cross App Access debugger plays the enterprise IdP (it mints and
+signs the ID-JAG) and the AI agent (it redeems the ID-JAG at our receiver and calls the MCP server with the access
+token). It isn't a dependency of this package. The test loads its engine, `@mcpjam/sdk` (the `mcpjam xaa run` CLI
+is a wrapper over it), from a directory you install it into:
+
+```sh
+mkdir -p /tmp/mcpjam && cd /tmp/mcpjam && echo '{"name":"mcpjam-interop","private":true}' > package.json
+npm install --ignore-scripts --no-audit --no-fund @mcpjam/sdk@9.3.0
+cd -   # back to this repository
+DO_NOT_TRACK=1 INTEROP_MCPJAM=1 INTEROP_MCPJAM_DIR=/tmp/mcpjam pnpm vitest run --project node test/interop/mcpjam.test.ts
+```
+
+Everything runs on one machine. Our receiver and a minimal MCP endpoint are served over HTTP on 127.0.0.1, and so
+are MCPJam's issuer metadata and JWKS: MCPJam checks that its issuer publishes its signing key before it sends
+anything. Our receiver only takes an https `jwksUri`, so the trust entry names one and the receiver's `fetch`
+answers it with the same key. MCPJam sends usage telemetry unless `DO_NOT_TRACK=1`; the test sets it.
+
+### Result (2026-10-14, `@mcpjam/sdk` 9.3.0, Node 24.12.0)
+
+All 24 passed. The whole flow (protected-resource and authorization-server discovery, the ID-JAG, our access
+token, an MCP `initialize` with it) for an OIDC ID token and for a SAML assertion, whose ID-JAG carries a
+`saml-nameid` `sub_id` that our receiver resolves through `samlSubjects`. MCPJam also records that our authorization
+server advertises the jwt-bearer grant and the ID-JAG profile. Each of its attacks, with our receiver's reason:
+
+| MCPJam's attack | Refused as |
+|---|---|
+| `bad_signature` | `bad_signature` |
+| `wrong_audience` | `wrong_audience` |
+| `expired` | `lifetime_too_long`: its expired ID-JAG also lives 3600 s, and the lifetime cap (900 s) comes first. The `exp` check has its own tests. |
+| `missing_claims` | `missing_claim` |
+| `invalid_type_header` | `wrong_typ` |
+| `wrong_issuer` | `untrusted_issuer` |
+| `resource_mismatch` | `unknown_resource` |
+| `client_id_mismatch` | `client_mismatch` |
+| `unknown_kid` | `bad_signature` (no key in the issuer's JWKS) |
+| `scope_denial` | `no_scope` |
+| `unknown_sub` | Policy, not an attack: with `jitProvisioning`, a new user (with SAML, under its own NameID, not linked to the known user); without it, `unknown_subject`. |
+
+MCPJam reports "unknown" for the MCP Enterprise-Managed Authorization extension because the test's MCP endpoint
+doesn't advertise it. That's the MCP server's part, not the receiver's.
+
+## identity-provider.net → our receiver
+
+`test/interop/zipidp.test.ts`, 4 tests, Node only, live on the internet. It is skipped unless `INTEROP_ZIPIDP=1`:
+
+```sh
+INTEROP_ZIPIDP=1 pnpm vitest run --project node test/interop/zipidp.test.ts
+```
+
+[identity-provider.net](https://identity-provider.net) ("ZipIdP") is a stub IdP for testing Cross App Access, one
+of the [xaa.rocks](https://xaa.rocks) tools. Anyone can make a sandbox (no account: a cookie), and sign-in is
+simulated (any username, any 6-digit code). The test makes a sandbox, registers our receiver's authorization server
+(its issuer as the audience), the MCP resource and an agent client with a connection to our receiver, signs a user
+in, and exchanges the ID token, then the refresh token, for ID-JAGs. Our receiver runs in-process and fetches only
+ZipIdP's real JWKS. The test deletes every record it made (a sandbox itself can't be deleted).
+
+### Result (2026-10-14)
+
+All 4 passed. ZipIdP's ID-JAG: `typ` `oauth-id-jag+jwt`, RS256 with a key from `/jwks`, `iss`
+`https://identity-provider.net`, `aud` our issuer, `client_id` the agent's id at our receiver, an opaque `sub`,
+`email`, `auth_time`, `resource`, `scope`, `jti`, 300 s. No `act`.
+
+| Check | Result |
+|---|---|
+| ID token → ID-JAG → our access token | Accepted; the user provisioned just in time and linked by `sub` |
+| The same ID-JAG again | Refused: `replay` |
+| Refresh token as the subject token | Accepted; the same local user |
+| The connection re-pointed at another client id | Refused: `client_mismatch` |
+| ZipIdP set to sign ID-JAGs with ML-DSA-65 | Refused: `disallowed_alg`, a normal refusal, not an error |
+
+ZipIdP's JWKS mixes its RS256 key with ML-DSA keys (`kty: "AKP"`); that doesn't affect picking the RS256 key.
+It puts a `sub_id` in the ID-JAG only for users who signed in through an upstream IdP, so SAML subjects aren't
+tested here (MCPJam and xaa.dev cover them).
+
 ## CI
 
-`.github/workflows/interop.yml` runs the Keycloak and node-oauth2-server jobs by hand and every Monday:
+`.github/workflows/interop.yml` runs the Keycloak, node-oauth2-server, MCPJam and identity-provider.net jobs by hand
+and every Monday:
 
-- the Keycloak image is pinned by digest, and node-oauth2-server by commit;
+- the Keycloak image is pinned by digest, node-oauth2-server by commit, and `@mcpjam/sdk` by version;
+- the identity-provider.net job is live: it fails if that service is down or has changed;
 - actions are pinned by SHA, as in `ci.yml`;
 - the only permission is `contents: read`.
 

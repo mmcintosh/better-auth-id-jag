@@ -727,3 +727,22 @@ preview or date yet (its release notes, Microsoft's July 2026 MCP post and the M
   been looked at goes in `ACKNOWLEDGED`.
 - **docs/interop.md:** a "not possible yet" row for Entra as issuer. Its on-behalf-of flow is jwt-bearer too but
   not ID-JAG; our receiver refuses those tokens by `typ`.
+
+## D-035: MCPJam and identity-provider.net in the weekly interop (2026-10-14)
+
+The maintainer's request: as much independent coverage of the receiver as early as possible. Until now its only
+non-Okta evidence was our own issuer.
+
+- **MCPJam** (`test/interop/mcpjam.test.ts`): its Cross App Access debugger is an independent client and IdP with a
+  negative mode for each check a receiver must make. The test drives its engine, `@mcpjam/sdk`, pinned at 9.3.0 and
+  installed outside the lockfile (as node-oauth2-server, Interop row 4), over real HTTP on 127.0.0.1, for OIDC and
+  SAML: 24 tests. Each attack is asserted by our audit reason, not only by "refused". MCPJam's `expired` ID-JAG
+  also lives 3600 s, so it exercises the lifetime cap, not `exp`; recorded rather than worked around. Its telemetry
+  is off (`DO_NOT_TRACK`).
+- **identity-provider.net** (`test/interop/zipidp.test.ts`): a free stub IdP for Cross App Access, independent of
+  Okta and of us, and the first second issuer for #24 that needs no trial. Live: a fresh sandbox per run, every
+  record deleted afterwards. It can fail because the service is down or changed its forms; it runs weekly, not on
+  pushes, for that reason.
+- **Probed but not added:** `@atlasauth/pca-idjag` 0.4.1 as a verifier of our issuer refuses every ID-JAG without
+  `act`, which our issuer doesn't mint (D-036 changes that); with `act` it accepts ES256, RS256 and EdDSA.
+
