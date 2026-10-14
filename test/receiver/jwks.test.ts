@@ -274,8 +274,8 @@ describe("JwksCache: caching and refetch (S4)", () => {
 describe("through the grant", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  async function host(o: { now?: () => Date } = {}) {
-    const idp = await testIdp();
+  async function host(o: { now?: () => Date; alg?: "RS256" | "ES256" } = {}) {
+    const idp = await testIdp(o.alg ? { alg: o.alg } : {});
     const net = network(idp);
     const rec = recorder();
     const h = await receiverHost("mcp", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: net.fetch, ...(o.now ? { clock: o.now } : {}) }, recorder: rec });
@@ -306,6 +306,21 @@ describe("through the grant", () => {
     const r = await redeem(s.h, s.client, await s.mint({ iat: Math.floor(t / 1000), exp: Math.floor(t / 1000) + 300 }, fresh));
     expect(r.status, r.text).toBe(200);
     expect(s.net.calls).toHaveLength(2);
+  });
+
+  it("key_ops (RFC 7517 §4.3): a key listing verify among other operations is used, as Oracle publishes; one without verify is not", async () => {
+    for (const alg of ["RS256", "ES256"] as const) {
+      const s = await host({ alg });
+      // Oracle's: WebCrypto refuses to import an RSA signing key for these usages unless only verify is kept.
+      s.idp.publish([{ ...s.idp.key.jwk, key_ops: ["wrapKey", "encrypt", "verify"] }]);
+      const r = await redeem(s.h, s.client, await s.mint());
+      expect(r.status, `${alg}: ${r.text}`).toBe(200);
+    }
+    const s = await host({ alg: "RS256" });
+    s.idp.publish([{ ...s.idp.key.jwk, key_ops: ["encrypt", "wrapKey"] }]);
+    await redeem(s.h, s.client, await s.mint());
+    await s.rec.settle();
+    expect(s.rec.refused.map((e) => [e.reason, e.detail])).toEqual([["jwks_unavailable", "JWKS has no signing keys"]]);
   });
 
   it("refetch rate limit: unknown kids within a minute cause no fetch and fail as bad_signature", async () => {

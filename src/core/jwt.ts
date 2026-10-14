@@ -213,11 +213,13 @@ async function verifySignature(token: string, key: IdJagKey, algorithms: string[
       }
       refuse("bad_signature", "no matching key among several with this kid");
     }
-    const code = (error as { code?: string }).code ?? "";
+    // jose's codes are strings; a DOMException's legacy `code` is a number (WebCrypto refusing a key: 12).
+    const raw = (error as { code?: unknown } | null)?.code;
+    const code = typeof raw === "string" ? raw : "";
     if (SIGNATURE_CODES.has(code)) refuse("bad_signature", code);
-    // Anything else (a JWKS that didn't load, a network error, a timeout) is the issuer's keys
-    // being unavailable, not a forged token: the audit log must say so.
-    refuse("jwks_unavailable", code || (error as Error).name);
+    // Anything else (a JWKS that didn't load, a key WebCrypto won't import, a network error, a timeout) is the
+    // issuer's keys being unavailable, not a forged token: the audit log must say so.
+    refuse("jwks_unavailable", code || (error instanceof Error ? error.name : "error"));
   }
 }
 
