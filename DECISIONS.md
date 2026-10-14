@@ -810,3 +810,19 @@ makes it RS256. The issuer assumed EdDSA in two places, which would break on tha
   Mutations: restoring each EdDSA assumption fails 1, 1 and 3 tests.
 - **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range
   (the upstream watch, #20).
+
+## D-039: a weekly watch for upstream changes (2026-10-14)
+
+Issue #20. Three Better Auth items change what this package does, and the peer range (`<1.8.0`) needs a deliberate
+test-and-widen step, so a third job in the weekly draft watch (`scripts/upstream-watch.mjs`) fails when:
+
+- better-auth/better-auth#9935 (the jwt default → RS256, ID-token authentication context; D-038) is merged or closed;
+- #8023 (RFC 8693 token exchange as an official plugin) or #11267 (authentication context in access tokens) is closed,
+  or a pull request in better-auth/better-auth linked to either is merged;
+- npm has a `better-auth` or `@better-auth/oauth-provider` version at or above 1.8.0, pre-releases included: one
+  finding per minor line, pre-releases apart from releases, so 1.8 betas fail once and 1.8.0 fails again.
+
+Each finding prints its next step and a key; acknowledging the key (`ACKNOWLEDGED`, as the Entra watch) makes it green.
+Public GitHub and npm APIs only; the workflow's token only raises the rate limit. Verified: green on 2026-10-14; a probe
+copy pointed at a merged PR, a closed issue with a merged linked PR, and the 1.6/1.7 lines fails with one finding each.
+

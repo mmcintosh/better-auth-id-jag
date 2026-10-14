@@ -1,6 +1,7 @@
 # Weekly: fails when the IETF has a newer revision of the ID-JAG draft than SUPPORTED_DRAFT, so a draft
 # change (claims, URNs, rules) is noticed without anyone watching the datatracker (scripts/draft-watch.mjs);
-# and when Microsoft Entra's release notes first mention ID-JAG (scripts/entra-watch.mjs).
+# when Microsoft Entra's release notes first mention ID-JAG (scripts/entra-watch.mjs); and when an upstream Better
+# Auth change this package depends on lands, or a 1.8 appears on npm (scripts/upstream-watch.mjs).
 name: Draft watch
 on:
   schedule: [{ cron: "41 6 * * 1" }]
@@ -25,3 +26,14 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 24 }
       - run: node scripts/entra-watch.mjs
+  upstream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: 24 }
+      # The token only raises GitHub's rate limit for the public reads (contents: read).
+      - run: node scripts/upstream-watch.mjs
+        env: { GITHUB_TOKEN: "${{ github.token }}" }
