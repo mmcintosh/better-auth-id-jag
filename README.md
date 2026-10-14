@@ -111,7 +111,7 @@ Then create the tables with your usual migration (`npx auth migrate`, or `npx au
 4. Call `/mcp` with the access token.
 
 > [!IMPORTANT]
-> **The audience is the authorization server's issuer, exactly as its metadata publishes it**, path included: the `issuer` field of `/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. Not the MCP resource, not the bare origin, not with a trailing slash. The receiver compares it exactly. In Okta, that is the value for the resource app's **Resource Server** tab.
+> **The audience is the authorization server's issuer, exactly as its metadata publishes it**, path included: the `issuer` field of `/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. Not the MCP resource, not the bare origin, not with a trailing slash. The receiver compares it exactly. In Okta, that is the value for the resource app's **Machine Assignments** tab, **Resource server access**, **Issuer URL** ([docs/okta.md](docs/okta.md) has the whole Okta setup).
 
 ## 🏢 Issuer: `idJagIssuer()`
 
@@ -268,7 +268,7 @@ idJagGrant({
 
 `issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
 
-**Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14).
+**Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14). The whole Okta setup, with the console values and what each refusal means: [docs/okta.md](docs/okta.md).
 
 ### Who the subject is
 
@@ -436,7 +436,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | Issuer | Our receiver | ✅ Verified, in every CI run, on Node and in workerd |
 | Issuer | Keycloak 26.8.0 (`identity-assertion-jwt`, experimental) | ✅ Verified; ES256, RS256 and EdDSA. Keycloak ignores `scope` and `resource` |
 | Issuer | node-oauth2-server ([PR #462](https://github.com/node-oauth/node-oauth2-server/pull/462), unreleased) | ✅ Verified; ES256 and RS256 (no EdDSA there) |
-| **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks |
+| **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks. Setup: [docs/okta.md](docs/okta.md) |
 | **xaa.dev** (Okta's playground), OIDC and SAML | Receiver on Workers + D1 | ✅ **Verified live** with its resource-app tester through to an MCP `tools/call`; SAML users resolved by NameID (`sub_id`) |
 | **MCPJam** (its Cross App Access debugger), OIDC and SAML | Receiver | ✅ Verified weekly: the whole flow to an MCP `initialize`, and each of its ten attacks refused with the matching reason |
 | **identity-provider.net** (a stub IdP on xaa.rocks) | Receiver | ✅ Verified live, weekly: ID token and refresh token subjects; replay, another client id and an ML-DSA signature refused |

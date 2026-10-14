@@ -68,7 +68,9 @@ node examples/workers/client.mjs https://<idp> https://<mcp>                    
 
 ## Okta Cross App Access
 
-Set `OKTA_ISSUER` and `OKTA_JWKS_URI` on the MCP server. In Okta, the resource app's **Resource Server** tab takes the
+For your own server, [docs/okta.md](../../docs/okta.md) is the whole guide. For these Workers:
+
+Set `OKTA_ISSUER` and `OKTA_JWKS_URI` on the MCP server. In Okta, the resource app's **Issuer URL** (Machine Assignments, Resource server access) takes the
 MCP server's issuer **exactly as its metadata publishes it**, path included: the `issuer` field of
 `https://<mcp>/.well-known/oauth-authorization-server/api/auth`, for example `https://<mcp>/api/auth`. The receiver
 compares `aud` with it exactly. The AI agent's client id and secret are issued by the MCP server (`/setup`) and entered

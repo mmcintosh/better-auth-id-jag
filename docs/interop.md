@@ -189,7 +189,7 @@ The same org and deployment, `okta-agent.mjs` with `--subject=refresh`, `--negat
 | An audience with no connection | **Okta** refused: `invalid_target` |
 | Cross-app access disabled on the resource app | **Okta** refused the exchange of both an ID token and a refresh token: `invalid_target` |
 | The connection re-created with the issuer URL in the client-id field | Okta minted an ID-JAG whose `client_id` was that URL; **our receiver** refused it (`client_mismatch`: not the client that authenticated) |
-| The user unassigned (with a saved refresh token) | **Okta** refused: `access_denied`, "User is not assigned to the client application."; reassigned, the same refresh token worked again |
+| The user unassigned from the resource app (with a saved refresh token) | **Okta** refused: `access_denied`, "User is not assigned to the client application."; reassigned, the same refresh token worked again |
 | A new user, first use | Provisioned just in time from the verified `email` and linked |
 | That user deactivated (with a saved refresh token) | **Okta** refused: `invalid_request`, "'subject_token' is invalid." |
 
@@ -199,24 +199,7 @@ single use. Deactivating a user doesn't remove the local user our receiver provi
 on the trust entry it does stop them: see the better-auth-scim-provisioning row), and
 an access token already issued lives until it expires.
 
-Setting it up in Okta (Admin Console, 2026.09):
-- The **resource app** is an OIDC web app. On its **Machine Assignments** tab, **Resource server access**,
-  enable **Cross-app access (XAA)** and set its **Issuer URL** to the receiver's `issuer`, exactly as the
-  receiver's `/.well-known/oauth-authorization-server/...` publishes it (path included). There is no org-wide
-  feature toggle.
-- The **AI agent** is registered under **Directory > AI agents** (manually), with Okta-generated client
-  credentials (a client secret); its app needs the Authorization Code, Refresh Token and Token Exchange grants.
-- Its **resource connection** (Application > App configured for AI Agent access) takes the resource app, the
-  **resource indicator** (our `/mcp`), the **agent's client id registered at our receiver**, and the scopes.
-- Subject mapping: the receiver provisioned the user just in time from the verified `email` claim; Okta's `sub`
-  is then linked, so later ID-JAGs find the same user.
-- The agent's app needs the **Refresh Token** grant for refresh tokens as subject tokens; a persistent refresh
-  token (not rotated on each use) is simpler for testing.
-- Turning cross-app access off and on again on the resource app asks for the issuer URL again and drops the
-  resource connection's resource indicator. The connection's **client id can't be edited**: deactivate the
-  connection, remove it, and add it again. Check the client id field: it may come up filled with the issuer URL,
-  which our receiver then refuses as `client_mismatch`.
-- Assignments made through a group can't be removed for one user: **Convert assignments** to individual ones first.
+Setting it up in Okta, step by step, with the values for your own server: [docs/okta.md](okta.md).
 
 ## xaa.dev → our receiver
 
