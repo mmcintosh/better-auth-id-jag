@@ -1931,5 +1931,86 @@
   "paths": [
    "test/issuer/subject-age.test.ts"
   ]
+ },
+ {
+  "name": "D-036 act names the client at the resource, not here",
+  "file": "src/issuer/exchange.ts",
+  "a": "act: { sub: client.clientId,",
+  "b": "act: { sub: grant.clientIdAtResource,",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 act sub_profile dropped",
+  "file": "src/issuer/exchange.ts",
+  "a": "...(grant.act.sub_profile !== undefined ? { sub_profile: grant.act.sub_profile } : {})",
+  "b": "",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 act: true ignored",
+  "file": "src/issuer/policy.ts",
+  "a": "...(v.claims?.act === true ? { act: {} } :",
+  "b": "...(v.claims?.act === true ? {} :",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 act from the hook not carried into the grant",
+  "file": "src/issuer/policy.ts",
+  "a": "const act = allows.find((a) => a.act !== undefined)?.act;",
+  "b": "const act = undefined as { sub_profile?: string } | undefined;",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 act object loose (another actor's sub accepted)",
+  "file": "src/issuer/policy.ts",
+  "a": "z.strictObject({ sub_profile: subProfile.optional() })",
+  "b": "z.looseObject({ sub_profile: subProfile.optional() })",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 sub_profile any string",
+  "file": "src/issuer/policy.ts",
+  "a": ".regex(/^[^\\p{Cc}\\p{Cf}\\p{Z}\\s]+(?: [^\\p{Cc}\\p{Cf}\\p{Z}\\s]+)*$/u, \"space-separated names\")",
+  "b": ".min(1)",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 sub_profile format characters allowed",
+  "file": "src/issuer/policy.ts",
+  "a": "[^\\p{Cc}\\p{Cf}\\p{Z}\\s]+(?: [^\\p{Cc}\\p{Cf}\\p{Z}\\s]+)*$",
+  "b": "[^\\p{Cc}\\s]+(?: [^\\p{Cc}\\s]+)*$",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 sub_profile length not capped",
+  "file": "src/issuer/policy.ts",
+  "a": "const subProfile = z.string().max(256)",
+  "b": "const subProfile = z.string()",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-036 issued event without act",
+  "file": "src/issuer/exchange.ts",
+  "a": "      organizationId: grant.tenant,\n      ...(claims.act ? { act: claims.act } : {}),",
+  "b": "      organizationId: grant.tenant,",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
  }
 ]

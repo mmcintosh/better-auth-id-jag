@@ -94,6 +94,13 @@ describe("receiver: a valid ID-JAG", () => {
     const plain = await redeem(s.h, s.client, await s.valid());
     const at2 = await jwtVerify(plain.body.access_token as string, createLocalJWKSet(jwks), { issuer: ISSUER, audience: MCP_RESOURCE });
     expect(at2.payload).not.toHaveProperty("act");
+    // The accepted event names the actor (the current one only, made log-safe, nothing else of the claim); none without act.
+    await s.rec.settle();
+    expect(s.rec.accepted.map((e) => e.act)).toEqual([act, undefined]);
+    const chained = { sub: "0oa-agent\u202e", sub_profile: "ai_agent\u2028fake", extra: "x", act: { sub: "earlier" } };
+    expect((await redeem(s.h, s.client, await s.valid({ act: chained }))).status).toBe(200);
+    await s.rec.settle();
+    expect(s.rec.accepted.at(-1)?.act).toEqual({ sub: "0oa-agent", sub_profile: "ai_agentfake" });
   });
 
   it("yields an access token audience-restricted to the MCP resource, with no refresh token and no ID token", async () => {

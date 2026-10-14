@@ -277,6 +277,22 @@ describe("refusals: policy (S1, S7)", () => {
     }
   });
 
+  it("a sub_profile that is blank, padded, or carries invisible or separator characters is policy_denied (D-036)", async () => {
+    let sub_profile = "";
+    const host = await createIssuerHost({ issuer: { authorize: (() => ({ decision: "allow", scopes: ["read"], claims: { act: { sub_profile } } })) as never } });
+    const { client, idToken } = await setup(host);
+    // Blank, leading/trailing/doubled space, tab, NBSP, zero-width space, RTL override, BOM, U+2028, U+2029, word joiner.
+    for (const p of [" ", " ai_agent", "ai_agent ", "ai_agent  web_app", "ai_agent\tweb_app", "ai_agent\u00a0web_app", "ai\u200bagent", "ai_agent\u202e", "\ufeffai_agent", "ai\u2028agent", "ai\u2029agent", "ai\u2060agent"]) {
+      sub_profile = p;
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+    }
+    // Space-separated names (Okta's form), and non-ASCII letters, are fine.
+    for (const p of ["ai_agent", "ai_agent web_app", "agent-é", "x".repeat(256)]) {
+      sub_profile = p;
+      expect((await exchange(host, client, idToken)).status, p).toBe(200);
+    }
+  });
+
   it("the hook's details stay in the audit log, made log-safe", async () => {
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "deny", reason: "line one\nfake line" }) } });
     const { client, idToken } = await setup(host);

@@ -478,5 +478,23 @@
   "paths": [
    "test/core/audit.test.ts"
   ]
+ },
+ {
+  "name": "audit: act stored as sent (not log-safe, every key)",
+  "file": "src/core/audit.ts",
+  "a": "k === \"act\" && v ? safeAct(v as ActSummary) : v",
+  "b": "v",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "audit: act sub_profile not made log-safe",
+  "file": "src/core/audit.ts",
+  "a": "{ sub_profile: logSafe(a.sub_profile, 256) }",
+  "b": "{ sub_profile: a.sub_profile }",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]

@@ -1681,5 +1681,14 @@
   "paths": [
    "test/receiver/scim.test.ts"
   ]
+ },
+ {
+  "name": "receiver: accepted event without act",
+  "file": "src/receiver/grant.ts",
+  "a": "      resolvedBy: via,\n      ...(claims.act ? { act: claims.act } : {}),",
+  "b": "      resolvedBy: via,",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]

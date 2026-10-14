@@ -9,6 +9,13 @@
   its client id at the IdP, as Okta does for AI agents. Off unless the hook asks; the actor is always the requesting
   client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
   carries it into the access token.
+- **Audit: `act`** (D-040). `id-jag.issued` and `id-jag.accepted` events (and audit rows' `details`) carry the
+  ID-JAG's `act` as `{ sub, sub_profile? }`: the current actor only, log-safe. New exported type `ActSummary`.
+
+### Changed
+
+- **Issuer: `sub_profile` must be space-separated names** (D-040). Blank, padded or doubled spaces, and control,
+  format (zero-width, bidi override) or separator characters are refused as a malformed verdict (`policy_denied`).
 
 ### Fixed
 

@@ -267,6 +267,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       jti,
       expiresAt: new Date(exp * 1000),
       organizationId: grant.tenant,
+      ...(claims.act ? { act: claims.act } : {}),
     });
     maybeSweep(ctx, state);
     // RFC 8693 §2.2.1. Cache-Control: no-store comes from the token endpoint (metadata.noStore).

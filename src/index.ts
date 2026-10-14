@@ -47,7 +47,7 @@ export { ID_JAG_REGISTRY_ERROR_CODES } from "./issuer/registry";
 
 // Refusal reasons and audit events.
 export { REASONS, type ReasonCode, type OAuthErrorCode } from "./core/errors";
-export type { AuditOptions, IdJagEvent, IdJagEventHandlers, IssuedEvent, RefreshIssuedEvent, AcceptedEvent, RefusedEvent, AdminChangedEvent } from "./core/audit";
+export type { ActSummary, AuditOptions, IdJagEvent, IdJagEventHandlers, IssuedEvent, RefreshIssuedEvent, AcceptedEvent, RefusedEvent, AdminChangedEvent } from "./core/audit";
 
 // An ID-JAG toolkit, for building or testing another issuer or receiver.
 export { parseIdJag, verifyIdJag, buildIdJag } from "./core/jwt";
