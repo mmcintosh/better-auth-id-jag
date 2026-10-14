@@ -20,7 +20,7 @@
 
 - **The receiver's access token doesn't carry `auth_time` either** (#26), only `acr`/`amr` were named: README and
   `docs/security.md`. A test pins that none of the three reaches the access token or its introspection, so an
-  upstream change (better-auth#11267) is noticed; `authTime` at `grant.ts` stays, with a comment that it has no effect yet.
+  upstream change that lets `auth_time` through (better-auth#11267) is noticed (the grant passes no `acr`/`amr`); `authTime` at `grant.ts` stays, with a comment that it has no effect yet.
 - **How the person signed in** (`docs/security.md`, README; D-033): an ID-JAG's `auth_time`, `acr` and `amr` are
   copied from the subject token, never derived. From an ID token that is always `acr: "0"` and no `amr` (oauth-provider
   fixes them); only a SAML Assertion's class can claim MFA, so the SAML IdP must state only what the session did. A
