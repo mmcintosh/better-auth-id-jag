@@ -62,7 +62,7 @@ const atLeast18 = (v) => {
 };
 for (const name of PACKAGES) {
   // The abbreviated document: versions and dist-tags, without every version's full manifest.
-  const doc = await json(`https://registry.npmjs.org/${name.replace("/", "%2F")}`, { accept: "application/vnd.npm.install-v1+json" });
+  const doc = await json(`https://registry.npmjs.org/${name.replaceAll("/", "%2F")}`, { accept: "application/vnd.npm.install-v1+json" });
   const newer = Object.keys(doc.versions ?? {}).filter(atLeast18);
   console.log(`npm ${name}: latest ${doc["dist-tags"]?.latest}; versions >= 1.8.0-0: ${newer.length ? newer.join(", ") : "none"}`);
   // One finding per minor line, pre-releases apart from releases: 1.8 betas once, then 1.8.0 itself again.
