@@ -26,8 +26,8 @@
 ### Documentation
 
 - **`docs/okta.md`: the receiver behind Okta Cross App Access** (#22): the trust entry (the org issuer, its keys),
-  finding users, the Okta console values, what Okta's ID-JAG carries, cutoffs, and what each refusal means, all from
-  the live runs. The console steps moved there from `docs/interop.md`.
+  finding users, the Okta console values, what Okta's ID-JAG carries, cutoffs, and what each refusal means, from
+  the live runs and the code. The console steps moved there from `docs/interop.md`.
 - **The receiver's access token doesn't carry `auth_time` either** (#26), only `acr`/`amr` were named: README and
   `docs/security.md`. A test pins that none of the three reaches the access token or its introspection, so an
   upstream change that lets `auth_time` through (better-auth#11267) is noticed (the grant passes no `acr`/`amr`); `authTime` at `grant.ts` stays, with a comment that it has no effect yet.

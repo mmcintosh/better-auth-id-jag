@@ -29,7 +29,7 @@ idJagGrant({
       issuer: "https://acme.okta.com",                 // your org, exactly: not /oauth2/default
       jwksUri: "https://acme.okta.com/oauth2/v1/keys",  // the org's keys
       allowedClientIds: ["<the agent's client id here>"], // optional: only this client may present Okta's ID-JAGs
-      jitProvisioning: { trustEmailVerified: true },    // or another way to find users: see below
+      jitProvisioning: { trustEmailVerified: true },    // one way to find users, as the live run did: see below
     },
   ],
 });
@@ -48,19 +48,22 @@ idJagGrant({
 
 ### Finding the user
 
-Okta's ID-JAG names the user by `sub` (the Okta user id) and sends their `email`. The receiver finds the local user in
-this order ([README, "Who the subject is"](../README.md#who-the-subject-is)); pick the steps you want:
+Okta's ID-JAG names the user by `sub` (the Okta user id) and sends their `email`. The receiver tries these in order
+([README, "Who the subject is"](../README.md#who-the-subject-is)); the first that applies decides:
 
-| Way | Set | Good for | Watch out |
+| Step | Set | What it does | Watch out |
 |---|---|---|---|
-| A linked account | nothing (the default step) | Users who already have a link (`id-jag:https://<org>.okta.com` + Okta `sub`) | Someone has to create the links |
-| Email fallback | `emailFallback: { domains: ["acme.com"] }` | Existing local users with a verified email at a domain you own | Only for domains you control |
-| Just in time | `jitProvisioning: { trustEmailVerified: true }` | New users: created from `email` and linked to `sub`. The live run used this: the first ID-JAG created the user, later ones found it by the link | A deactivated Okta user's local account stays; only new ID-JAGs stop |
-| SCIM | `scim: { connectionId }` on the trust entry, `scim` on the receiver | Deprovisioning that also stops the user at your server | Needs `@better-auth/scim` and a database with transactions ([README](../README.md#scim-provisioned-users)) |
+| 1. `resolveSubject` | your hook | Link, reject, or continue | Runs first, on every ID-JAG |
+| 2. SCIM | `scim: { connectionId }` on the trust entry, `scim` on the receiver | The user that SCIM connection provisioned with `externalId` = `sub`, while active. Deprovisioning at the IdP then stops the user at your server too | **Required by default**: with no provisioned user the grant is refused, and steps 3–5 don't run (`scim.required: false` falls through). Okta's SCIM must send the Okta user id as `externalId`. Needs `@better-auth/scim` and a database with transactions: **not D1** ([README](../README.md#scim-provisioned-users)). Tested with better-auth-scim-provisioning, not run live with Okta |
+| 3. A linked account | nothing | The user linked to `id-jag:https://<org>.okta.com` + Okta `sub` | Someone, or step 4 or 5, has to create the link |
+| 4. Email fallback | `emailFallback: { domains: ["acme.com"] }` | A local user with that email, only if their email is verified, then linked | Refused if that user is already linked to another subject of this issuer, or if your Better Auth config turns account linking (or implicit linking) off |
+| 5. Just in time | `jitProvisioning: true` or `{ trustEmailVerified: true }` | A new user from `email`, then linked. The live run used this: the first ID-JAG created the user, later ones found it by the link | `trustEmailVerified` marks the new email verified on Okta's word (no `email_verified` claim is read), so email fallback and Better Auth's own account linking will then trust it. JIT refuses an email that already belongs to a local user. A deactivated Okta user's local account stays; only new ID-JAGs stop |
 
-JIT refuses an email that already belongs to another local user (`unknown_subject`), so it can't take over an
-account. To require MFA, see [How the person signed in](security.md#how-the-person-signed-in): decide in
-`resolveSubject`, because the access token doesn't carry `acr`, `amr` or `auth_time`.
+Otherwise the grant is refused (`unknown_subject`). To require MFA, see
+[How the person signed in](security.md#how-the-person-signed-in): decide in `resolveSubject`, because the access token
+doesn't carry `acr`, `amr` or `auth_time`. The claims recorded from Okta's ID-JAG in the live run include neither `acr` nor
+`amr` ([docs/interop.md](interop.md#okta-cross-app-access--our-receiver)), so check what your org sends before you
+require them: a rule that requires MFA refuses every ID-JAG without it.
 
 ## 3. In the Okta Admin Console
 
@@ -73,7 +76,7 @@ account. To require MFA, see [How the person signed in](security.md#how-the-pers
 | Same | **Resource indicator** | Your MCP resource, for example `https://mcp.example.com/mcp` |
 | Same | **Client id** | The agent's client id **at your server** (section 2), not its Okta client id |
 | Same | Scopes | The scopes the agent may get, for example `read` |
-| Resource app → Assignments | Users or groups | Who may use it through the agent |
+| Resource app → Assignments | Users or groups | Who may use it through the agent (unassigning a user here made Okta refuse their exchanges in the live run) |
 
 Things the live runs ran into:
 - **The connection's client id can come up filled in with the issuer URL.** Our receiver then refuses every ID-JAG
@@ -92,8 +95,8 @@ Things the live runs ran into:
 | `iss` | `https://<org>.okta.com` | Must equal a trust entry's `issuer` |
 | `aud` | The issuer URL entered on the resource app | Must equal your issuer exactly |
 | `client_id` | The client id entered in the resource connection | Must be the client that authenticates |
-| `sub`, `email` | The Okta user id, the user's email | Find the user (section 2) |
-| `resource`, `scope` | As on the connection | The access token is for that resource, with those scopes ∩ the request's |
+| `sub`, `sub_profile`, `email` | The Okta user id, `user`, the user's email | Find the user by `sub` and `email` (section 2) |
+| `resource`, `scope` | As on the connection | The access token is for that resource, with the scopes in all of: the ID-JAG, the request, the client's and the resource's (`openid` and `offline_access` dropped) |
 | `act` | `{ "sub": "<the agent's Okta client id>", "sub_profile": "ai_agent web_app" }` | Accepted and **carried into the access token** (D-010) |
 | `exp − iat`, `jti` | 300 s, `IDAAG.…` | At most 900 s; each `jti` once |
 
@@ -122,24 +125,37 @@ short for agents, and shorter for sensitive scopes with `scopeExpirations` (the 
 
 ## 6. Troubleshooting
 
-The agent only ever sees a generic `invalid_grant` (or `invalid_client`, `invalid_scope`, `invalid_target`): the
-receiver doesn't tell a caller why it distrusts an issuer or a user. The real reason is in the receiver's audit
-trail: `events.onRefused` (`e.reason`), or the `idJagAudit` table with `auditLog: { retentionDays }`.
+What the agent sees depends on the check. Problems it could see for itself (a malformed ID-JAG, a wrong `typ` or
+`alg`, a lifetime over 900 s, an expired token, an unsupported claim) come back as `invalid_grant` with a specific
+`error_description`. Everything that depends on whom your server trusts (the issuer, the signature, the audience,
+the client, the subject, a replay) comes back as `invalid_grant` with one generic description, so a caller can't probe
+your configuration. Client authentication is oauth-provider's own (`invalid_client`, `unauthorized_client`). The
+real reason is always in the receiver's audit trail: `events.onRefused` (`e.reason`), or the `idJagAudit` table with
+`auditLog: { retentionDays }`.
+
+The checks run in a fixed order ([README, "Receiver"](../README.md#-receiver-idjaggrant)): client, format and times,
+issuer, signature, `aud`, `client_id`, scopes, resource, single use, then the subject. So you see one problem at a
+time, and fixing it can reveal the next. An ID-JAG is spent at the single-use step, before the subject is resolved:
+after an `unknown_subject`, the agent needs a new ID-JAG.
 
 | Reason | Likely cause with Okta | Fix |
 |---|---|---|
+| `client_authentication_failed`, `client_not_allowed_grant`, `public_client` | The agent's credentials at your server are wrong, its client lacks the jwt-bearer grant, or it's a public client | Register it at your server as a confidential client with `urn:ietf:params:oauth:grant-type:jwt-bearer` (section 2) |
+| `expired`, `not_yet_valid` | Clock skew between Okta and your server beyond `clockSkewSeconds` (60), or an ID-JAG kept past its 300 s | Sync clocks; exchange shortly before redeeming |
 | `untrusted_issuer` | The trust entry names `/oauth2/default` or another issuer | `issuer: "https://<org>.okta.com"`, exactly |
 | `jwks_unavailable` | `discoveryUri` points at the org's `oauth-authorization-server` document (no `jwks_uri`), or the keys can't be fetched | `jwksUri: "https://<org>.okta.com/oauth2/v1/keys"`, or the org's `openid-configuration` |
+| `bad_signature` | The keys come from somewhere else than the org's, for example a half-updated entry with the org issuer but `/oauth2/default/v1/keys` (Okta's `kid` isn't there) | The org's `/oauth2/v1/keys` |
 | `wrong_audience` | The resource app's Issuer URL isn't your issuer exactly (a trailing slash, no `/api/auth`, the MCP URL) | Copy `issuer` from your `/.well-known/oauth-authorization-server/api/auth` |
-| `client_mismatch` | The connection's client id isn't the client authenticating at your server, for example the issuer URL filled in | Re-create the connection with the agent's client id at your server |
-| `unknown_subject` | No linked account, no `emailFallback` domain, no JIT; or JIT found the email taken by another user | Section 2, "Finding the user" |
-| `unknown_resource` | The connection's resource indicator isn't a resource your server registered | Use your MCP resource URL exactly |
+| `client_mismatch` | The connection's client id isn't the client authenticating at your server (for example the issuer URL filled in), or that client isn't in the trust entry's `allowedClientIds` | Re-create the connection with the agent's client id at your server; check `allowedClientIds` |
 | `no_scope` | No scope is in all of: the ID-JAG (the connection's scopes), the request, the client's registered scopes and your resource's | Align the connection's scopes with your client's and your resource's |
+| `unknown_resource` | The connection's resource indicator isn't a resource your server registered | Use your MCP resource URL exactly |
 | `replay` | The agent presented the same ID-JAG twice | Get a new ID-JAG for each access token |
+| `unknown_subject` | No step in "Finding the user" found or created the user: no link, no `emailFallback` domain, no JIT, SCIM required with no provisioned user, or JIT found the email taken | Section 2, "Finding the user" |
+| `subject_rejected` | Your `resolveSubject` rejected it, for example an MFA rule and an ID-JAG without `amr`/`acr` | Check what your rule requires against what Okta sends |
 | `unsupported_claim` | The ID-JAG carries `authorization_details` or `cnf` | Not supported yet. (`act` is supported: Okta always sends it for an AI agent.) |
 
 Okta's own refusals happen at the token exchange, before your server sees anything: `invalid_target`,
-`invalid_scope`, `access_denied` (section 5).
+`invalid_scope`, `access_denied`, `invalid_request` (section 5).
 
 ## Try it
 

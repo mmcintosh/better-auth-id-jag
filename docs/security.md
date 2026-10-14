@@ -15,7 +15,7 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 - **Configure trusted issuers.** With none, every ID-JAG is refused, and the plugin warns at startup. With `sso: true` but no sso plugin, no sso provider is trusted (also a warning).
 - **Restrict `canManage`.** The registry API (`registry.canManage`) decides who gets ID-JAGs for what, and the blocks API (`blocks.canManage`) who is cut off; either also reads the audit log. Each must return exactly `true`; give them to administrators only.
 - **On Workers, give Better Auth `waitUntil`** (`advanced.backgroundTasks`). Without it, audit rows and event handlers are cut off when the response is sent.
-- **Keep the audience exact.** Configure the receiver's issuer identifier, and enter it at the IdP (Okta's Resource Server tab, your registry, your policy), exactly as `/.well-known/oauth-authorization-server` publishes it, path included.
+- **Keep the audience exact.** Configure the receiver's issuer identifier, and enter it at the IdP (Okta's resource app: Machine Assignments, Resource server access, Issuer URL; your registry; your policy), exactly as `/.well-known/oauth-authorization-server` publishes it, path included.
 - **Don't take "how they signed in" on faith.** See the next section.
 
 ## How the person signed in

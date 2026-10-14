@@ -189,7 +189,7 @@ The same org and deployment, `okta-agent.mjs` with `--subject=refresh`, `--negat
 | An audience with no connection | **Okta** refused: `invalid_target` |
 | Cross-app access disabled on the resource app | **Okta** refused the exchange of both an ID token and a refresh token: `invalid_target` |
 | The connection re-created with the issuer URL in the client-id field | Okta minted an ID-JAG whose `client_id` was that URL; **our receiver** refused it (`client_mismatch`: not the client that authenticated) |
-| The user unassigned (with a saved refresh token) | **Okta** refused: `access_denied`, "User is not assigned to the client application."; reassigned, the same refresh token worked again |
+| The user unassigned from the resource app (with a saved refresh token) | **Okta** refused: `access_denied`, "User is not assigned to the client application."; reassigned, the same refresh token worked again |
 | A new user, first use | Provisioned just in time from the verified `email` and linked |
 | That user deactivated (with a saved refresh token) | **Okta** refused: `invalid_request`, "'subject_token' is invalid." |
 

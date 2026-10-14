@@ -111,7 +111,7 @@ Then create the tables with your usual migration (`npx auth migrate`, or `npx au
 4. Call `/mcp` with the access token.
 
 > [!IMPORTANT]
-> **The audience is the authorization server's issuer, exactly as its metadata publishes it**, path included: the `issuer` field of `/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. Not the MCP resource, not the bare origin, not with a trailing slash. The receiver compares it exactly. In Okta, that is the value for the resource app's **Resource Server** tab.
+> **The audience is the authorization server's issuer, exactly as its metadata publishes it**, path included: the `issuer` field of `/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. Not the MCP resource, not the bare origin, not with a trailing slash. The receiver compares it exactly. In Okta, that is the value for the resource app's **Machine Assignments** tab, **Resource server access**, **Issuer URL** ([docs/okta.md](docs/okta.md) has the whole Okta setup).
 
 ## 🏢 Issuer: `idJagIssuer()`
 
