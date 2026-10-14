@@ -449,7 +449,7 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## ☁️ Example: two Workers
 
-[examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with one tool, `whoami`, and `client.mjs`, which plays the agent through every step and then shows a replay being refused. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
+[examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with three tools (`whoami`, `list_notes`, `add_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server keeps agents read-only, so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
 
 ## 🧩 Runtimes and databases
 

@@ -10,6 +10,12 @@
   client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
   carries it into the access token.
 
+### Example
+
+- **The example IdP tells AI agents from apps** (D-037): `--setup` registers both, the IdP names the agent in
+  `act` (from client metadata `agent: true`), and the demo MCP server keeps agents read-only. `client.mjs
+  --client=app` runs as the app. Re-run `--setup` once.
+
 ### Documentation
 
 - **How the person signed in** (`docs/security.md`, README; D-033): an ID-JAG's `auth_time`, `acr` and `amr` are

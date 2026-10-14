@@ -1,7 +1,9 @@
 // The enterprise IdP: an OAuth 2.1 / OIDC provider (oauthProvider + jwt, ES256) that also issues
-// ID-JAGs (idJagIssuer). Its policy is a code hook: the agent client may reach the MCP server's
-// authorization server (MCP_AS_ISSUER) for the `read` scope; the client's id *there* is kept in its
-// metadata (`clientIdAtResource`), because the MCP server issues the client its own id.
+// ID-JAGs (idJagIssuer). Its policy is a code hook: a registered client may reach the MCP server's
+// authorization server (MCP_AS_ISSUER) for the `read` scope (`write` for WRITERS); the client's id
+// *there* is kept in its metadata (`clientIdAtResource`), because the MCP server issues the client its
+// own id. A client registered as an AI agent (metadata `agent: true`) is named in the ID-JAG's `act`
+// (D-036), as Okta does, so the MCP server can treat agents differently from apps (D-037).
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { backgroundTasks } from "../../background";
 import { jwt } from "better-auth/plugins";
@@ -49,7 +51,9 @@ export function createAuth(env: Env, origin: string) {
           // Who may do what is the IdP's decision: read for everyone, write only for the listed users.
           const writers = (env.WRITERS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
           const scopes = writers.includes(String(user.email).toLowerCase()) ? ["read", "write"] : ["read"];
-          return { decision: "allow", scopes, resource: env.MCP_RESOURCE, clientIdAtResource: atResource, claims: { email: true } };
+          // An AI agent is named as the actor (act); an ordinary app acting for the user is not.
+          const agent = client.metadata?.agent === true;
+          return { decision: "allow", scopes, resource: env.MCP_RESOURCE, clientIdAtResource: atResource, claims: { email: true, ...(agent ? { act: { sub_profile: "ai_agent" } } : {}) } };
         },
         auditLog: { retentionDays: 30 },
       }),

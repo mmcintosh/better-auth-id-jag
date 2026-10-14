@@ -1,5 +1,5 @@
-// Routes: Better Auth under /api/auth (and the /.well-known documents), POST /setup (registers the
-// agent as a confidential client here, x-setup-key), and /mcp: one tool, `whoami`, for an access
+// Routes: Better Auth under /api/auth (and the /.well-known documents), POST /setup (registers a
+// client, an AI agent or an app, as a confidential client here, x-setup-key), and /mcp: one tool, `whoami`, for an access
 // token audience-bound to this server's /mcp.
 //
 // The token check is the one requireMcpAuth (@better-auth/mcp) makes: signature with this
@@ -24,7 +24,7 @@ const authFor = (env: Env, origin: string) => {
 
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
-  const { email, password } = (await request.json()) as { email: string; password: string };
+  const { email, password, name } = (await request.json()) as { email: string; password: string; name?: string };
   const auth = authFor(env, origin);
   const ctx = await auth.$context;
   // A local operator account owns the client registration (creating a client needs a session).
@@ -39,7 +39,7 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   const client = await api.adminCreateOAuthClient({
     headers,
     body: {
-      client_name: "Example MCP client (agent)",
+      client_name: name ?? "Example MCP client (agent)",
       redirect_uris: [`${origin}/callback`],
       grant_types: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
       response_types: [],

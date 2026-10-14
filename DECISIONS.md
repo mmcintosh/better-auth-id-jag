@@ -766,3 +766,22 @@ ID-JAG without `act`, and our issuer never minted one, while Okta always sends `
 - **Not changed:** the example IdP doesn't send `act`. Its demo keeps agents read-only when `act` is present
   (D-032), so turning it on there changes the demo's documented results; a separate decision.
 
+## D-037: the example IdP tells AI agents from apps (2026-10-14)
+
+The maintainer chose this (option D of four) once the issuer could send `act` (D-036). Before, the example IdP never
+sent `act`, so its demo agent could write, while Okta's agents, which always carry `act`, could only read (D-032).
+Sending `act` for every client would have hidden the `WRITERS` layer (every write a 403). So:
+
+- **The IdP's `/setup` takes `agent`**, stored in the client's metadata; the policy adds `claims.act` (`sub_profile`
+  `"ai_agent"`) for those clients only.
+- **`client.mjs --setup` registers two clients**, an AI agent and an app, each with its own client id at the MCP
+  server. `--client=app` runs as the app; the default is the agent. Its pass check expects `add_note` 403 for an
+  agent unless `AGENTS_MAY_WRITE=true` is mirrored in its environment.
+- **Verified locally** under `wrangler dev` (both Workers, the service binding connected), 2026-10-14, all four runs
+  passing their check: app + writer → `add_note` 200; agent + writer → 403 ("an agent (act) may only read here");
+  agent or app + reader → 403 `insufficient_scope`. `act` = `{ sub: <the agent's client id at the IdP>, sub_profile:
+  "ai_agent" }` in the ID-JAG and the access token. Running the demo locally needed probe-only patches: the
+  example's `/setup` registers an http redirect URI, which oauth-provider refuses for web clients on loopback, and
+  the receiver takes only an https `jwksUri`. Making the example runnable locally is a separate decision.
+- **The deployed demo Workers aren't updated yet**: a redeploy and a new `--setup` need the maintainer's go-ahead.
+
