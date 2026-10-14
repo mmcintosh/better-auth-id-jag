@@ -23,6 +23,23 @@ import { IdJagRefusal, MAX_TOKEN_LENGTH, refuse } from "../../core";
 
 /** Asymmetric algorithms the jwt plugin can sign with. No HS*, no `none`. */
 const ASYMMETRIC = new Set(["EdDSA", "Ed25519", "ES256", "ES384", "ES512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"]);
+
+/**
+ * A stored key's algorithm: its `alg`; for an older key without one, the jwt plugin's configured `alg` when it fits
+ * the key type, else the key type's own (RSA → RS256, P-256 → ES256, Ed25519 → EdDSA). Never Better Auth's default,
+ * which changes between versions (#19). Undefined for a key type it can't name.
+ */
+export function keyAlgorithm(stored: string | null | undefined, jwk: Record<string, unknown>, configured: string | undefined): string | undefined {
+  if (stored) return stored;
+  const curve = { "P-256": "ES256", "P-384": "ES384", "P-521": "ES512" }[String(jwk.crv)];
+  const fits = (alg: string) =>
+    jwk.kty === "RSA" ? /^(RS|PS)(256|384|512)$/.test(alg) : jwk.kty === "EC" ? alg === curve : jwk.kty === "OKP" && jwk.crv === "Ed25519" ? alg === "EdDSA" || alg === "Ed25519" : false;
+  if (configured !== undefined && fits(configured)) return configured;
+  if (jwk.kty === "RSA") return "RS256";
+  if (jwk.kty === "EC") return curve;
+  if (jwk.kty === "OKP" && jwk.crv === "Ed25519") return "EdDSA";
+  return undefined;
+}
 /** How far in the future `iat` may be (clocks differ a little between instances). */
 const IAT_SKEW_SECONDS = 60;
 const DEFAULT_GRACE_SECONDS = 30 * 86_400;
@@ -112,10 +129,12 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
 
   const key = (await ourKeys(ctx, expected.jwtOptions, expected.now)).find((k) => k.id === header.kid);
   if (!key) return bad("unknown kid");
-  const alg = key.alg ?? expected.jwtOptions?.jwks?.keyPairConfig?.alg ?? "EdDSA";
+  const jwk = JSON.parse(key.publicKey) as Record<string, unknown>;
+  const alg = keyAlgorithm(key.alg, jwk, expected.jwtOptions?.jwks?.keyPairConfig?.alg);
+  if (alg === undefined) return bad("key alg unknown");
   if (alg !== header.alg) bad("alg differs from the key's");
   try {
-    const publicKey = await importJWK(JSON.parse(key.publicKey) as Record<string, unknown>, alg);
+    const publicKey = await importJWK(jwk, alg);
     await compactVerify(token, publicKey, { algorithms: [alg] });
   } catch (e) {
     if (e instanceof IdJagRefusal) throw e;

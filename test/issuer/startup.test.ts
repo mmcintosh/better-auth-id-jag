@@ -44,6 +44,14 @@ describe("startup checks", () => {
     expect(await boot([jwt({ jwks: { keyPairConfig: { alg: "ES256" } } }), provider(), issuer({ signingAlgorithm: "RS256" })])).toMatch(/signingAlgorithm RS256/);
   });
 
+  it("keyPairConfig.alg unset: signingAlgorithm isn't checked against an assumed Better Auth default (#19)", async () => {
+    // Better Auth's default was EdDSA through 1.7; better-auth#9935 makes it RS256. Neither is assumed here: what the
+    // host then signs with is checked on every exchange (signing-unaccepted.test.ts).
+    const allow = { authorize: () => ({ decision: "allow" as const, scopes: [] }) };
+    expect(await boot([jwt(), provider(), issuer({ ...allow, signingAlgorithm: "RS256" })])).toBe("ok");
+    expect(await boot([jwt({ jwks: { keyPairConfigs: [{ alg: "RS256", modulusLength: 2048 }] } }), provider(), issuer({ ...allow, signingAlgorithm: "RS256" })])).toBe("ok");
+  });
+
   it("refuses to sign ID-JAGs with an algorithm receivers refuse (S4)", async () => {
     expect(await boot([jwt({ jwks: { keyPairConfig: { alg: "PS256" } } }), provider(), issuer()])).toMatch(/PS256/);
   });

@@ -789,3 +789,24 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
 - **Deployed** 2026-10-14 with the maintainer's go-ahead (a new `SETUP_KEY` on both Workers, then `--setup`): the
   four runs pass on the live demo, the writer's tokens 120 s, the reader's 300 s.
 
+## D-038: no assumption about Better Auth's signing default (2026-10-14)
+
+Issue #19. Better Auth 1.7's jwt plugin defaults to EdDSA; better-auth/better-auth#9935 (open, base `next`, breaking)
+makes it RS256. The issuer assumed EdDSA in two places, which would break on that release.
+
+- **Startup:** `signingAlgorithm` is checked against `keyPairConfig.alg` and `keyPairConfigs` only when
+  `keyPairConfig.alg` is set. When it isn't, the host's algorithm is Better Auth's to choose, and Better Auth itself
+  refuses a `signingAlgorithm` it can't mint a key for, at the first exchange.
+- **Every ID-JAG:** after `signJWT`, the header's `alg` must be RS256, ES256 or EdDSA (S4), or the exchange fails with
+  a server error naming the key's algorithm and no ID-JAG leaves. A misconfigured host can't issue ID-JAGs receivers
+  would refuse, whatever Better Auth's default.
+- **The host's own ID tokens (subject tokens):** a stored key without `alg` takes the configured `keyPairConfig.alg`
+  when it fits the key type, else the key type's own (RSA → RS256, P-256/384/521 → ES256/384/512, Ed25519 → EdDSA),
+  else it's refused (`key alg unknown`). Better Auth's own fallback (`?? "EdDSA"`) is not copied.
+- **Evidence:** `test/issuer/startup.test.ts` (no default assumed), `test/issuer/signing-default.test.ts` (a host
+  with no `keyPairConfig` signs ID-JAGs with its own key's algorithm, compared with its ID tokens, not hard-coded;
+  RS256 from `keyPairConfigs`), `test/issuer/signing-unaccepted.test.ts` (a PS256 key: 500, nothing issued),
+  `test/issuer/id-token.test.ts` (`keyAlgorithm` table; RS256, ES256, EdDSA and PS256 keys stored without `alg`).
+  Mutations: restoring each EdDSA assumption fails 1, 1 and 3 tests.
+- **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range
+  (the upstream watch, #20).

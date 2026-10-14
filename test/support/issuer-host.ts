@@ -39,6 +39,8 @@ export interface HostOptions {
   alg?: Alg;
   /** Extra jwt-plugin key configurations (for signingAlgorithm). */
   keyPairConfigs?: Alg[];
+  /** No keyPairConfig at all: Better Auth's own default algorithm (#19). */
+  noKeyPairConfig?: boolean;
   issuer?: Omit<IdJagIssuerOptions, "events"> | undefined;
   provider?: Record<string, unknown>;
   jwt?: Record<string, unknown>;
@@ -83,7 +85,7 @@ export async function createIssuerHost(o: HostOptions = {}) {
     database: (o.database ?? (await database())) as never,
     emailAndPassword: { enabled: true },
     plugins: [
-      jwt({ jwks: { keyPairConfig: KEY_CONFIG[alg], ...(o.keyPairConfigs ? { keyPairConfigs: o.keyPairConfigs.map((a) => KEY_CONFIG[a]) } : {}) }, ...o.jwt }),
+      jwt({ jwks: { ...(o.noKeyPairConfig ? {} : { keyPairConfig: KEY_CONFIG[alg] }), ...(o.keyPairConfigs ? { keyPairConfigs: o.keyPairConfigs.map((a) => KEY_CONFIG[a]) } : {}) }, ...o.jwt }),
       provider,
       admin() as unknown as BetterAuthPlugin,
       ...(o.before ?? []),

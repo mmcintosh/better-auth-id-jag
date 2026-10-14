@@ -37,11 +37,15 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
   const o = jwt.options;
   if (o?.jwt?.sign || o?.jwks?.remoteUrl)
     throw new Error("idJagIssuer: a jwt plugin with jwt.sign / jwks.remoteUrl (remote keys) isn't supported: ID tokens are verified with the keys in this host's database, with no outbound request (S10)");
-  const primary = o?.jwks?.keyPairConfig?.alg ?? "EdDSA";
-  const configured = [primary, ...(o?.jwks?.keyPairConfigs ?? []).map((c) => c.alg)];
+  // Only what the host configured: an unset keyPairConfig.alg is Better Auth's default, which this package doesn't
+  // assume (it was EdDSA through 1.7; better-auth#9935 makes it RS256, #19). What Better Auth then signs with is
+  // checked on every exchange (exchange.ts).
+  const primary = o?.jwks?.keyPairConfig?.alg;
+  const extra = (o?.jwks?.keyPairConfigs ?? []).map((c) => c.alg);
   const alg = state.options.signingAlgorithm ?? primary;
-  if (!configured.includes(alg)) throw new Error(`idJagIssuer: signingAlgorithm ${alg} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
-  if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))
+  if (state.options.signingAlgorithm !== undefined && primary !== undefined && ![primary, ...extra].includes(state.options.signingAlgorithm))
+    throw new Error(`idJagIssuer: signingAlgorithm ${state.options.signingAlgorithm} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
+  if (alg !== undefined && !(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))
     throw new Error(`idJagIssuer: the ID-JAG would be signed with ${alg}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
   // SAML subject tokens (D-B26): the SAML IdP's exchange capability must already be on the context.
   // Plugins' init run in order, so it must be installed before this one.

@@ -6,6 +6,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { IdJagRefusal } from "../../src/core";
 import { verifyOwnIdToken } from "../../src/issuer";
+import { keyAlgorithm } from "../../src/issuer/subject/id-token";
 
 const ISS = "https://idp.example/api/auth";
 const CLIENT = "client-1";
@@ -94,6 +95,38 @@ describe("verifyOwnIdToken", () => {
     expect(await outcome(await k.sign({}), expired)).toBe("invalid_subject_token:unknown kid");
     const inGrace = { adapter: { getJwks: async () => [{ ...k.jwk, expiresAt: new Date((NOW - 86_400) * 1000) }] } } as unknown as JwtOptions;
     expect(await outcome(await k.sign({}), inGrace)).toBe("ok:user-1");
+  });
+});
+
+describe("a stored key without alg (#19): its algorithm comes from the key, not from Better Auth's default", () => {
+  it("keyAlgorithm: the stored alg; else the configured one when it fits the key type; else the key type's own", () => {
+    const rsa = { kty: "RSA", n: "x", e: "AQAB" };
+    expect(keyAlgorithm("ES256", rsa, undefined)).toBe("ES256");
+    expect(keyAlgorithm(undefined, rsa, undefined)).toBe("RS256");
+    expect(keyAlgorithm(null, rsa, "PS256")).toBe("PS256");
+    expect(keyAlgorithm(undefined, rsa, "ES256")).toBe("RS256"); // configured, but not an RSA algorithm
+    expect(keyAlgorithm(undefined, { kty: "EC", crv: "P-256" }, undefined)).toBe("ES256");
+    expect(keyAlgorithm(undefined, { kty: "EC", crv: "P-384" }, "ES256")).toBe("ES384");
+    expect(keyAlgorithm(undefined, { kty: "OKP", crv: "Ed25519" }, undefined)).toBe("EdDSA");
+    expect(keyAlgorithm(undefined, { kty: "OKP", crv: "Ed25519" }, "Ed25519")).toBe("Ed25519");
+    expect(keyAlgorithm(undefined, { kty: "OKP", crv: "X25519" }, undefined)).toBeUndefined();
+    expect(keyAlgorithm(undefined, { kty: "oct" }, "HS256")).toBeUndefined();
+  });
+
+  for (const [alg, configured] of [["RS256", undefined], ["ES256", undefined], ["EdDSA", undefined], ["PS256", "PS256"]] as const) {
+    it(`an ID token from a ${alg} key stored without alg verifies${configured ? " (keyPairConfig.alg PS256)" : ""}`, async () => {
+      const { publicKey, privateKey } = await generateKeyPair(alg, { extractable: true, ...(alg === "EdDSA" ? { crv: "Ed25519" } : {}) });
+      const jwk = { id: `kid-noalg-${alg}`, publicKey: JSON.stringify(await exportJWK(publicKey)), privateKey: "unused", createdAt: new Date() } as Jwk;
+      const jwtOptions = { adapter: { getJwks: async () => [jwk] }, ...(configured ? { jwks: { keyPairConfig: { alg: configured } } } : {}) } as unknown as JwtOptions;
+      const token = await new SignJWT({ iss: ISS, aud: CLIENT, sub: "user-1", iat: NOW, exp: NOW + 600 }).setProtectedHeader({ alg, kid: jwk.id }).sign(privateKey);
+      expect(await outcome(token, jwtOptions)).toBe("ok:user-1");
+    });
+  }
+
+  it("refuses a stored key whose type has no algorithm it can name", async () => {
+    const k = await ours();
+    const x25519 = { adapter: { getJwks: async () => [{ ...k.jwk, alg: undefined, publicKey: JSON.stringify({ kty: "OKP", crv: "X25519", x: "AAAA" }) }] } } as unknown as JwtOptions;
+    expect(await outcome(await k.sign({}), x25519)).toBe("invalid_subject_token:key alg unknown");
   });
 });
 
