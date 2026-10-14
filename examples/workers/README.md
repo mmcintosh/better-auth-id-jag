@@ -6,7 +6,8 @@ Two Better Auth apps on Cloudflare Workers with D1, and a script that plays the 
   People sign in here. The agent exchanges their ID token for an ID-JAG, after the policy has approved it.
 - **`mcp-server/`**: an MCP server and its authorization server. `mcp()` + `jwt()` + `idJagGrant()`. It trusts the IdP
   (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves one tool, `whoami`.
-- **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use.
+- **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use. It runs
+  as an AI agent or, with `--client=app`, as an ordinary app.
 
 ```
 person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP ─ID-JAG─▶ client ─jwt-bearer─▶ MCP AS ─access token─▶ client ─▶ /mcp
@@ -19,6 +20,10 @@ person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP
   Okta's resource-app guides describe the same model.
 - **The IdP's policy is a code hook.** Allow the `read` scope for the MCP server's authorization server, deny
   everything else. A real IdP would use the registry and its admin API instead.
+- **The IdP tells agents from apps.** `--setup` registers two clients: an AI agent and an ordinary app acting for the
+  user. The IdP's policy names the agent as the actor in the ID-JAG (`act`, from the client's metadata `agent: true`),
+  as Okta does for AI agents, and not the app. The MCP server carries `act` into the access token and keeps agents
+  read-only (D-037).
 - **The MCP server provisions users on first use (JIT)** from the ID-JAG's verified `email`. The IdP's policy opts
   into sending it.
 - **Audit events reach the D1 table** because `advanced.backgroundTasks` hands Better Auth's background work to the
@@ -77,14 +82,20 @@ The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
 |---|---|---|
 | Who may have which scope | The IdP's policy | `read` for everyone; `write` only for the emails in the IdP's `WRITERS` (here `agent-user@example.com`). `reader-user@example.com`'s agent asks for `read write` and gets `read` |
 | Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` needs `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
-| What an agent may do compared with a person | The MCP server | A token with `act` (an AI agent, as Okta sends) may only read, unless `AGENTS_MAY_WRITE=true` |
+| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server (set it for `client.mjs` too, so its check expects the write) |
 | How long access outlives a cutoff | The MCP server's token lifetimes | `accessTokenExpiresIn: 300`, `scopeExpirations: { write: "2m" }` |
 
 ```sh
-node examples/workers/client.mjs <idp> <mcp>                         # agent-user: read write, add_note 200, token 120 s
-node examples/workers/client.mjs <idp> <mcp> --as=reader             # reader-user: read only, add_note 403 insufficient_scope
-node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff    # polls until the token stops working
+node examples/workers/client.mjs <idp> <mcp> --client=app                 # app for agent-user: read write, add_note 200, token 120 s
+node examples/workers/client.mjs <idp> <mcp>                              # AI agent for agent-user: read write, but add_note 403 (agents only read)
+node examples/workers/client.mjs <idp> <mcp> --as=reader                  # AI agent for reader-user: read only, add_note 403 insufficient_scope
+node examples/workers/client.mjs <idp> <mcp> --client=app --as=reader     # app for reader-user: the same
+node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff         # polls until the token stops working
 ```
+
+A state file from before the AI agent and app were split needs `--setup` once more (it registers the two clients).
+Each run checks its results and prints what failed: an agent's token must carry `act` and an app's must not, so a
+run against an IdP that doesn't tell them apart fails instead of passing.
 
 Measured on the deployed demo (2026-10-08): the write token stopped working 125 s after it was issued, the read
 token 305 s after (polled every 10 s). An IdP decision (a block, a deprovisioning) stops new ID-JAGs at once; an

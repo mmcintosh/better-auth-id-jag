@@ -47,7 +47,7 @@ idJagIssuer({
   auditLog?: { retentionDays: number },  // the core's audit table
 })
 // AuthorizeResult:
-//   { decision: "allow", scopes, resource?, lifetimeSeconds?, clientIdAtResource?, claims?: { email?, tenant? } }
+//   { decision: "allow", scopes, resource?, lifetimeSeconds?, clientIdAtResource?, claims?: { email?, tenant?, act? } }
 // | { decision: "deny", reason? }
 ```
 
@@ -130,7 +130,8 @@ Phase 3 exports: `getSamlIdpExchange`, `assertionExchangeErrorCode`, `ASSERTION_
    (registry mapping or hook value, default the client's own id; two sources disagreeing → `policy_denied`), `jti` =
    `newJti()`, `iat`, `exp` = `iat` + lifetime (shortest of the sources', else `defaultLifetimeSeconds`, capped at 900),
    `resource`, `scope`, `auth_time`/`acr`/`amr` from the ID token, `email` only when every source opts in **and** the
-   user's email is verified, `tenant` = the resource server's organization (or the hook's `claims.tenant`). Signed by
+   user's email is verified, `tenant` = the resource server's organization (or the hook's `claims.tenant`), `act` = `{ sub: the client's id
+   here, sub_profile? }` when the hook's `claims.act` asks (D-036). Signed by
    `signJWT(ctx, { options: jwtOptions, header: { typ }, payload, signingAlgorithm? })`; `kid` set by `signJWT`.
 6. **Respond.** `recordJti` (side `issued`, keyed on our issuer), `id-jag.issued`, opportunistic sweep, then exactly
    `{ issued_token_type, access_token, token_type: "N_A", scope?, expires_in }`. Returning this from the extension
