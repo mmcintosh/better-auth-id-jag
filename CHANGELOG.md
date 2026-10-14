@@ -19,6 +19,9 @@
 
 ### Example
 
+- **The example MCP server lists the Enterprise-Managed Authorization extension** in its `initialize` reply
+  (`capabilities.extensions["io.modelcontextprotocol/enterprise-managed-authorization"]`); MCPJam now reports it as
+  advertised. The receiver already met the extension's discovery rule (its metadata's ID-JAG grant profile).
 - **The example IdP tells AI agents from apps** (D-037): `--setup` registers both, the IdP names the agent in
   `act` (from client metadata `agent: true`), and the demo MCP server keeps agents read-only. `client.mjs
   --client=app` runs as the app. Re-run `--setup` once.
