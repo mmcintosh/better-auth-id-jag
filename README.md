@@ -250,8 +250,6 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 
 ### Trusted issuers
 
-**Behind Okta Cross App Access?** [docs/okta.md](docs/okta.md) has the trust entry, the Okta console values and what each refusal means.
-
 ```ts
 idJagGrant({
   trustedIssuers: [
@@ -270,7 +268,7 @@ idJagGrant({
 
 `issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
 
-**Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14).
+**Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14). The whole Okta setup, with the console values and what each refusal means: [docs/okta.md](docs/okta.md).
 
 ### Who the subject is
 
