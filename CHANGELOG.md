@@ -10,6 +10,13 @@
   client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
   carries it into the access token.
 
+### Fixed
+
+- **README: the Okta trust-entry examples named `/oauth2/default`** (#21). Cross App Access ID-JAGs come from the
+  org authorization server (`iss` `https://<org>.okta.com`, keys at `/oauth2/v1/keys`), so the examples refused every
+  Okta ID-JAG (`untrusted_issuer`). Also: the org's `/.well-known/oauth-authorization-server` has no `jwks_uri`, so
+  `discoveryUri` must be its `/.well-known/openid-configuration`.
+
 ### Example
 
 - **The example IdP tells AI agents from apps** (D-037): `--setup` registers both, the IdP names the agent in

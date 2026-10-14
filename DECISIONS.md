@@ -786,5 +786,6 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
   `AGENTS_MAY_WRITE`, both fail). Running the demo locally needed probe-only patches: the
   example's `/setup` registers an http redirect URI, which oauth-provider refuses for web clients on loopback, and
   the receiver takes only an https `jwksUri`. Making the example runnable locally is a separate decision.
-- **The deployed demo Workers aren't updated yet**: a redeploy and a new `--setup` need the maintainer's go-ahead.
+- **Deployed** 2026-10-14 with the maintainer's go-ahead (a new `SETUP_KEY` on both Workers, then `--setup`): the
+  four runs pass on the live demo, the writer's tokens 120 s, the reader's 300 s.
 
