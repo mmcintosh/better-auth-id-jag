@@ -66,4 +66,16 @@ describe("logSafe", () => {
     expect(logSafe("x".repeat(300))).toBe("x".repeat(300));
     expect(logSafe("x".repeat(301))).toBe(`${"x".repeat(300)}…`);
   });
+
+  it("counts and cuts in code points: never half a surrogate pair", () => {
+    expect(logSafe("🤖".repeat(300))).toBe("🤖".repeat(300));
+    expect(logSafe("🤖".repeat(301))).toBe(`${"🤖".repeat(300)}…`);
+    expect(logSafe(`a${"🤖".repeat(3)}`, 3)).toBe("a🤖🤖…");
+  });
+
+  it("turns a lone surrogate into U+FFFD, keeping pairs", () => {
+    expect(logSafe("a\ud800b\udc00c")).toBe("a\ufffdb\ufffdc");
+    expect(logSafe("\udc00\ud800")).toBe("\ufffd\ufffd");
+    expect(logSafe("x\ud83e\udd16")).toBe("x🤖");
+  });
 });

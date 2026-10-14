@@ -838,15 +838,22 @@ Follow-ups from the D-036 review.
   ID-JAG's `act`. Both are `{ sub, sub_profile? }` (`ActSummary`): the current actor only, never the rest of the
   claim or the earlier actors of a chain (a receiver's `act` comes from another IdP and may carry anything), each
   string made log-safe like every other event string. It is in the event and the row's `details`; no new column.
-- **`sub_profile` is space-separated names**, as Okta's `"ai_agent web_app"`: at most 256 characters, no blank, no
-  leading, trailing or doubled space, and no control, format (zero-width, bidi override, BOM, word joiner) or
-  separator (NBSP, U+2028/9) characters, which could disguise a profile in a log or an admin UI. Anything else is a
-  malformed verdict (`policy_denied`), as before. The receiver doesn't apply this to other IdPs' `act`: it stays
+- **`sub_profile` is space-separated names**, as Okta's `"ai_agent web_app"`: at most 256 code points, no blank, no
+  leading, trailing or doubled space, and names made of letters, digits, punctuation and symbols only (`\p{L}\p{N}\p{P}\p{S}`),
+  minus the ones that render blank (Hangul fillers U+115F/1160/3164/FFA0, the blank braille cell U+2800). That leaves
+  out control, format (zero-width, bidi override, BOM, word joiner), separator (NBSP, U+2028/9), combining (variation
+  selectors), private-use, unassigned and lone surrogate characters, which could disguise a profile in a log or an
+  admin UI. Anything else is a malformed verdict (`policy_denied`), as before. (An allow-list after the review: the
+  first version refused only `\p{Cc}\p{Cf}\p{Z}` and let fillers, marks and unassigned U+2065 through.)
+- **`logSafe` counts and cuts in code points**, as zod's `max()` does, so it never splits a surrogate pair, and turns
+  a lone surrogate (a JSON `"\ud800"` escape from another IdP) into U+FFFD. The audit then records a `sub_profile` at
+  the cap exactly as signed (before, 128+ astral characters were cut mid-pair). The receiver doesn't apply this to other IdPs' `act`: it stays
   liberal in what it accepts and the audit makes the value log-safe.
 - **Evidence:** `test/issuer/exchange.test.ts` (the issued events' `act`), `test/issuer/refusals.test.ts` (twelve
   refused `sub_profile` values, four accepted), `test/receiver/grant.test.ts` (the accepted event's `act`, a chained
-  claim with extra keys and invisible characters reduced to `{ sub, sub_profile }` log-safe). Mutations: twelve added
-  (nine to `issuer.json` for D-036 and the issued event, one to `receiver.json`, two to `core.json`), all caught.
+  claim with extra keys, invisible characters and a lone surrogate reduced to `{ sub, sub_profile }` log-safe),
+  `test/core/errors.test.ts` (code points, lone surrogates). Mutations: seventeen added (eleven to `issuer.json`, one
+  to `receiver.json`, five to `core.json`), all caught.
 - **Not changed (open):** whether the receiver should add the IdP's `iss` to the `act` it carries into its own access
   token, since `act.sub` is a client id at the IdP, not at the receiver.
 

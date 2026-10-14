@@ -281,13 +281,16 @@ describe("refusals: policy (S1, S7)", () => {
     let sub_profile = "";
     const host = await createIssuerHost({ issuer: { authorize: (() => ({ decision: "allow", scopes: ["read"], claims: { act: { sub_profile } } })) as never } });
     const { client, idToken } = await setup(host);
-    // Blank, leading/trailing/doubled space, tab, NBSP, zero-width space, RTL override, BOM, U+2028, U+2029, word joiner.
-    for (const p of [" ", " ai_agent", "ai_agent ", "ai_agent  web_app", "ai_agent\tweb_app", "ai_agent\u00a0web_app", "ai\u200bagent", "ai_agent\u202e", "\ufeffai_agent", "ai\u2028agent", "ai\u2029agent", "ai\u2060agent"]) {
+    // Blank, leading/trailing/doubled space, tab, NBSP, zero-width space, RTL override, BOM, U+2028, U+2029, word joiner;
+    for (const p of [" ", " ai_agent", "ai_agent ", "ai_agent  web_app", "ai_agent\tweb_app", "ai_agent\u00a0web_app", "ai\u200bagent", "ai_agent\u202e", "\ufeffai_agent", "ai\u2028agent", "ai\u2029agent", "ai\u2060agent",
+      // Blank-looking letters and symbols (Hangul fillers, blank braille), combining marks (variation selectors, CGJ,
+      // one after the space), private use, unassigned (U+2065, which the audit would strip), a noncharacter, a lone surrogate.
+      "ai_agent\u3164web_app", "\u115fai", "ai\uffa0", "ai\u2800agent", "ai\ufe0f", "ai\u{e0100}", "ai\u034fagent", "ai_agent \u0301web_app", "ai\ue000", "ai\u2065agent", "ai\uffff", "ai\ud800agent"]) {
       sub_profile = p;
       await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
     }
-    // Space-separated names (Okta's form), and non-ASCII letters, are fine.
-    for (const p of ["ai_agent", "ai_agent web_app", "agent-é", "x".repeat(256)]) {
+    // Space-separated names (Okta's form), non-ASCII letters, symbols, 256 code points (zod counts code points) are fine.
+    for (const p of ["ai_agent", "ai_agent web_app", "agent-é", "x".repeat(256), "🤖".repeat(256), "urn:example:agent/v1"]) {
       sub_profile = p;
       expect((await exchange(host, client, idToken)).status, p).toBe(200);
     }

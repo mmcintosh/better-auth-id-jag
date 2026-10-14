@@ -74,11 +74,17 @@ export const REASONS = {
 
 export type ReasonCode = keyof typeof REASONS;
 
-/** Strips control, line-separator, bidi and invisible formatting characters and caps the length. */
+/** Strips control, line-separator, bidi and invisible formatting characters, repairs lone surrogates, caps the length. */
 export function logSafe(s: string, max = 300): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point.
-  const clean = s.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g, "");
-  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+  const clean = s
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point.
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/g, "")
+    // A lone surrogate (from a JSON escape such as "\ud800") becomes U+FFFD, so the result is valid UTF-16.
+    .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
+  // Counted and cut in code points, as zod's max(): never half a surrogate pair. Never more code points than units.
+  if (clean.length <= max) return clean;
+  const points = Array.from(clean);
+  return points.length > max ? `${points.slice(0, max).join("")}…` : clean;
 }
 
 /** A refusal before it is thrown: what the audit event records. */

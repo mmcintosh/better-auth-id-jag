@@ -317,8 +317,8 @@
  {
   "name": "errors: logSafe cap > becomes >=",
   "file": "src/core/errors.ts",
-  "a": "return clean.length > max ?",
-  "b": "return clean.length >= max ?",
+  "a": "return points.length > max ?",
+  "b": "return points.length >= max ?",
   "paths": [
    "test/core"
   ]
@@ -491,10 +491,37 @@
  {
   "name": "audit: act sub_profile not made log-safe",
   "file": "src/core/audit.ts",
-  "a": "{ sub_profile: logSafe(a.sub_profile, 256) }",
+  "a": "{ sub_profile: logSafe(a.sub_profile) }",
   "b": "{ sub_profile: a.sub_profile }",
   "paths": [
    "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "audit: act sub not made log-safe",
+  "file": "src/core/audit.ts",
+  "a": "sub: logSafe(String(a.sub))",
+  "b": "sub: String(a.sub)",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "errors: logSafe keeps lone surrogates",
+  "file": "src/core/errors.ts",
+  "a": ".replace(/[\\ud800-\\udbff](?![\\udc00-\\udfff])|(?<![\\ud800-\\udbff])[\\udc00-\\udfff]/g, \"\\ufffd\")",
+  "b": "",
+  "paths": [
+   "test/core"
+  ]
+ },
+ {
+  "name": "errors: logSafe cuts in UTF-16 units",
+  "file": "src/core/errors.ts",
+  "a": "`${points.slice(0, max).join(\"\")}…`",
+  "b": "`${clean.slice(0, max)}…`",
+  "paths": [
+   "test/core"
   ]
  }
 ]
