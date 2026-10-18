@@ -68,7 +68,7 @@ idJagGrant({
 
 | Threat | Control |
 |---|---|
-| Forged ID-JAGs | Only trusted issuers, matched by exact `iss` (and `tenant`); signature checked against that issuer's JWKS. An ID-JAG naming this server as its issuer is refused (`self_issued`, draft §9.3). |
+| Forged ID-JAGs | Only trusted issuers, matched by exact `iss` (and `tenant`); signature checked against that issuer's JWKS. The header names the key by `kid`, or else by an `x5t` / `x5t#S256` certificate thumbprint matched only against that issuer's own keys; a key or certificate carried in the token (`jwk`, `jku`, `x5c`, `x5u`) is never used, and a published key whose `key_ops` lacks `verify` is skipped. An ID-JAG naming this server as its issuer is refused (`self_issued`, draft §9.3). |
 | An ID-JAG meant for another server | `aud` must equal this server's issuer identifier exactly: not the resource, the bare origin, or with a trailing slash. |
 | A stolen ID-JAG redeemed by another client | The ID-JAG's `client_id` must be the client that authenticated; per-issuer `allowedClientIds` narrow it further. |
 | Replay | Each `jti` is redeemed once per issuer, enforced by a unique key (S3), tested under concurrency. |
