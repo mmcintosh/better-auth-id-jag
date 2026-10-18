@@ -440,6 +440,9 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | **xaa.dev** (Okta's playground), OIDC and SAML | Receiver on Workers + D1 | ✅ **Verified live** with its resource-app tester through to an MCP `tools/call`; SAML users resolved by NameID (`sub_id`) |
 | **MCPJam** (its Cross App Access debugger), OIDC and SAML | Receiver | ✅ Verified weekly: the whole flow to an MCP `initialize`, and each of its ten attacks refused with the matching reason |
 | **identity-provider.net** (a stub IdP on xaa.rocks) | Receiver | ✅ Verified live, weekly: ID token and refresh token subjects; replay, another client id and an ML-DSA signature refused |
+| **PingFederate** 13.1.3 | Receiver | ✅ Verified live: Ping names its key by `x5t` only, never `kid` (accepted since 0.4.0); `client_id` and a 5-minute lifetime are two settings on Ping's connection |
+| **Oracle OCI IAM** | Receiver | ❌ Refused, by design: Oracle's ID-JAG has no `aud`, which the draft requires |
+| **VS Code** 1.141.0 (MCP client) with Okta | Receiver on Workers + D1 | ✅ Verified live through to MCP `initialize` and `tools/list`. VS Code redeems with `client_secret_post` and asks for every advertised scope |
 | better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
 | better-auth-scim-provisioning 1.2.0 → `@better-auth/scim` 1.7.6 | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG |
@@ -447,7 +450,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 
 Each row's date, version, commands and the ways the other side differs are in [docs/interop.md](docs/interop.md). Nothing there is claimed from reading docs alone.
 
-**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (through 1.7; its open PR better-auth#9935 changes the default to RS256), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way.
+**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way.
 
 ## ☁️ Example: two Workers
 
