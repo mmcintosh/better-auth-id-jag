@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-18
+
 ### Added
 
 - **Issuer: `act` for agents** (D-036). The `authorize` hook can return `claims: { act: true }` (or
