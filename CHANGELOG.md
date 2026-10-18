@@ -10,7 +10,8 @@
   client, never one the policy names. Receivers that require `act` (some do) now accept our ID-JAGs, and ours
   carries it into the access token. `sub_profile` is space-separated names of letters, digits, punctuation and
   symbols (D-040); anything else (blank, padded or doubled spaces, invisible, combining or blank-rendering characters)
-  is a malformed verdict (`policy_denied`).
+  is a malformed verdict (`policy_denied`). On 0.3.0 a hook returning `claims: { act: … }` got no error and no `act`
+  (the claim was dropped silently, and the agent's ID-JAGs looked like an app's): upgrade before relying on it.
 - **Receiver: ID-JAGs that name their key by certificate thumbprint** (D-042). A header without `kid` is accepted
   when it carries `x5t` or `x5t#S256`; the key is the issuer's with that thumbprint (published, or worked out from its
   `x5c`). PingFederate never sends `kid`, so every PingFederate ID-JAG was refused (`missing_kid`); verified live with
@@ -50,6 +51,10 @@
 - **The example IdP tells AI agents from apps** (D-037): `--setup` registers both, the IdP names the agent in
   `act` (from client metadata `agent: true`), and the demo MCP server keeps agents read-only. `client.mjs
   --client=app` runs as the app. Re-run `--setup` once.
+- **The example MCP server works with VS Code** (#25): `/setup` takes `"tokenEndpointAuthMethod":
+  "client_secret_post"` (VS Code and xaa.dev's tester send the secret in the body), its clients carry no redirect URI
+  (they only redeem ID-JAGs), and `GET /mcp` answers 405 instead of 200 (no server-to-client stream; VS Code polled
+  it). The example IdP's `/setup` now also works on `http://localhost`. README: VS Code setup, running locally.
 
 ### Documentation
 
@@ -73,6 +78,9 @@
   (`test/interop/mcpjam.test.ts`); and identity-provider.net, live, an independent issuer: ID token and refresh token
   subjects accepted, replay, another client id and an ML-DSA-signed ID-JAG refused (`test/interop/zipidp.test.ts`).
   Tests only; no runtime change.
+- **A real MCP client: VS Code 1.141.0 with Okta** (#25), live, through to `initialize` and `tools/list` on the
+  example MCP server (`docs/interop.md`): what a server must allow for it (`client_secret_post`, every advertised
+  scope, the loopback redirect URI at the IdP).
 
 ## [0.3.0] - 2026-10-10
 

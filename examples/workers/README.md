@@ -5,7 +5,8 @@ Two Better Auth apps on Cloudflare Workers with D1, and a script that plays the 
 - **`enterprise-idp/`**: the enterprise identity provider. `oauthProvider()` + `jwt()` (ES256) + `idJagIssuer()`.
   People sign in here. The agent exchanges their ID token for an ID-JAG, after the policy has approved it.
 - **`mcp-server/`**: an MCP server and its authorization server. `mcp()` + `jwt()` + `idJagGrant()`. It trusts the IdP
-  (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves one tool, `whoami`.
+  (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves three tools (`whoami`,
+  `list_notes`, `add_note`).
 - **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use. It runs
   as an AI agent or, with `--client=app`, as an ordinary app.
 
@@ -80,6 +81,39 @@ in Okta.
 the ID token, `--negative` adds the replay, scope and audience refusals, and `--refresh-file=<path>` with `--reuse`
 replays a saved refresh token (after unassigning or deactivating the user in Okta). See the header of the script.
 
+### A client that sends its secret in the body
+
+`/setup` registers `client_secret_basic` clients (what `client.mjs` and `okta-agent.mjs` use). VS Code and xaa.dev's
+tester send the secret in the request body, and Better Auth holds a client to the method it was registered with, so
+register theirs with `client_secret_post`:
+
+```sh
+curl -X POST https://<mcp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-type: application/json' \
+  -d '{"email":"operator@example.com","password":"example-password-1234","name":"VS Code","tokenEndpointAuthMethod":"client_secret_post"}'
+```
+
+The reply is the client id and secret. The client may ask for both scopes, `read write`: VS Code asks for every scope
+the server advertises.
+
+### VS Code
+
+VS Code 1.123+ (preview) does this flow itself, with Okta as the IdP: verified with VS Code 1.141.0
+([docs/interop.md](../../docs/interop.md#vs-code-with-okta--our-receiver)). Set up Okta for these Workers as above, then:
+
+1. Register a `client_secret_post` client at the MCP server (above) and enter its id in Okta's resource connection,
+   allowing `read write`.
+2. On the agent's Okta app, add the sign-in redirect URI `http://127.0.0.1:33418/` (desktop VS Code's loopback
+   redirect, trailing slash included).
+3. In VS Code's user settings, `mcp.enterpriseManagedAuth.idp`: Okta's issuer and the agent's Okta client. In
+   `mcp.json`, the server `https://<mcp>/mcp` with `"oauth": { "enterpriseManaged": true, "clientId": "<from step 1>" }`.
+   VS Code asks for the client secret once.
+
+## Running locally
+
+`wrangler dev` runs both Workers (each with its own `--persist-to`, because the two configs share a placeholder
+database id), and `/setup` works on `http://localhost`. The whole flow doesn't: the receiver takes only `https`
+issuers and JWKS URLs, so an ID-JAG from a local IdP is refused. Deploy, or put both behind https.
+
 ## Layered permissions
 
 The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
@@ -111,7 +145,7 @@ agent keeps what it already has for at most those lifetimes, instead of Better A
 
 Set `XAA_ISSUER` to `https://idp.xaa.dev` and `CORS_ORIGINS` to `https://xaa.dev` on the MCP server: the tester calls
 the token endpoint and `/mcp` from the browser. It authenticates with `client_secret_post`, so register its client
-with that method (`/setup` registers `client_secret_basic`). In the tester, choose **Use My Own Auth Server** and
+with that method ("A client that sends its secret in the body", above). In the tester, choose **Use My Own Auth Server** and
 enter the MCP server's issuer, its token endpoint, and that client. The SAML variant sends the user as a SAML NameID
 in `sub_id`; the MCP server maps xaa.dev's SAML issuer (`samlSubjects`, in `mcp-server/src/auth.ts`). Results:
 [docs/interop.md](../../docs/interop.md#xaadev--our-receiver).

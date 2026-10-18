@@ -34,6 +34,8 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
     body: {
       client_name: agent ? "Example MCP client (AI agent)" : "Example MCP client (app)",
       redirect_uris: [`${origin}/callback`],
+      // Run locally (`wrangler dev`, http://localhost), the redirect is http: Better Auth takes that from a native client only.
+      ...(new URL(origin).protocol === "http:" ? { application_type: "native" } : {}),
       grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"],
       response_types: ["code"],
       token_endpoint_auth_method: "client_secret_basic",
