@@ -24,6 +24,7 @@ Nothing here is claimed from reading docs alone. Where a row says "verified", th
 | SAML IdP: better-auth-saml-idp (assertion exchange) → our issuer → our receiver | (both SAML paths) | **Verified** 2026-10-06 against **better-auth-saml-idp 1.2.0 from npm** (and before that its `feat/assertion-exchange` at `2d54cb4`), with this repository's main: every check passes (`test/interop/saml-idp-e2e`). |
 | better-auth-scim-provisioning 1.2.0 (IdP) → `@better-auth/scim` 1.7.6 + our receiver | (SCIM-provisioned users) | **Verified** 2026-10-10 in every CI run on Node (`test/interop/scim-provisioning.test.ts`): a user the IdP provisioned resolves by SCIM (`resolvedBy: "scim"`); banned or deleted at the IdP, the receiver refuses even an ID-JAG issued before. Also on Postgres, MySQL, Drizzle and Prisma (the adapter matrix). Not on D1: `@better-auth/scim` needs native transactions. |
 | Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). |
+| VS Code 1.141.0 (MCP client) with Okta Cross App Access | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-15, VS Code's enterprise-managed MCP authentication (preview): Okta sign-in → ID token → ID-JAG at Okta → our access token → MCP `initialize` and `tools/list` 200. **Differs:** VS Code redeems with `client_secret_post` and asks for every scope the server advertises (see below). |
 | xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). |
 | xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
 | MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
@@ -202,6 +203,38 @@ on the trust entry it does stop them: see the better-auth-scim-provisioning row)
 an access token already issued lives until it expires.
 
 Setting it up in Okta, step by step, with the values for your own server: [docs/okta.md](okta.md).
+
+## VS Code with Okta → our receiver
+
+A real MCP client, live, 2026-10-15: VS Code 1.141.0 (Linux), its
+[enterprise-managed MCP authentication](https://code.visualstudio.com/updates/v1_123#_enterprise-managed-mcp-authentication-preview)
+(preview), Okta as the IdP, and `examples/workers/mcp-server` on Workers as the MCP server.
+
+Setup:
+- **VS Code:** the user setting `mcp.enterpriseManagedAuth.idp` names Okta's issuer and the AI agent's Okta client
+  (user settings or policy only; not a workspace setting). The server's entry in `mcp.json` has
+  `"oauth": { "enterpriseManaged": true, "clientId": "<the client id our receiver issued>" }`; VS Code asks for that
+  client's secret once and keeps it.
+- **Okta:** as in [docs/okta.md](okta.md), plus the redirect URI `http://127.0.0.1:33418/` on the agent's app (below),
+  and the agent's resource connection allowing both of the server's scopes, `read write`.
+- **Our receiver:** the client registered with `client_secret_post` and the scopes `read write` (the example's
+  `/setup` with `"tokenEndpointAuthMethod": "client_secret_post"`).
+
+VS Code read the 401's `resource_metadata`, the protected-resource metadata and our authorization server's metadata,
+signed the user in at Okta, exchanged the ID token for an ID-JAG at Okta, redeemed it at our receiver (200; audit
+`id-jag.accepted`), then sent the authenticated `initialize` and `tools/list`: the three tools listed. No step was
+specific to Okta or to us. No tool was called (VS Code calls tools from its chat, which wasn't used).
+
+What a server needs to know:
+
+| What VS Code does | So |
+|---|---|
+| Redeems the ID-JAG at the resource with `client_id` and `client_secret` in the body (`client_secret_post`), never HTTP Basic | Register its client at the receiver for `client_secret_post`. Better Auth holds a client to its registered method: the first run was refused, `invalid_client`, "client registered for client_secret_basic cannot use client_secret_post" |
+| Asks for the scopes in the 401's `scope`, else every scope in the protected-resource metadata's `scopes_supported`, at the IdP and at the receiver | The IdP's connection and the receiver's client must allow all of them, or the exchange or the redemption fails |
+| Desktop VS Code signs in through a loopback redirect, `http://127.0.0.1:33418/` (trailing slash; another port only if that one is taken), and offers `https://vscode.dev/redirect` only after that fails | Register the loopback URI at the IdP exactly. Okta refused the sign-in until it was added |
+| Shows a consent dialog ("… wants to authenticate to <IdP>") **after** the ID-JAG was minted and redeemed | A token minted and never used is normal: the dialog can be cancelled |
+| Mints again silently while the IdP session lasts (three ID-JAGs in three minutes) | Expect that volume; each was single-use and recorded |
+| Opens `GET /mcp` for server messages | A server without that stream answers 405 (MCP's Streamable HTTP). The example answered 200, so VS Code polled it every few seconds; it answers 405 now |
 
 ## xaa.dev → our receiver
 

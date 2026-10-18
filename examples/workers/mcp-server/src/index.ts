@@ -24,7 +24,10 @@ const authFor = (env: Env, origin: string) => {
 
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
-  const { email, password, name } = (await request.json()) as { email: string; password: string; name?: string };
+  const { email, password, name, tokenEndpointAuthMethod = "client_secret_basic" } = (await request.json()) as { email: string; password: string; name?: string; tokenEndpointAuthMethod?: string };
+  // VS Code and xaa.dev's tester send the secret in the body (client_secret_post); Better Auth holds a
+  // client to the method it was registered with.
+  if (tokenEndpointAuthMethod !== "client_secret_basic" && tokenEndpointAuthMethod !== "client_secret_post") return new Response("tokenEndpointAuthMethod: client_secret_basic or client_secret_post", { status: 400 });
   const auth = authFor(env, origin);
   const ctx = await auth.$context;
   // A local operator account owns the client registration (creating a client needs a session).
@@ -40,10 +43,11 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
     headers,
     body: {
       client_name: typeof name === "string" && name ? name : "Example MCP client (agent)",
-      redirect_uris: [`${origin}/callback`],
+      // No redirect URIs: the client only redeems ID-JAGs (jwt-bearer), never sends anyone to a browser.
       grant_types: ["urn:ietf:params:oauth:grant-type:jwt-bearer"],
       response_types: [],
-      token_endpoint_auth_method: "client_secret_basic",
+      token_endpoint_auth_method: tokenEndpointAuthMethod,
+      // Every scope the protected-resource metadata advertises: VS Code asks for all of them.
       scope: "read write",
     },
   });
@@ -62,6 +66,9 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   } catch {
     return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "invalid token" } }, { status: 401, headers: { "WWW-Authenticate": `${challenge["WWW-Authenticate"]}, error="invalid_token"` } });
   }
+  // No server-to-client stream (a GET) and no sessions (a DELETE): Streamable HTTP's answer is 405.
+  // A 200 here makes VS Code poll GET /mcp every few seconds.
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
   const rpc = (await request.json().catch(() => ({}))) as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> } };
   // The minimum of MCP's Streamable HTTP: initialize, the initialized notification (202, no body),
   // ping, tools/list and tools/call. Any other method is "method not found".
