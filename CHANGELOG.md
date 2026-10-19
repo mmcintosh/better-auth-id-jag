@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Issuer: step-up** (draft -04 §9.2, D-043). The `authorize` hook can deny with
+  `stepUp: { maxAge?, acrValues?, description?, uri? }`. The client then gets `insufficient_user_authentication`
+  with `max_age`, `acr_values`, `error_description` and `error_uri` (RFC 9470's parameters), not the generic
+  `invalid_grant`, so it can send the person back to sign in again, for example to a "confirm it's you" page. Off
+  unless the hook asks; a deny without it is unchanged. Audited as the new reason `step_up_required`. A malformed
+  `stepUp` is a malformed verdict (`policy_denied`).
+
 ## [0.4.0] - 2026-10-18
 
 ### Added

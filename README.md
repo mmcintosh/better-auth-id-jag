@@ -123,7 +123,7 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 
 | Option | Default | |
 |---|---|---|
-| `authorize` | | Code policy: `(input) => { decision: "allow", scopes, … } \| { decision: "deny", reason? }`. See [Policy](#policy). |
+| `authorize` | | Code policy: `(input) => { decision: "allow", scopes, … } \| { decision: "deny", reason?, stepUp? }`. See [Policy](#policy). |
 | `registry` | | Database policy: `{ enabled, canManage?, cacheSeconds? }` (`cacheSeconds`: 60 by default, 0 to 3600). See [Registry and admin API](#registry-and-admin-api). |
 | `blocks` | | `{ canManage? }`: who may manage [blocks](#blocks) over the API. Blocks are enforced either way. |
 | `maxIdTokenAgeSeconds` | `3600` | The oldest ID token (by `iat`) accepted as a subject token, even when it hasn't expired. 60 to 86400. An older one is refused as `subject_token_expired`; exchange the refresh token instead. |
@@ -150,7 +150,18 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
 | `claims` | `{ email?: boolean, tenant?: string, act?: boolean \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one: space-separated names of letters, digits, punctuation and symbols, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. Tell agents apart by something only an administrator sets, not by metadata a client registers for itself (dynamic registration, a client ID metadata document): a client could otherwise drop the mark and lose the agent rules. |
 
-A deny's `reason` goes to the audit log only, never to the caller.
+A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `invalid_grant`.
+
+**Step-up** (draft -04 §9.2). To tell the client the person must sign in again, for example because their second factor is older than the resource allows, deny with `stepUp`:
+
+```ts
+authorize: ({ subjectToken }) =>
+  mfaIsRecent(subjectToken.auth_time)
+    ? { decision: "allow", scopes: ["read"] }
+    : { decision: "deny", reason: "mfa too old", stepUp: { maxAge: 300, uri: "https://idp.example.com/confirm", description: "Confirm it's you, then try again." } },
+```
+
+The client gets HTTP 400 `{ "error": "insufficient_user_authentication", "error_description": "Confirm it's you, then try again.", "error_uri": "https://idp.example.com/confirm", "max_age": 300 }`, RFC 9470's parameters (`acrValues` becomes `acr_values`). All four fields are optional; the description defaults to "The subject does not meet the authentication requirements." `description` is printable ASCII without `"` or `\` (at most 300 characters), `uri` an absolute https URL without credentials or a fragment; anything else is a malformed verdict (`policy_denied`). A step-up tells the client that this user got past identity and policy lookup, so return it only for that. An administrator's block, or a registry that refuses, still answers with the generic body: the hook runs after them. Whether the client shows the description or opens the link to the person is up to the client.
 
 **The client has two ids.** The MCP server registers the agent and gives it its own client id; the ID-JAG's `client_id` must be that one, because the receiver checks it against the client that presents the ID-JAG. Keep the mapping somewhere the policy can read it, for example in the IdP client's metadata, as [the example](#-example-two-workers) does.
 
@@ -405,7 +416,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ✅ | §7 Metadata `identity_chaining_requested_token_types_supported` | |
 | ⚠️ | §9.1 Confidential clients only (SHOULD) | Default; `allowPublicClients` turns it off, with a startup warning. |
 | ✅ | Short lifetimes (§3.1's examples use 5 minutes) | 300 s by default, 900 s at most. |
-| ❌ | §9.2 Step-up (`insufficient_user_authentication`) | Not implemented; the `authorize` hook can deny on `acr`/`auth_time` instead. |
+| ✅ | §9.2 Step-up (`insufficient_user_authentication`) | When the `authorize` hook denies with `stepUp`: `max_age`, `acr_values`, `error_description`, `error_uri` (RFC 9470). See [Policy](#policy). |
 | ❌ | §9.8 DPoP / `cnf` sender-constrained ID-JAGs | Not minted. |
 
 **Receiver** (`idJagGrant()`)

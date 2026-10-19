@@ -189,6 +189,19 @@ describe("registry: policy evaluation", () => {
     expect(takeReasons(h)).toEqual(["policy_denied"]);
   });
 
+  it("a hook's step-up is sent only when the registry allowed first; a registry refusal stays generic (D-043)", async () => {
+    const h = await host({ issuer: { authorize: () => ({ decision: "deny", stepUp: { maxAge: 60 } }) } });
+    const { client, idToken } = await setup(h);
+    // Nothing registered for this audience: the registry refuses before the hook runs.
+    const before = await exchange(h, client, idToken);
+    expect(before.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(takeReasons(h)).toEqual(["no_policy"]);
+    await registered(h, client);
+    const after = await exchange(h, client, idToken);
+    expect(after.body).toMatchObject({ error: "insufficient_user_authentication", max_age: 60 });
+    expect(takeReasons(h)).toEqual(["step_up_required"]);
+  });
+
   it("email only when every allowing source opts in: the registry does, the hook doesn't → no email; both do → email", async () => {
     let hookEmail = false;
     const h = await host({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read"], claims: { email: hookEmail } }) } });

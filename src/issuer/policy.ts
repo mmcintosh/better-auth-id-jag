@@ -9,9 +9,10 @@
 // policy denied) are all `invalid_grant` with one generic body, like unknown or banned users. The
 // two specific refusals (`no_scope`, `unknown_resource`) come only **after** a policy allowed: by
 // then the caller could have learnt the allow anyway (by asking for no scope or no resource).
+// The one deny that says more is the hook's own step-up (D-043): the host chooses to tell the caller.
 import type { GenericEndpointContext, User } from "better-auth";
 import { z } from "zod";
-import { MAX_LIFETIME_SECONDS, refuse } from "../core";
+import { IdJagRefusal, MAX_LIFETIME_SECONDS, refuse } from "../core";
 import { checkBlocks } from "./blocks";
 import type { AudienceEntry, RegistryDirectory } from "./directory";
 import type { AuthorizeInput, AuthorizeResult, PolicyClient, ResolvedIssuerOptions, SubjectTokenClaims } from "./options";
@@ -62,6 +63,24 @@ interface Allow {
 const subProfileName = "(?:(?![\\u115f\\u1160\\u3164\\uffa0\\u2800])[\\p{L}\\p{N}\\p{P}\\p{S}])+";
 const subProfile = z.string().max(256).regex(new RegExp(`^${subProfileName}(?: ${subProfileName})*$`, "u"), "space-separated names");
 
+// Step-up (draft -04 §9.2, D-043), sent to the caller as RFC 6749 §5.2 / RFC 9470 parameters, so their character
+// sets: error_description and error_uri exclude `"` and `\`; acr_values is space-separated NQCHAR values. The uri is
+// an absolute https URL the client shows a person (no credentials, no fragment).
+const descriptionChars = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
+const uriChars = /^[\x21\x23-\x5b\x5d-\x7e]+$/;
+const acrValue = /^[\x21\x23-\x5b\x5d-\x7e]+$/;
+const isStepUpUri = (s: string) => {
+  if (!uriChars.test(s) || !URL.canParse(s)) return false;
+  const u = new URL(s);
+  return u.protocol === "https:" && u.username === "" && u.password === "" && u.hash === "" && !s.includes("#");
+};
+const stepUpSchema = z.strictObject({
+  maxAge: z.number().int().min(0).max(31_536_000).optional(),
+  acrValues: z.array(z.string().max(256).regex(acrValue)).min(1).max(20).optional(),
+  description: z.string().max(300).regex(descriptionChars).optional(),
+  uri: z.string().max(2048).refine(isStepUpUri).optional(),
+});
+
 const verdictSchema = z.discriminatedUnion("decision", [
   z.object({
     decision: z.literal("allow"),
@@ -71,7 +90,7 @@ const verdictSchema = z.discriminatedUnion("decision", [
     clientIdAtResource: z.string().min(1).max(512).optional(),
     claims: z.object({ email: z.boolean().optional(), tenant: z.string().min(1).max(512).optional(), act: z.union([z.boolean(), z.strictObject({ sub_profile: subProfile.optional() })]).optional() }).optional(),
   }),
-  z.object({ decision: z.literal("deny"), reason: z.string().optional() }),
+  z.object({ decision: z.literal("deny"), reason: z.string().optional(), stepUp: stepUpSchema.optional() }),
 ]);
 
 const truthy = (v: unknown) => v === true || v === 1 || v === "1" || v === "true";
@@ -147,7 +166,14 @@ async function fromHook(hook: (input: AuthorizeInput) => unknown, r: PolicyReque
   const parsed = verdictSchema.safeParse(verdict);
   if (!parsed.success) return refuse("policy_denied", "authorize returned a malformed verdict");
   const v = parsed.data as AuthorizeResult;
-  if (v.decision !== "allow") return refuse("policy_denied", `authorize: ${v.reason ?? "denied"}`);
+  if (v.decision !== "allow") {
+    if (v.stepUp) {
+      const c = v.stepUp;
+      const asked = [c.maxAge !== undefined ? `max_age=${c.maxAge}` : "", c.acrValues ? `acr_values=${c.acrValues.join(" ")}` : "", c.uri ? `error_uri=${c.uri}` : ""].filter(Boolean).join(" ");
+      throw new IdJagRefusal("step_up_required", `authorize: ${v.reason ?? "step-up"}${asked ? ` (${asked})` : ""}`, c);
+    }
+    return refuse("policy_denied", `authorize: ${v.reason ?? "denied"}`);
+  }
   return {
     scopes: [...new Set(v.scopes)],
     ...(v.resource !== undefined ? { resource: v.resource } : {}),
