@@ -41,7 +41,7 @@ body:
     attributes:
       label: Versions
       description: better-auth-id-jag (or commit), better-auth, and @better-auth/oauth-provider or @better-auth/mcp
-      placeholder: "commit abc1234, better-auth 1.7.6"
+      placeholder: "commit abc1234, better-auth 1.7.10"
     validations: { required: true }
   - type: dropdown
     id: runtime

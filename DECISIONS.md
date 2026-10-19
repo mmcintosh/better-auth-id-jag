@@ -13,7 +13,7 @@ CHANGELOG and README are not copied yet: they come with Phase 1, when there is c
 `git init` locally (no remote, nothing pushed), as planned for Phase 0. No GitHub repository, no npm
 name claimed.
 
-## D-002: Better Auth pinned to 1.7.6 (2026-10-05) — implementation choice
+## D-002: Better Auth pinned to 1.7.6 (2026-10-05) — implementation choice (superseded by D-044: 1.7.10)
 
 The siblings' dev dependencies and the first issuer consumer are on 1.7.6, and the measured extension
 API (plan §2.3) is 1.7.6's. 1.7.7 was published the same day; CI's matrix (1.7.5 and latest-1.7, as the siblings) will
@@ -925,3 +925,26 @@ went to the audit only.
 - **Evidence:** `test/issuer/refusals.test.ts` (the body, header and audit through the token endpoint; 25 malformed
   `stepUp`s refused, the edges accepted), `test/core/errors.test.ts` (the body; a challenge on any other reason never
   sent), `test/issuer/registry.test.ts` (a registry refusal stays generic). Mutations: 18 added, all caught.
+
+## D-044: the Better Auth floor raised to 1.7.10 (2026-10-19)
+
+The maintainer's decision (2026-10-18: move the floor "to 1.7.10 or 1.7.8 some point past the security issues").
+
+- **Why:** Better Auth 1.7.7 (2026-09-30) fixed GHSA-965c-763c-88jm (critical: an OAuth state value accepted as a
+  Magic Link token, so a sign-in as anyone whose email is known; needs the Magic Link plugin with social or Generic
+  OAuth sign-in), GHSA-r4xp-prcw-77qf (high: the OAuth Proxy plugin) and GHSA-44jh-23m7-hpcf (low: drizzle-adapter
+  rate limits on PostgreSQL). Our floor was 1.7.5 and our development pin 1.7.6 (D-002), both affected. This
+  package uses none of those plugins, and neither does the example, but the peer range let a host install an
+  affected Better Auth beside it.
+- **Change:** peer range `>=1.7.10 <1.8.0` for `better-auth` and every `@better-auth/*` peer; every `@better-auth/*`
+  development pin 1.7.10 (supersedes D-002's 1.7.6); CI's floor rows 1.7.5 → 1.7.10 (Node 22 and 24); the SAML
+  end-to-end project on 1.7.10. 1.7.10, not 1.7.7 or 1.7.8: the newest release a day old, already run locally
+  (D-024's wait) and in CI's latest-1.7 row since 2026-10-15.
+- **Release:** raising a floor can break a host on an older 1.7.x, so a minor release (0.5.0), with the reason at
+  the top of its notes. docs/versioning.md now says the floor rises past a Better Auth security fix.
+- **Evidence:** the full suite on 1.7.10 (Node and workerd), typecheck, lint, `pack:check`; the lockfile has one
+  `better-auth` and one `@better-auth/core` (1.7.10; `pnpm dedupe` dropped better-auth-saml-idp's old 1.7.6
+  resolution); the SAML end-to-end (better-auth-saml-idp 1.2.0 from npm) passes on 1.7.10.
+- **Also needed:** the ruleset's required checks named after the old matrix (`test (1.7.5, 22)`,
+  `test (1.7.5, 24)`) are renamed to `test (1.7.10, 22)` and `test (1.7.10, 24)`. The demo Workers, built from
+  the development dependencies, run 1.7.10 from their next deploy.

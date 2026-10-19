@@ -4,7 +4,7 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 
 [![npm](https://img.shields.io/npm/v/better-auth-id-jag)](https://www.npmjs.com/package/better-auth-id-jag)
 [![CI](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml)
-[![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.5%20%3C1.8-black)](https://www.better-auth.com)
+[![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.10%20%3C1.8-black)](https://www.better-auth.com)
 [![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#-runtimes-and-databases)
 [![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--04-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -51,7 +51,7 @@ If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-aut
 npm install better-auth-id-jag
 ```
 
-Requires Better Auth `>=1.7.5 <1.8.0`, `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
+Requires Better Auth `>=1.7.10 <1.8.0` (1.7.7 fixed account-takeover advisories; see the [CHANGELOG](CHANGELOG.md)), `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
 
 ## ⚡ Quick start
 
@@ -455,7 +455,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | **Oracle OCI IAM** | Receiver | ❌ Refused, by design: Oracle's ID-JAG has no `aud`, which the draft requires |
 | **VS Code** 1.141.0 (MCP client) with Okta | Receiver on Workers + D1 | ✅ Verified live through to MCP `initialize` and `tools/list`. VS Code redeems with `client_secret_post` and asks for every advertised scope |
 | better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
-| better-auth-scim-provisioning 1.2.0 → `@better-auth/scim` 1.7.6 | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
+| better-auth-scim-provisioning 1.2.0 → `@better-auth/scim` 1.7.10 | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG |
 | Receiver | Keycloak as issuer | ⏳ Not possible: Keycloak doesn't issue ID-JAGs |
 
@@ -469,7 +469,7 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## 🧩 Runtimes and databases
 
-The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.5 and the latest 1.7.x, and on Node 22 with 1.7.5. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
+The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.10 and the latest 1.7.x, and on Node 22 with 1.7.10. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
 
 ## 🧭 Not yet
 

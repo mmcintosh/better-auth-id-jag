@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Requires Better Auth 1.7.10 or later** (`>=1.7.10 <1.8.0`, was `>=1.7.5`), for `better-auth` and every
+  `@better-auth/*` peer (D-044). Better Auth 1.7.7 fixed account-takeover advisories that 1.7.5 and 1.7.6 have:
+  [GHSA-965c-763c-88jm](https://github.com/better-auth/better-auth/security/advisories/GHSA-965c-763c-88jm)
+  (critical; the Magic Link plugin with social or Generic OAuth sign-in) and
+  [GHSA-r4xp-prcw-77qf](https://github.com/better-auth/better-auth/security/advisories/GHSA-r4xp-prcw-77qf)
+  (high; the OAuth Proxy plugin). This package uses neither plugin, but the old floor let a host install an affected
+  Better Auth next to it. **On an older 1.7.x, upgrade Better Auth and its plugins together first**; npm warns about
+  the peer range until you do. No code or schema change in this package.
+
 ### Added
 
 - **Issuer: step-up** (draft -04 §9.2, D-043). The `authorize` hook can deny with
