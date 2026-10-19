@@ -948,3 +948,19 @@ The maintainer's decision (2026-10-18: move the floor "to 1.7.10 or 1.7.8 some p
 - **Also needed:** the ruleset's required checks named after the old matrix (`test (1.7.5, 22)`,
   `test (1.7.5, 24)`) are renamed to `test (1.7.10, 22)` and `test (1.7.10, 24)`. The demo Workers, built from
   the development dependencies, run 1.7.10 from their next deploy.
+
+## D-045: the issuer checks `resource` itself (2026-10-19)
+
+Found by the new Better Auth 1.8 CI row (#47): the fuzz test's `resource=""` got an HTTP 500 on 1.8.0-beta.1. Probing
+1.7.10 found the same 500 for a `resource` over 2048 characters or with a control character.
+
+- **Cause:** the issuer never validated the client's `resource`; it relied on oauth-provider's body schema, which
+  checks only that it parses as a URL and has no fragment (unchanged in 1.7.11 and 1.8.0-beta.1), and on 1.8 lets an
+  empty one through. Our handler reads the raw form, so these reached `buildIdJag`, whose claim check (`isResourceUri`)
+  threw a plain Error: a 500. No ID-JAG was ever issued with such a `resource`.
+- **Fix:** right after reading the parameters, `isResourceUri` (absolute URI, no fragment, at most 2048, no control
+  characters) or refuse `invalid_resource` (`invalid_target`, public: the caller sent it). On 1.7 the provider still
+  answers first for what its schema catches (`invalid_request`).
+- **Evidence:** `test/issuer/refusals.test.ts` (long, control characters, newline → `invalid_resource` on 1.7.10 and
+  1.8.0-beta.1; empty, blank, relative and fragment → a 400 from the provider or from us, never a 500); the fuzz test
+  passes repeatedly on 1.8.0-beta.1; one mutation (check removed) caught.

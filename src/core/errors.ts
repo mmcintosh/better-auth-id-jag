@@ -67,6 +67,7 @@ export const REASONS = {
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },
+  invalid_resource: { error: "invalid_target", public: true, description: "resource must be an absolute URI without a fragment." },
   invalid_subject_token: { error: "invalid_grant", public: false },
   subject_token_expired: { error: "invalid_grant", public: true, description: "The subject token has expired." },
   policy_denied: { error: "invalid_grant", public: false },
