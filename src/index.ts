@@ -8,6 +8,7 @@
 // The plugins, and composing them yourself.
 export { idJagIssuer, createIssuerState, checkIssuerHost, ISSUER_PLUGIN_ID } from "./issuer/plugin";
 export { handleTokenExchange, type IssuerState } from "./issuer/exchange";
+export { tokenExchangeFrom, type TokenExchangeHandler } from "./issuer/other-token-exchange";
 export { resolveIssuerOptions, DEFAULT_MAX_ID_TOKEN_AGE_SECONDS, DEFAULT_SAML_REFRESH_SCOPES, ISSUER_SIGNING_ALGORITHMS } from "./issuer/options";
 export { idJagGrant, idJagGrantExtension, RECEIVER_PLUGIN_ID } from "./receiver/plugin";
 export { handleIdJagGrant } from "./receiver/grant";

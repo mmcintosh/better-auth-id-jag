@@ -1,6 +1,7 @@
 // The ID-JAG issuer: plugin, plain-function grant handler, options and record types.
 export { RegistryDirectory } from "./directory";
 export { handleTokenExchange, type IssuerState } from "./exchange";
+export { tokenExchangeFrom, type TokenExchangeHandler } from "./other-token-exchange";
 export type {
   AuthorizeAllow,
   AuthorizeDeny,

@@ -55,6 +55,7 @@ const PUBLIC = [
   "registrySchema",
   "resolveIssuerOptions",
   "resolveReceiverOptions",
+  "tokenExchangeFrom",
   "trustedIssuerSchema",
   "verifyIdJag",
 ];

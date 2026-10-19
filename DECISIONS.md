@@ -964,3 +964,32 @@ Found by the new Better Auth 1.8 CI row (#47): the fuzz test's `resource=""` got
 - **Evidence:** `test/issuer/refusals.test.ts` (long, control characters, newline → `invalid_resource` on 1.7.10 and
   1.8.0-beta.1; empty, blank, relative and fragment → a 400 from the provider or from us, never a 500); the fuzz test
   passes repeatedly on 1.8.0-beta.1; one mutation (check removed) caught.
+
+## D-046: another token exchange beside ours (2026-10-19)
+
+The maintainer's go-ahead on 2026-10-19, after the 1.8.0-beta.1 read showed the clash unchanged (designed
+2026-10-15; "we will have to adjust", not an upstream request).
+
+- **The clash:** Better Auth 1.8's `oauthTokenExchange()` (#11763; access token → access token, same server) registers
+  `urn:ietf:params:oauth:grant-type:token-exchange` through `extendOAuthProvider`, as `idJagIssuer()` does, and
+  `validateOAuthProviderExtensions` refuses two extensions with one grant type at startup. Its handler isn't
+  exported; the plugin is `{ id: "oauth-token-exchange", init(ctx) { extendOAuthProvider(ctx, { grants }) } }`.
+- **Ours keeps the grant and forwards:** `idJagIssuer({ otherTokenExchange })`. Ours: `requested_token_type` =
+  id-jag, or refresh_token with `saml.refreshTokens`, or repeated (refused here, so the two never disagree about the
+  type). Everything else, absent included, goes to the handler with the same input, before any check or audit here.
+  An ID-JAG request can't reach it. Without the option, unchanged.
+- **`tokenExchangeFrom(plugin)`:** runs `init` once, at configuration, against a stand-in whose
+  `getPlugin("oauth-provider")` records the extensions `extendOAuthProvider` (public API) writes; returns the one
+  token-exchange handler. It throws for anything that would be lost: plugin keys besides `id`/`init`, an async `init`
+  or one returning options/context, an `init` needing more of the context, not exactly one extension, extension keys
+  besides `grants`, grants besides token exchange. A future version of their plugin that grows such parts fails
+  loudly instead of losing them.
+- **Both listed:** our `init` refuses when `oauth-token-exchange` is in `plugins`, whatever the order, with the fix in
+  the message (oauth-provider's own duplicate-grant error doesn't say it).
+- **Not done:** the peer range stays 1.7 until 1.8.0 is stable (with the rest of the 1.8 work); `tokenExchangeFrom`
+  works with any plugin of that shape, but only Better Auth's is tested.
+- **Evidence:** `test/issuer/other-token-exchange.test.ts`: routing with a stand-in handler (served types, absent,
+  repeated, SAML path (b), unchanged without the option, nothing audited for forwarded requests), the capture's
+  refusals, both listed refused; on 1.8.0-beta.1 (CI's 1.8 row, and a scratch worktree): the real
+  `oauthTokenExchange()` captured, a full access-token exchange through ours (200, `aud` = the other resource) and an
+  ID-JAG from the same host, and our startup error in either order. Mutations: 10 added, all caught.

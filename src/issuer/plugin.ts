@@ -18,6 +18,7 @@ import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXC
 import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
+import { refuseBothTokenExchanges } from "./other-token-exchange";
 import { auditEndpoints, blockEndpoints, ID_JAG_REGISTRY_ERROR_CODES, registryEndpoints } from "./registry";
 import { getSamlIdpExchange } from "./saml-exchange";
 import { issuerSchema } from "./schema";
@@ -102,6 +103,7 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
     id: ISSUER_PLUGIN_ID,
     init(ctx: AuthContext) {
       checkIssuerHost(ctx, state);
+      refuseBothTokenExchanges(ctx.options.plugins);
       extendOAuthProvider(ctx, extension);
       warnIfReplayUnsafe(ctx, "idJagIssuer");
     },

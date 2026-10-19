@@ -82,6 +82,13 @@ async function readForm(ctx: GenericEndpointContext): Promise<Form> {
   return form;
 }
 
+/** Whether this plugin answers the request (D-046): an ID-JAG, a refresh token with SAML path (b) on, or a repeated type. */
+function servedHere(form: Form, options: ResolvedIssuerOptions): boolean {
+  const types = form.get("requested_token_type") ?? [];
+  if (types.length > 1) return true;
+  return types[0] === ID_JAG_TOKEN_TYPE || (types[0] === REFRESH_TOKEN_TOKEN_TYPE && options.samlRefreshScopes !== undefined);
+}
+
 function hasClientCredentials(ctx: GenericEndpointContext, form: Form): boolean {
   const authorization = ctx.request?.headers.get("authorization") ?? (ctx.headers?.get("authorization") || undefined);
   return !!authorization || form.has("client_secret") || form.has("client_assertion");
@@ -149,6 +156,9 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
   // What the refusal event can say, filled in as the steps pass.
   const seen: { authenticated: boolean; clientId?: string; userId?: string; audience?: string } = { authenticated: false };
   const form = await readForm(ctx);
+  // D-046: a request this plugin doesn't serve goes to the host's other token exchange, before anything is checked or
+  // audited here. A repeated requested_token_type stays here (refused below), so the two never disagree on the type.
+  if (options.otherTokenExchange && !servedHere(form, options)) return options.otherTokenExchange(input);
   try {
     // 1. Client. Confidential only unless the host opted in (S5); the provider also checks the
     //    client is registered for this grant type (unauthorized_client).
