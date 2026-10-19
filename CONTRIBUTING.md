@@ -32,7 +32,7 @@ Everything CI runs, locally:
 | `pnpm test` | Unit, integration and interop tests, on Node (`node:sqlite`) and on workerd (D1). |
 | `pnpm test:node` / `pnpm test:workerd` | One runtime only: quicker while iterating. |
 | `pnpm build` | The `dist/` build with type declarations. |
-| `scripts/use-better-auth.sh 1.7.10` | Install another Better Auth version (and its plugins) for the suite: a version, `latest-1.7`, `latest` or `next`. CI runs 1.7.10 and `latest-1.7`. |
+| `scripts/use-better-auth.sh 1.7.10` | Install another Better Auth version (and its plugins) for the suite: a version, `latest-1.7`, `latest-1.8` (pre-releases included), `latest` or `next`. CI runs 1.7.10 and `latest-1.7`, and `latest-1.8` without failing the build. |
 
 Three suites need something extra:
 
@@ -75,7 +75,7 @@ Three suites need something extra:
 3. Run `pnpm typecheck && pnpm lint && pnpm test && pnpm build`.
 4. Open the PR and fill in the template.
 
-CI runs the suite on Node 22 and 24, on Better Auth 1.7.10 and the latest 1.7.x, plus a dependency review. A new **runtime** dependency needs a good reason: every one is attack surface for something that hands out access tokens, and must be MIT-compatible.
+CI runs the suite on Node 22 and 24, on Better Auth 1.7.10 and the latest 1.7.x (and, without failing the build, the newest 1.8), plus a dependency review. A new **runtime** dependency needs a good reason: every one is attack surface for something that hands out access tokens, and must be MIT-compatible.
 
 ## Releasing (maintainers)
 

@@ -1,7 +1,8 @@
 # Tested at the peer range's minimum and the latest 1.7.x, on the oldest and newest Node LTS, each on
-# Node and inside workerd (vitest's two projects). Runners are pinned to ubuntu-24.04 (not
-# ubuntu-latest), and every action to a SHA. Adapters, runtimes and the Workers example join when
-# there is code for them (plan §4).
+# Node and inside workerd (vitest's two projects). A non-blocking row runs the newest Better Auth 1.8
+# (pre-releases included): its failures show as failed steps and annotations, but the job stays green
+# until the package supports 1.8. Runners are pinned to ubuntu-24.04 (not ubuntu-latest), and every
+# action to a SHA. Adapters, runtimes and the Workers example join when there is code for them (plan §4).
 name: CI
 on:
   push: { branches: [main] }
@@ -10,6 +11,7 @@ on:
 permissions: { contents: read }
 jobs:
   test:
+    name: test (${{ matrix.better-auth }}, ${{ matrix.node }})
     strategy:
       fail-fast: false
       matrix:
@@ -17,6 +19,7 @@ jobs:
         node: [24]
         include:
           - { better-auth: "1.7.10", node: 22 } # oldest Node LTS still maintained
+          - { better-auth: "latest-1.8", node: 24 } # non-blocking: steps below may fail without failing the job
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,12 +30,16 @@ jobs:
       - uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
         with: { mode: firewall-free }
       - run: sfw pnpm install --frozen-lockfile
-      - run: sfw scripts/use-better-auth.sh ${{ matrix.better-auth }}
-      - run: pnpm typecheck
+      - continue-on-error: ${{ matrix.better-auth == 'latest-1.8' }}
+        run: sfw scripts/use-better-auth.sh ${{ matrix.better-auth }}
+      - continue-on-error: ${{ matrix.better-auth == 'latest-1.8' }}
+        run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm docs:check # every relative link and #anchor in the Markdown docs
-      - run: pnpm test # Node (node:sqlite) and workerd (D1)
-      - run: pnpm pack:check # dist build, a strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
+      - continue-on-error: ${{ matrix.better-auth == 'latest-1.8' }}
+        run: pnpm test # Node (node:sqlite) and workerd (D1)
+      - continue-on-error: ${{ matrix.better-auth == 'latest-1.8' }}
+        run: pnpm pack:check # dist build, a strict host under TypeScript 7 and 5.9, publint, Are the Types Wrong
 
   # The database-sensitive behaviour on real databases (test/adapters): the jti unique key under
   # concurrency, the sweeps' date comparisons, concurrent first use. D1 and SQLite run in the test job.
