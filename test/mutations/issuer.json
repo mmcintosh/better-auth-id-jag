@@ -2156,5 +2156,14 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "D-045 resource not checked by the issuer",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (resource !== undefined && !isResourceUri(resource)) refuse(\"invalid_resource\", resource);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

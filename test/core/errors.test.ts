@@ -19,7 +19,7 @@ describe("refusals (S8)", () => {
     // Changing this list is a security decision (S8): make it here, on purpose. step_up_required is the exception:
     // only the host's authorize hook produces it, by choosing to tell the caller (D-043).
     expect(ALL.filter((r) => REASONS[r].public).sort()).toEqual(
-      ["actor_token_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "scope_required", "step_up_required", "subject_token_expired", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
+      ["actor_token_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "invalid_resource", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "scope_required", "step_up_required", "subject_token_expired", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
     );
   });
 

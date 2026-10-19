@@ -46,7 +46,7 @@ import { verifyOwnSamlAssertion } from "./subject/saml2";
 
 /** The provider's opaque access-token table. */
 const ACCESS_TOKEN_MODEL = "oauthAccessToken";
-import { normalizeAudience } from "./url";
+import { isResourceUri, normalizeAudience } from "./url";
 
 /** What the plugin keeps per instance: resolved options, the registry directory, the sweep clock. */
 export interface IssuerState {
@@ -196,6 +196,9 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     const resources = form.get("resource") ?? [];
     if (resources.length > 1) refuse("unsupported_parameter", "more than one resource");
     const resource = resources[0];
+    // Checked here, not left to the provider: 1.7's body schema refuses a malformed resource before this
+    // handler, 1.8's lets an empty one through (the ID-JAG builder then threw: a 500).
+    if (resource !== undefined && !isResourceUri(resource)) refuse("invalid_resource", resource);
     const scopeParam = one("scope") ?? "";
     if (scopeParam.length > MAX_SCOPE_LENGTH) refuse("unsupported_parameter", "scope too long");
     const requestedScopes = [...new Set(scopeParam.split(" ").filter(Boolean))];

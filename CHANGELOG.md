@@ -13,6 +13,14 @@
   Better Auth next to it. **On an older 1.7.x, upgrade Better Auth and its plugins together first**; npm warns about
   the peer range until you do. No code or schema change in this package.
 
+### Fixed
+
+- **Issuer: a malformed `resource` is a 400, never a 500** (D-045). A `resource` longer than 2048 characters or
+  with a control character passed Better Auth's own check (1.7.x) and reached the ID-JAG builder, whose claim check
+  threw: HTTP 500 (no ID-JAG was issued). On Better Auth 1.8 an empty `resource=` did the same. The issuer now checks
+  `resource` itself (an absolute URI without a fragment, at most 2048 characters) and refuses anything else with
+  `invalid_target` and the new public reason `invalid_resource`.
+
 ### Added
 
 - **Issuer: step-up** (draft -04 §9.2, D-043). The `authorize` hook can deny with

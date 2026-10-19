@@ -67,6 +67,22 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     }
   });
 
+  it("a resource that isn't an absolute URI without a fragment: invalid_resource, never a 500", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { client, idToken } = await setup(host);
+    // These pass the provider's own resource check (1.7 and 1.8) and used to reach the ID-JAG builder: a 500.
+    for (const resource of [`https://rs.example/${"x".repeat(2100)}`, "https://rs.example/\u0001", "https://rs.example/a\u007fb", "https://rs.example/a\nb"])
+      await refused(host, await exchange(host, client, idToken, { resource }), "invalid_resource", "invalid_target");
+    // These the provider refuses first on 1.7 (invalid_request, before our handler); on 1.8 an empty one reaches us.
+    for (const resource of ["", " ", "rel/path", "https://rs.example/mcp#x"]) {
+      const r = await exchange(host, client, idToken, { resource });
+      expect(r.status, JSON.stringify(resource)).toBe(400);
+      expect(["invalid_request", "invalid_target"], JSON.stringify(r.body)).toContain(r.body.error);
+      takeReasons(host);
+    }
+    expect((await exchange(host, client, idToken, { resource: "urn:example:mcp" })).status).toBe(200);
+  });
+
   it("allowLoopbackHttpAudiences admits http://localhost only", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow, allowLoopbackHttpAudiences: true } });
     const { client, idToken } = await setup(host);
