@@ -897,3 +897,31 @@ The draft doesn't require `kid`; RFC 7515 makes every key reference optional.
   and an unknown one refused, published thumbprints kept), and a live PingFederate ID-JAG redeemed with this code.
   Mutations: ten added, all caught; four older ones updated to the code (two of them stale since D-041).
 
+## D-043: step-up from the issuer's `authorize` hook (2026-10-18)
+
+The maintainer approved this on 2026-10-18 on condition that it follows draft -04. It was asked for by a host whose
+policy refuses an ID-JAG when the person's second factor is older than the resource allows, and which wants the agent
+to tell the person how to fix that. In 0.4.0 every deny was the generic `invalid_grant` (S8), and the hook's `reason`
+went to the audit only.
+
+- **Draft -04 defines it:** §9.2 says the IdP may answer the token exchange with an `insufficient_user_authentication`
+  error, RFC 9470 style (its example carries `max_age`), and the client sends the person back to the IdP and retries.
+  §4.3.4.3 makes errors RFC 6749 §5.2 responses, which allow `error_description` and `error_uri`.
+- **Shape:** `AuthorizeDeny.stepUp?: { maxAge?, acrValues?, description?, uri? }`, sent as `max_age`, `acr_values`
+  (space-separated), `error_description` (default "The subject does not meet the authentication requirements.") and
+  `error_uri`. HTTP 400, `Cache-Control: no-store` as for every token endpoint answer. A deny without `stepUp` is
+  unchanged.
+- **Checked, or the verdict is malformed (`policy_denied`, fail closed):** `stepUp` is a strict object; `maxAge` an
+  integer 0 to one year; `acrValues` 1 to 20 values of RFC 6749 NQCHAR without space; `description` RFC 6749's
+  error_description characters (printable ASCII without `"` and `\`), at most 300; `uri` RFC 6749's error_uri
+  characters, an absolute https URL without credentials or fragment, at most 2048. Nothing is cleaned up silently.
+- **S8:** a step-up tells the caller the user got past identity and policy lookup. That is the host's decision per
+  deny, so the default stays generic. Only the hook can produce it, and it runs after the blocks and the registry,
+  whose refusals stay generic. `step_up_required` is a public reason (the test that pins the public list says why).
+- **Audit:** the new reason `step_up_required`, with the hook's reason and the challenge (`max_age`, `acr_values`,
+  `error_uri`) in the detail.
+- **Not done:** `acr_values` / `max_age` aren't checked against what the IdP can actually do; and nothing is changed
+  at the receiver, which already refuses an ID-JAG too old for its own limit.
+- **Evidence:** `test/issuer/refusals.test.ts` (the body, header and audit through the token endpoint; 25 malformed
+  `stepUp`s refused, the edges accepted), `test/core/errors.test.ts` (the body; a challenge on any other reason never
+  sent), `test/issuer/registry.test.ts` (a registry refusal stays generic). Mutations: 18 added, all caught.

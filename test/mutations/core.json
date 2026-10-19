@@ -568,5 +568,41 @@
   "paths": [
    "test/core"
   ]
+ },
+ {
+  "name": "D-043 a challenge sent on any reason",
+  "file": "src/core/errors.ts",
+  "a": "  const c = refusal.reason === \"step_up_required\" ? refusal.challenge : undefined;",
+  "b": "  const c = refusal.challenge;",
+  "paths": [
+   "test/core/errors.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 challenge description ignored",
+  "file": "src/core/errors.ts",
+  "a": "    error_description: c?.description ?? publicDescription(refusal.reason),",
+  "b": "    error_description: publicDescription(refusal.reason),",
+  "paths": [
+   "test/core/errors.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 max_age 0 dropped",
+  "file": "src/core/errors.ts",
+  "a": "    ...(c?.maxAge !== undefined ? { max_age: c.maxAge } : {}),",
+  "b": "    ...(c?.maxAge ? { max_age: c.maxAge } : {}),",
+  "paths": [
+   "test/core/errors.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 step_up_required not public",
+  "file": "src/core/errors.ts",
+  "a": "  step_up_required: { error: \"insufficient_user_authentication\", public: true,",
+  "b": "  step_up_required: { error: \"insufficient_user_authentication\", public: false,",
+  "paths": [
+   "test/core/errors.test.ts"
+  ]
  }
 ]

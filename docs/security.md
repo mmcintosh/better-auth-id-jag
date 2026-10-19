@@ -48,7 +48,7 @@ idJagGrant({
 | Algorithm confusion | RS256, ES256 and EdDSA only. No `HS*`, no `none` (S4). |
 | Oversized or hostile input | Tokens longer than any real ID-JAG are refused before decoding (S9); JWKS and discovery bodies are capped in size and time, and fuzzed. |
 | Long-lived credentials | ID-JAG lifetime: 300 s by default, never more than 900 s, at both ends (S7). |
-| Probing users and policies | A refusal's description names the defect only when the caller sent it (a missing claim, a malformed token). Trust, keys, users, policy and blocks get the generic description for their code; the real reason goes to the audit log (S8). |
+| Probing users and policies | A refusal's description names the defect only when the caller sent it (a missing claim, a malformed token). Trust, keys, users, policy and blocks get the generic description for their code; the real reason goes to the audit log (S8). The one exception is chosen by the host: an `authorize` hook that denies with `stepUp` sends `insufficient_user_authentication` and its parameters (D-043). |
 | Log injection and a growing audit table | Every caller-supplied string is made log-safe; refusals of a caller that never authenticated reach your handler but not the table. |
 
 ### Issuer (`idJagIssuer()`)

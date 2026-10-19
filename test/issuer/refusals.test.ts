@@ -304,6 +304,61 @@ describe("refusals: policy (S1, S7)", () => {
     expect(host.recorded.refused[0]?.detail).toBe("authorize: line onefake line");
   });
 
+  it("the hook asks for step-up: insufficient_user_authentication with its parameters, audited as step_up_required (D-043)", async () => {
+    let stepUp: unknown = { maxAge: 300, acrValues: ["phr"], description: "Confirm it's you, then try again.", uri: "https://idp.example/confirm?next=%2Fagents" };
+    const host = await createIssuerHost({ issuer: { authorize: (() => ({ decision: "deny", reason: "mfa too old", stepUp })) as never } });
+    const { client, idToken } = await setup(host);
+    const r = await exchange(host, client, idToken);
+    expect(r.status).toBe(400);
+    expect(r.headers.get("cache-control")).toBe("no-store");
+    expect(r.body).toEqual({ error: "insufficient_user_authentication", error_description: "Confirm it's you, then try again.", error_uri: "https://idp.example/confirm?next=%2Fagents", max_age: 300, acr_values: "phr" });
+    expect(host.recorded.refused[0]?.detail).toBe("authorize: mfa too old (max_age=300 acr_values=phr error_uri=https://idp.example/confirm?next=%2Fagents)");
+    expect(takeReasons(host)).toEqual(["step_up_required"]);
+    stepUp = {};
+    await refused(host, await exchange(host, client, idToken), "step_up_required", "insufficient_user_authentication");
+  });
+
+  it("a malformed stepUp is policy_denied, with the generic body (D-043)", async () => {
+    let stepUp: unknown;
+    const host = await createIssuerHost({ issuer: { authorize: (() => ({ decision: "deny", stepUp })) as never } });
+    const { client, idToken } = await setup(host);
+    for (const s of [
+      true,
+      "https://idp.example/confirm",
+      { url: "https://idp.example/confirm" },
+      { maxAge: -1 },
+      { maxAge: 1.5 },
+      { maxAge: "300" },
+      { acrValues: [] },
+      { acrValues: ["has space"] },
+      { acrValues: ['q"uote'] },
+      { acrValues: "phr" },
+      { description: 'say "hi"' },
+      { description: "back\\slash" },
+      { description: "line\nbreak" },
+      { description: "café" },
+      { description: "" },
+      { description: "x".repeat(301) },
+      { uri: "http://idp.example/confirm" },
+      { uri: "javascript:alert(1)" },
+      { uri: "/confirm" },
+      { uri: "https://user:pw@idp.example/confirm" },
+      { uri: "https://idp.example/confirm#x" },
+      { uri: "https://idp.example/confirm#" },
+      { uri: "https://idp.example/con firm" },
+      { uri: "https://idp.example/é" },
+      { uri: `https://idp.example/${"x".repeat(2048)}` },
+    ]) {
+      stepUp = s;
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+    }
+    // At the edges: every allowed punctuation mark, 300 characters, a bare max_age of 0.
+    for (const s of [{ description: "Confirm it's you: https://idp.example/x?a=1&b=[2] {ok} ~!@$%^*()_+-=|;,./<>?`" }, { description: "x".repeat(300) }, { maxAge: 0 }]) {
+      stepUp = s;
+      expect((await exchange(host, client, idToken)).body.error, JSON.stringify(s)).toBe("insufficient_user_authentication");
+    }
+  });
+
   it("no requested scope is allowed: no_scope (only after an allow)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);

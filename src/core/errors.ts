@@ -8,7 +8,8 @@
 // code. The reason code itself goes to the audit event, never to the caller.
 import { APIError, isAPIError } from "better-auth/api";
 
-export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target";
+// insufficient_user_authentication: draft -04 §9.2 step-up (RFC 9470's code, at the token endpoint).
+export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "insufficient_user_authentication";
 
 /** What the caller sees when the reason isn't safe to name. */
 const GENERIC: Record<OAuthErrorCode, string> = {
@@ -18,6 +19,7 @@ const GENERIC: Record<OAuthErrorCode, string> = {
   unauthorized_client: "The client is not authorized for this grant.",
   invalid_scope: "The requested scope is invalid.",
   invalid_target: "The requested resource or audience is invalid.",
+  insufficient_user_authentication: "The subject does not meet the authentication requirements.",
 };
 
 /**
@@ -68,6 +70,8 @@ export const REASONS = {
   invalid_subject_token: { error: "invalid_grant", public: false },
   subject_token_expired: { error: "invalid_grant", public: true, description: "The subject token has expired." },
   policy_denied: { error: "invalid_grant", public: false },
+  // The host's authorize hook asked for step-up (draft -04 §9.2, D-043): it chose to tell the caller.
+  step_up_required: { error: "insufficient_user_authentication", public: true, description: "The subject does not meet the authentication requirements." },
   blocked: { error: "invalid_grant", public: false },
   no_policy: { error: "invalid_grant", public: false },
 } as const satisfies Record<string, { error: OAuthErrorCode; public: boolean; description?: string }>;
@@ -87,6 +91,17 @@ export function logSafe(s: string, max = 300): string {
   return points.length > max ? `${points.slice(0, max).join("")}…` : clean;
 }
 
+/**
+ * A step-up challenge (draft -04 §9.2, RFC 9470 §3): what the caller is told to come back with. Validated by the
+ * issuer's policy before it gets here (RFC 6749 §5.2 characters, an https error_uri).
+ */
+export interface StepUpChallenge {
+  maxAge?: number | undefined;
+  acrValues?: string[] | undefined;
+  description?: string | undefined;
+  uri?: string | undefined;
+}
+
 /** A refusal before it is thrown: what the audit event records. */
 export class IdJagRefusal extends Error {
   readonly error: OAuthErrorCode;
@@ -95,6 +110,8 @@ export class IdJagRefusal extends Error {
   constructor(
     readonly reason: ReasonCode,
     detail?: string,
+    /** Sent to the caller: only with `step_up_required`. */
+    readonly challenge?: StepUpChallenge,
   ) {
     const safe = detail === undefined ? undefined : logSafe(detail);
     super(`${reason}${safe ? `: ${safe}` : ""}`);
@@ -112,7 +129,14 @@ export function publicDescription(reason: ReasonCode): string {
 
 /** The APIError the token endpoint turns into `{ error, error_description }`. */
 export function toApiError(refusal: IdJagRefusal): APIError {
-  const body = { error: refusal.error, error_description: publicDescription(refusal.reason) };
+  const c = refusal.reason === "step_up_required" ? refusal.challenge : undefined;
+  const body = {
+    error: refusal.error,
+    error_description: c?.description ?? publicDescription(refusal.reason),
+    ...(c?.uri !== undefined ? { error_uri: c.uri } : {}),
+    ...(c?.maxAge !== undefined ? { max_age: c.maxAge } : {}),
+    ...(c?.acrValues?.length ? { acr_values: c.acrValues.join(" ") } : {}),
+  };
   // 401 with a challenge for client authentication (RFC 6749 §5.2), 400 for the rest.
   if (refusal.error === "invalid_client") return new APIError("UNAUTHORIZED", body, { "WWW-Authenticate": 'Basic realm="token"' });
   return new APIError("BAD_REQUEST", body);

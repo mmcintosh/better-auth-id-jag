@@ -79,6 +79,15 @@ export interface AuthorizeDeny {
   decision: "deny";
   /** For the audit log only (log-safe there); never sent to the caller. */
   reason?: string | undefined;
+  /**
+   * Ask for step-up (draft -04 §9.2, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
+   * style, instead of the generic `invalid_grant`, and is expected to send the person back to sign in again. Setting it
+   * tells the caller this user got past identity and policy lookup (S8), so set it only for that. `maxAge` → `max_age`
+   * (seconds); `acrValues` → `acr_values`; `description` → `error_description` (printable ASCII without `"` or `\`,
+   * at most 300); `uri` → `error_uri` (an absolute https URL, such as a "confirm it's you" page). Anything else is
+   * refused as a malformed verdict.
+   */
+  stepUp?: { maxAge?: number | undefined; acrValues?: string[] | undefined; description?: string | undefined; uri?: string | undefined } | undefined;
 }
 
 export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny;

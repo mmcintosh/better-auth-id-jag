@@ -2030,5 +2030,131 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "D-043 stepUp ignored: always the generic deny",
+  "file": "src/issuer/policy.ts",
+  "a": "    if (v.stepUp) {",
+  "b": "    if (false) {",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 stepUp keys not strict",
+  "file": "src/issuer/policy.ts",
+  "a": "const stepUpSchema = z.strictObject({",
+  "b": "const stepUpSchema = z.object({",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 description charset not checked",
+  "file": "src/issuer/policy.ts",
+  "a": "  description: z.string().max(300).regex(descriptionChars).optional(),",
+  "b": "  description: z.string().max(300).optional(),",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 description cap removed",
+  "file": "src/issuer/policy.ts",
+  "a": "  description: z.string().max(300).regex(descriptionChars).optional(),",
+  "b": "  description: z.string().regex(descriptionChars).optional(),",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 description allows quote",
+  "file": "src/issuer/policy.ts",
+  "a": "const descriptionChars = /^[\\x20\\x21\\x23-\\x5b\\x5d-\\x7e]+$/;",
+  "b": "const descriptionChars = /^[\\x20-\\x5b\\x5d-\\x7e]+$/;",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 acr value allows space",
+  "file": "src/issuer/policy.ts",
+  "a": "const acrValue = /^[\\x21\\x23-\\x5b\\x5d-\\x7e]+$/;",
+  "b": "const acrValue = /^[\\x20\\x21\\x23-\\x5b\\x5d-\\x7e]+$/;",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 empty acrValues accepted",
+  "file": "src/issuer/policy.ts",
+  "a": ".min(1).max(20).optional(),",
+  "b": ".max(20).optional(),",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 maxAge negative accepted",
+  "file": "src/issuer/policy.ts",
+  "a": "  maxAge: z.number().int().min(0)",
+  "b": "  maxAge: z.number().int()",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 uri: http accepted",
+  "file": "src/issuer/policy.ts",
+  "a": "  return u.protocol === \"https:\" && ",
+  "b": "  return ",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 uri: credentials accepted",
+  "file": "src/issuer/policy.ts",
+  "a": " && u.username === \"\" && u.password === \"\"",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 uri: empty fragment accepted",
+  "file": "src/issuer/policy.ts",
+  "a": " && !s.includes(\"#\")",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 uri: charset not checked",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (!uriChars.test(s) || !URL.canParse(s)) return false;",
+  "b": "  if (!URL.canParse(s)) return false;",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 uri: not checked at all",
+  "file": "src/issuer/policy.ts",
+  "a": "  uri: z.string().max(2048).refine(isStepUpUri).optional(),",
+  "b": "  uri: z.string().optional(),",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-043 step-up audit detail drops the challenge",
+  "file": "src/issuer/policy.ts",
+  "a": "${asked ? ` (${asked})` : \"\"}",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

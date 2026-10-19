@@ -16,9 +16,10 @@ describe("refusals (S8)", () => {
   });
 
   it("exactly these reasons are public: the caller sent the defect, so naming it reveals nothing", () => {
-    // Changing this list is a security decision (S8): make it here, on purpose.
+    // Changing this list is a security decision (S8): make it here, on purpose. step_up_required is the exception:
+    // only the host's authorize hook produces it, by choosing to tell the caller (D-043).
     expect(ALL.filter((r) => REASONS[r].public).sort()).toEqual(
-      ["actor_token_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "scope_required", "subject_token_expired", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
+      ["actor_token_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "scope_required", "step_up_required", "subject_token_expired", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
     );
   });
 
@@ -47,6 +48,16 @@ describe("refusals (S8)", () => {
       if (!REASONS[reason].public) expect(generic.has(body.error_description), reason).toBe(true);
     }
     expect(generic.size).toBeLessThanOrEqual(new Set(Object.values(REASONS).map((r) => r.error)).size);
+  });
+
+  it("step-up (D-043): insufficient_user_authentication with the challenge's parameters, never the detail", () => {
+    const full = toApiError(new IdJagRefusal("step_up_required", "DETAIL-123", { maxAge: 300, acrValues: ["phr", "urn:example:mfa"], description: "Confirm it's you, then try again.", uri: "https://idp.example/confirm" }));
+    expect(full.statusCode).toBe(400);
+    expect(full.body).toEqual({ error: "insufficient_user_authentication", error_description: "Confirm it's you, then try again.", error_uri: "https://idp.example/confirm", max_age: 300, acr_values: "phr urn:example:mfa" });
+    expect(toApiError(new IdJagRefusal("step_up_required")).body).toEqual({ error: "insufficient_user_authentication", error_description: "The subject does not meet the authentication requirements." });
+    expect(toApiError(new IdJagRefusal("step_up_required", undefined, { maxAge: 0 })).body).toMatchObject({ max_age: 0 });
+    // A challenge on any other reason is never sent.
+    expect(toApiError(new IdJagRefusal("policy_denied", undefined, { description: "leak", uri: "https://x.example/" })).body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
   });
 
   it("a refusal's detail and message are log-safe and capped (they may quote the caller)", () => {
