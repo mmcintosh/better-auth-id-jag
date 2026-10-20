@@ -4,6 +4,7 @@ import type { GenericEndpointContext, User } from "better-auth";
 import { z } from "zod";
 import type { AuditOptions } from "../core";
 import { DEFAULT_LIFETIME_SECONDS, MAX_LIFETIME_SECONDS } from "../core";
+import type { TokenExchangeHandler } from "./other-token-exchange";
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -164,6 +165,14 @@ export interface IdJagIssuerOptions extends AuditOptions {
    * capability at startup.
    */
   saml?: SamlOptions | undefined;
+  /**
+   * Token-exchange requests this plugin doesn't serve go here instead of being refused (D-046): any
+   * `requested_token_type` other than an ID-JAG (or, with `saml.refreshTokens`, a refresh token), absent included.
+   * oauth-provider allows one handler per grant type, so Better Auth 1.8's `oauthTokenExchange()` can't be listed
+   * beside this plugin: pass `tokenExchangeFrom(oauthTokenExchange())` here instead. Forwarded requests are the
+   * handler's to authenticate, audit and refuse; this plugin records nothing for them.
+   */
+  otherTokenExchange?: TokenExchangeHandler | undefined;
 }
 
 /** Default allowed scopes of a refresh token issued for a SAML assertion. */
@@ -192,6 +201,7 @@ const scopeToken = z
 
 const optionsSchema = z.strictObject({
   authorize: fn.optional(),
+  otherTokenExchange: fn.optional(),
   registry: z
     .strictObject({
       enabled: z.boolean(),

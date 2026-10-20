@@ -23,6 +23,14 @@
 
 ### Added
 
+- **Issuer: another token exchange beside ours** (D-046). Better Auth 1.8's `oauthTokenExchange()` registers the same
+  token-exchange grant as `idJagIssuer()`, and oauth-provider allows one handler per grant type, so listing both
+  stops startup. New option `idJagIssuer({ otherTokenExchange })`: requests this plugin doesn't serve (a
+  `requested_token_type` other than an ID-JAG, or a refresh token with SAML path (b)) go to that handler instead of
+  being refused. New export `tokenExchangeFrom(plugin)` takes the handler out of a plugin like
+  `oauthTokenExchange()`, and refuses one with parts it would lose. Listing both plugins now fails with a message
+  saying this. Nothing changes without the option. Tested against `oauthTokenExchange()` on Better Auth
+  1.8.0-beta.1 (the CI's 1.8 row); this release's peer range is still 1.7.
 - **Issuer: step-up** (draft -04 §9.2, D-043). The `authorize` hook can deny with
   `stepUp: { maxAge?, acrValues?, description?, uri? }`. The client then gets `insufficient_user_authentication`
   with `max_age`, `acr_values`, `error_description` and `error_uri` (RFC 9470's parameters), not the generic

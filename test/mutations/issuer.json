@@ -2165,5 +2165,95 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "D-046 everything forwarded, ID-JAG requests too",
+  "file": "src/issuer/exchange.ts",
+  "a": "  if (options.otherTokenExchange && !servedHere(form, options)) return options.otherTokenExchange(input);",
+  "b": "  if (options.otherTokenExchange) return options.otherTokenExchange(input);",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 never forwarded",
+  "file": "src/issuer/exchange.ts",
+  "a": "  if (options.otherTokenExchange && !servedHere(form, options)) return options.otherTokenExchange(input);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 repeated requested_token_type forwarded",
+  "file": "src/issuer/exchange.ts",
+  "a": "  if (types.length > 1) return true;\n",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 SAML refresh-token request forwarded",
+  "file": "src/issuer/exchange.ts",
+  "a": " || (types[0] === REFRESH_TOKEN_TOKEN_TYPE && options.samlRefreshScopes !== undefined)",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 both plugins listed not refused",
+  "file": "src/issuer/plugin.ts",
+  "a": "      refuseBothTokenExchanges(ctx.options.plugins);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 capture keeps a plugin with other parts",
+  "file": "src/issuer/other-token-exchange.ts",
+  "a": "  if (extra.length > 0) fail(`it also has ${extra.join(\", \")}`);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 capture ignores init's return",
+  "file": "src/issuer/other-token-exchange.ts",
+  "a": "  if (returned !== undefined) fail(",
+  "b": "  if (false) fail(",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 capture takes the first of several extensions",
+  "file": "src/issuer/other-token-exchange.ts",
+  "a": "  if (captured.length !== 1) fail(",
+  "b": "  if (captured.length === 0) fail(",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 capture keeps an extension with other parts",
+  "file": "src/issuer/other-token-exchange.ts",
+  "a": "  if (other.length > 0) fail(`its extension also has ${other.join(\", \")}`);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-046 capture keeps an extension with other grants",
+  "file": "src/issuer/other-token-exchange.ts",
+  "a": "  if (grants.length !== 1 || typeof handler !== \"function\")",
+  "b": "  if (typeof handler !== \"function\")",
+  "paths": [
+   "test/issuer/other-token-exchange.test.ts"
+  ]
  }
 ]

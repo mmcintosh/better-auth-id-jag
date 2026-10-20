@@ -133,6 +133,7 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | `allowLoopbackHttpAudiences` | `false` | Allow `http://` audiences on `localhost`, `127.0.0.1` and `[::1]`, for local development. Otherwise audiences are https. |
 | `sweepIntervalSeconds` | `3600` | Seconds between opportunistic sweeps of expired rows, per isolate. `0` never sweeps. |
 | `saml` | | Experimental: `{ subjectTokens?, refreshTokens? }`. See [SAML subject tokens](#saml-subject-tokens). |
+| `otherTokenExchange` | | A token-exchange handler for the requests this plugin doesn't serve, such as Better Auth 1.8's own. See [Another token exchange](#another-token-exchange). |
 | `events` | | `{ onIssued?, onRefreshIssued?, onAccepted?, onRefused?, onAdminChanged? }`. See [Audit events](#-audit-events). |
 | `auditLog` | | `{ retentionDays }` (1 to 3650): also write events to the `idJagAudit` table. |
 
@@ -224,6 +225,25 @@ betterAuth({
   **It is an ordinary refresh token from your provider**, the same as one from a sign-in, and that is what the draft and Okta specify. At `grant_type=refresh_token` it yields your IdP's own access tokens and ID tokens (for the scopes it was issued with), until it expires or is revoked. No consent row is created: the SP's `tokenExchange` mapping in better-auth-saml-idp is the authorization. So keep `refreshTokens.scopes` to what the agent needs. The example above, which is also the default, allows `profile` and `email`, so that refresh token can read the user's profile and email at `/oauth2/userinfo`. A block stops its exchange for ID-JAGs, not its use at `grant_type=refresh_token`; revoke it at `/oauth2/revoke` to stop both.
 - **(a)** exchanges the Assertion directly for an ID-JAG, through the same policy as an ID token. `auth_time` is its AuthnInstant and `acr` its AuthnContextClassRef.
 - **Either way, an Assertion works once.** Exchanging it again is refused, and so is presenting it from another client. Any `saml` option makes startup fail unless better-auth-saml-idp's exchange capability is on the context, which means **install `samlIdp()` before `idJagIssuer()`**. Assertions are capped at 64 KiB of XML.
+
+### Another token exchange
+
+oauth-provider allows one handler per grant type, and this plugin registers the token-exchange grant. Better Auth 1.8 adds its own token exchange, `oauthTokenExchange()` (a user's access token for an access token to another of your APIs), which registers the same grant, so the two can't both be listed: startup fails. Keep this plugin's and hand it theirs:
+
+```ts
+import { oauthProvider, oauthTokenExchange } from "@better-auth/oauth-provider"; // 1.8
+import { idJagIssuer, tokenExchangeFrom } from "better-auth-id-jag";
+
+plugins: [
+  jwt(),
+  oauthProvider({ /* … */ }),
+  idJagIssuer({ authorize, otherTokenExchange: tokenExchangeFrom(oauthTokenExchange()) }), // not oauthTokenExchange() itself
+]
+```
+
+- **Who answers what.** `requested_token_type` = ID-JAG (or, with `saml.refreshTokens`, a refresh token) is this plugin's, as before. Any other value, or none, goes to `otherTokenExchange` unchanged, before this plugin checks or records anything: that handler authenticates, refuses and logs it. A repeated `requested_token_type` stays here and is refused. Without `otherTokenExchange`, nothing changes: other values are refused (`unsupported_requested_token_type`).
+- **`tokenExchangeFrom(plugin)`** runs the plugin's `init` once against a stand-in and keeps the handler it registers. It throws if the plugin does anything that would be lost that way (endpoints, schema, hooks, other grants, metadata), so an upgrade of the other plugin can't silently drop part of it.
+- Listing both plugins anyway stops startup with a message that says this. Any handler of the same shape works as `otherTokenExchange`, not only Better Auth's.
 
 ## 🔑 Receiver: `idJagGrant()`
 
