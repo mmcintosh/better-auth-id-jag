@@ -65,8 +65,8 @@
  {
   "name": "S1 hook deny ignored",
   "file": "src/issuer/policy.ts",
-  "a": "  if (v.decision !== \"allow\") return refuse(",
-  "b": "  if (false) return refuse(",
+  "a": "  if (v.decision !== \"allow\") {",
+  "b": "  if (false) {",
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
