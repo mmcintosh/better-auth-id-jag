@@ -10,7 +10,11 @@ const REPO = "better-auth/better-auth";
 const PR = 9935;
 const ISSUES = [8023, 11267];
 const PACKAGES = ["better-auth", "@better-auth/oauth-provider"];
-const ACKNOWLEDGED = [];
+const ACKNOWLEDGED = [
+  // D-046: idJagIssuer({ otherTokenExchange: tokenExchangeFrom(oauthTokenExchange()) }) is how both coexist.
+  "issue:8023:pr:11742",
+  "issue:8023:pr:11763",
+];
 
 const what = {
   9935: "run the full suite against it, check the issuer's signing (#19, D-038) and ID-token acr/amr (D-033), then widen the peer range",
