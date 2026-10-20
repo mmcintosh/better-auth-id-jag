@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-20
+
 ### Changed
 
 - **Requires Better Auth 1.7.10 or later** (`>=1.7.10 <1.8.0`, was `>=1.7.5`), for `better-auth` and every
