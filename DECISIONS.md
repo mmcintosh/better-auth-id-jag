@@ -993,3 +993,17 @@ The maintainer's go-ahead on 2026-10-19, after the 1.8.0-beta.1 read showed the 
   refusals, both listed refused; on 1.8.0-beta.1 (CI's 1.8 row, and a scratch worktree): the real
   `oauthTokenExchange()` captured, a full access-token exchange through ours (200, `aud` = the other resource) and an
   ID-JAG from the same host, and our startup error in either order. Mutations: 10 added, all caught.
+
+## D-047: a vite override, as D-021 (2026-10-20)
+
+The 0.5.0 release run stopped at its runtime audit (`pnpm audit --prod`), before anything was built or published:
+three `launch-editor` advisories in `vite` >=8.3.0 <=8.3.2, published that afternoon, after the release PR's CI had
+passed (GHSA-587h-7wmj-h5pm high, GHSA-698v-4r3x-3vcv and GHSA-r825-w8mm-5pxw moderate; all in the dev server's
+open-in-editor, two of them on Windows only). The path is `better-auth-saml-idp` → `better-auth` → `vitest` → `vite`: Better
+Auth's optional `vitest` peer, which the audit counts as D-021 describes. This package ships none of it.
+
+The fix is the D-021 kind: the override `vite@>=8.3.0 <8.3.3 → ^8.3.4` (8.3.4, 2026-10-08). `vite` there is an
+auto-installed peer, which pnpm keeps at its old resolution even with the override, so the lockfile's two `vite@8.3.2`
+blocks were removed and its references pointed at 8.3.4, then `pnpm install` rewrote the entries (8.3.4's integrity
+matches the registry) and `pnpm install --frozen-lockfile` accepts the result. `pnpm audit` is clean at every level.
+Revisit when Better Auth's `vitest` peer resolves past 8.3.2 by itself.
