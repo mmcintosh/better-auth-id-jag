@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-23
+
 ### Changed
 
 - **`zod` and `jose` are ranges now** (`^4.6.5` and `^6.2.12`, were exact `4.6.7` and `6.2.12`), so a host whose
