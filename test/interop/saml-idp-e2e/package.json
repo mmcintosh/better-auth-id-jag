@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "better-auth": "1.7.10",
-    "@better-auth/core": "1.7.10",
-    "@better-auth/oauth-provider": "1.7.10",
-    "@better-auth/mcp": "1.7.10",
+    "better-auth": "1.7.12",
+    "@better-auth/core": "1.7.12",
+    "@better-auth/oauth-provider": "1.7.12",
+    "@better-auth/mcp": "1.7.12",
     "better-auth-id-jag": "file:../../..",
     "better-auth-saml-idp": "1.2.0",
     "@xmldom/xmldom": "0.8.15",
@@ -14,9 +14,9 @@
   },
   "pnpm": {
     "overrides": {
-      "better-auth": "1.7.10",
-      "@better-auth/core": "1.7.10",
-      "@better-auth/oauth-provider": "1.7.10",
+      "better-auth": "1.7.12",
+      "@better-auth/core": "1.7.12",
+      "@better-auth/oauth-provider": "1.7.12",
       "@better-auth/utils": "0.5.0",
       "@xmldom/xmldom@<0.8.15": "0.8.15"
     }
