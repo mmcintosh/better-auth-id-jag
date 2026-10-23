@@ -1039,3 +1039,19 @@ The maintainer's decision (2026-10-20: "move to 1.7.12").
 - **The D-047 override removed.** vitest 5 (#53) is Better Auth's `vitest` peer now (its range includes `^5.0.0`),
   and it resolves `vite` 8.3.4 without the override, with the lockfile and from scratch. The lockfile keeps 8.3.4;
   `pnpm audit` is clean at every level.
+
+## D-050: `zod` and `jose` as ranges, not exact pins (2026-10-23)
+
+- **`"zod": "^4.6.5"` and `"jose": "^6.2.12"`** (were `4.6.7` and `6.2.12` exactly). The exact pins dated from
+  Phase 0 with no decision behind them; Dependabot only bumped them. An exact pin makes a host whose tree resolves an
+  older zod or jose (Better Auth asks for `^4.5.4` and `^6.2.3`) install a second, nested copy, and every later bump
+  does it again. With ranges, one copy serves this package and Better Auth. The siblings already use `zod ^4.6.5`.
+- **Floors:** zod 4.6.5, the sibling floor; the suite and typecheck pass on it (all 973 tests, as on 4.6.7). 4.6.6
+  adds one hardening fix (array, set and map size limits checked before the elements are parsed). Here the
+  arrays that come from outside input are already bounded by a length cap read first (tokens 16 KiB, SAML
+  assertions 64 KiB, JWKS documents `maxBytes`, registry bodies 256 KiB), so the older floor gives little up. jose stays at 6.2.12, the version tested.
+- The lockfile still resolves zod 4.6.7 and jose 6.2.12, so CI and the published build test the same versions as
+  before. Dependabot's npm entry sets `versioning-strategy: increase-if-necessary`: its default treats some
+  packages as apps and raises the floor on every bump (`^4.6.5` to `^4.6.8`), which would undo this. Now a bump
+  inside the range moves only the lockfile; the exact development pins are bumped as before.
+  No advisory covers zod 4.6.x or jose 6.2.x.

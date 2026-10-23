@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`zod` and `jose` are ranges now** (`^4.6.5` and `^6.2.12`, were exact `4.6.7` and `6.2.12`), so a host whose
+  tree has an older zod or jose within those ranges shares one copy instead of installing a second (D-050).
+
 ## [0.5.0] - 2026-10-20
 
 ### Changed

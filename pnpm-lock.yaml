@@ -17,10 +17,10 @@ importers:
         specifier: '>=1.2.0 <2'
         version: 1.2.0(85e7dc6ca77d96d36d2c13bccc08d905)
       jose:
-        specifier: 6.2.12
+        specifier: ^6.2.12
         version: 6.2.12
       zod:
-        specifier: 4.6.7
+        specifier: ^4.6.5
         version: 4.6.7
     devDependencies:
       '@arethetypeswrong/cli':
