@@ -994,7 +994,7 @@ The maintainer's go-ahead on 2026-10-19, after the 1.8.0-beta.1 read showed the 
   `oauthTokenExchange()` captured, a full access-token exchange through ours (200, `aud` = the other resource) and an
   ID-JAG from the same host, and our startup error in either order. Mutations: 10 added, all caught.
 
-## D-047: a vite override, as D-021 (2026-10-20)
+## D-047: a vite override, as D-021 (2026-10-20) (removed by D-049)
 
 The 0.5.0 release run stopped at its runtime audit (`pnpm audit --prod`), before anything was built or published:
 three `launch-editor` advisories in `vite` >=8.3.0 <=8.3.2, published that afternoon, after the release PR's CI had
@@ -1025,3 +1025,17 @@ The maintainer's decision (2026-10-20: "move to 1.7.12").
   `pack:check`; `pnpm audit --prod` clean; the lockfile has only 1.7.12 (`better-auth`, every `@better-auth/*`); the
   SAML end-to-end (better-auth-saml-idp 1.2.0 from npm) passes on 1.7.12 (17/17).
 - **Also needed:** the demo Workers, built from the development dependencies, run 1.7.12 from their next deploy.
+
+## D-049: `better-call` exempt from the wait; the D-047 override removed (2026-10-23)
+
+- **`better-call` in `minimumReleaseAgeExclude`** (amends D-024), the maintainer's decision (2026-10-23). Better
+  Auth 1.7.12 (2026-10-20 11:59 UTC) needs `better-call` 1.4.4, published 13 hours earlier. Better Auth is exempt
+  from the one-day wait so CI's latest-1.7 row tries it at once, but `better-call` wasn't: the row failed at install
+  (`ERR_PNPM_NO_MATURE_MATCHING_VERSION`) and, being a required check, blocked every PR for about six and a half
+  hours. `better-call` is Better Auth's own package and released with it, so it gets Better Auth's exemption. Socket
+  Firewall still checks it in CI. **Risk accepted:** a bad `better-call` release reaches CI's latest-1.7 row without
+  the day's wait, as a bad Better Auth release already could; the lockfile, and so what this package is built and
+  released from, is unaffected.
+- **The D-047 override removed.** vitest 5 (#53) is Better Auth's `vitest` peer now (its range includes `^5.0.0`),
+  and it resolves `vite` 8.3.4 without the override, with the lockfile and from scratch. The lockfile keeps 8.3.4;
+  `pnpm audit` is clean at every level.
