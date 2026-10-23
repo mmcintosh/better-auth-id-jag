@@ -72,8 +72,8 @@
   },
   "packageManager": "pnpm@10.34.6",
   "dependencies": {
-    "jose": "6.2.12",
-    "zod": "4.6.7"
+    "jose": "^6.2.12",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
