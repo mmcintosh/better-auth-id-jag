@@ -1007,3 +1007,21 @@ auto-installed peer, which pnpm keeps at its old resolution even with the overri
 blocks were removed and its references pointed at 8.3.4, then `pnpm install` rewrote the entries (8.3.4's integrity
 matches the registry) and `pnpm install --frozen-lockfile` accepts the result. `pnpm audit` is clean at every level.
 Revisit when Better Auth's `vitest` peer resolves past 8.3.2 by itself.
+
+## D-048: development pin 1.7.12, the floor stays 1.7.10 (2026-10-23)
+
+The maintainer's decision (2026-10-20: "move to 1.7.12").
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.10 → 1.7.12 (supersedes D-044's development
+  pin, not its floor), and the SAML end-to-end project with them. Better Auth 1.7.12 needs `better-call` 1.4.4, which
+  comes with it. The peer range stays `>=1.7.10 <1.8.0` and CI's floor rows stay on 1.7.10: no advisory covers
+  1.7.10 or 1.7.11, and D-044 raises the floor only past a security fix.
+- **1.7.12's changes we checked:** nothing in the token endpoint or token exchange. Its JWT-plugin fix (verify with
+  the stored key's `alg`) we already make (D-038). `requireMcpAuth` now refuses Better Auth session JWTs; the demo
+  MCP server checks tokens itself (`examples/workers/mcp-server/src/index.ts`) and refuses them too: it requires
+  `iss` = `${origin}/api/auth` and `aud` = `${origin}/mcp`, and the JWT plugin signs session JWTs with
+  `iss` = `aud` = `baseURL` (the origin; the cookie cache's `aud` is `better-auth:session-cache`).
+- **Evidence:** the full suite on 1.7.12 (Node and workerd, 973 passed), typecheck, lint, `docs:check`,
+  `pack:check`; `pnpm audit --prod` clean; the lockfile has only 1.7.12 (`better-auth`, every `@better-auth/*`); the
+  SAML end-to-end (better-auth-saml-idp 1.2.0 from npm) passes on 1.7.12 (17/17).
+- **Also needed:** the demo Workers, built from the development dependencies, run 1.7.12 from their next deploy.
