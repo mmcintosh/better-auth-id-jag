@@ -1055,3 +1055,28 @@ The maintainer's decision (2026-10-20: "move to 1.7.12").
   packages as apps and raises the floor on every bump (`^4.6.5` to `^4.6.8`), which would undo this. Now a bump
   inside the range moves only the lockfile; the exact development pins are bumped as before.
   No advisory covers zod 4.6.x or jose 6.2.x.
+
+## D-051: `fast-uri`, `undici` and a development `zod` overrides, as D-021 (2026-10-26)
+
+The nightly runtime audit (`pnpm audit --prod`) failed from 2026-10-24: four `fast-uri` advisories in <3.1.9,
+published 2026-10-23 (GHSA-w74x-v6f9-j3xg and GHSA-wjr9-j795-jxcr moderate, GHSA-xhq7-xmqj-769h and
+GHSA-333x-w4r6-6crp low). The path is `better-auth-saml-idp` → `better-auth` → `prisma` → `@prisma/dev` →
+`@prisma/streams-local` → `ajv` → `fast-uri`: Better Auth's optional `prisma` peer, which the audit counts as D-021
+describes. This package ships none of it. The OSV scan raised the same four, plus two development-only packages:
+`undici` 7.29.1 through Miniflare and wrangler (GHSA-xjj6-f33q-929c high, GHSA-4qv8-2p9j-2685 and GHSA-f72v-6w45-q472
+moderate; fixed in 7.30.1; the newest Miniflare still pins 7.28.0, so a wrangler bump wouldn't fix it), and `zod` 4.6.5,
+the copy `@cloudflare/vitest-plugin` pins (GHSA-mrhx-c7xc-m3w5, high, fixed in 4.6.6).
+
+The fix is the D-021 kind: `fast-uri@<3.1.9 → ^3.1.9`, `undici@>=7.0.0 <7.30.1 → ^7.30.1`, and
+`@cloudflare/vitest-plugin>zod@<4.6.6 → ^4.6.6`. The `zod` override is scoped to the plugin on purpose: a bare `zod`
+override would also rewrite this package's own `zod` specifier in the lockfile, and the published range is a separate
+question (below). `pnpm update fast-uri` alone was tried first; it also moved `rolldown`, so it wasn't used. The
+lockfile now has one copy each of `fast-uri` 3.1.9, `undici` 7.30.1 and `zod` 4.6.7; `pnpm audit` is clean at every
+level, and the tests pass on both runtimes (workerd runs on the overridden `undici`). Revisit when Prisma's
+dependencies, Miniflare and the Cloudflare vitest plugin move past these versions by themselves.
+
+**Not changed here: the published `zod` range.** D-050's floor `^4.6.5` still lets a host resolve 4.6.5, and D-050's
+"no advisory covers zod 4.6.x" no longer holds: GHSA-mrhx-c7xc-m3w5 (CVE-2023-54404 added 2026-10-23, after 0.5.1)
+is the 4.6.6 hardening D-050 describes. D-050's reasoning about impact stands (outside input is length-capped before
+it is parsed, and every array parsed from outside input has a `.max()`), but whether to raise the floor is the
+maintainer's decision.
