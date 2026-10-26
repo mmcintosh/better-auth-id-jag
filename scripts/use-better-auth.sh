@@ -14,4 +14,7 @@ esac
 echo "better-auth $want -> $v"
 # Every @better-auth/* package the dev dependencies pin, so none keeps an older @better-auth/utils peer in the tree
 # (1.7.8 moved to utils 0.5.0; drizzle-adapter 1.7.6 pins 0.4.2, which made two copies of @better-auth/core).
-pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v" "@better-auth/drizzle-adapter@$v"
+# And the @better-auth/utils that version pins: @better-auth/core takes utils as a peer, and pnpm keeps an
+# auto-installed peer at its old version, so going back from 1.7.13 (utils 0.5.1) to 1.7.10 (0.5.0) left two cores.
+u="$(npm view "better-auth@$v" 'dependencies.@better-auth/utils')"
+pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v" "@better-auth/drizzle-adapter@$v" "@better-auth/utils@$u"
