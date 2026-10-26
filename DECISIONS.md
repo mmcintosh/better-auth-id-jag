@@ -1080,3 +1080,20 @@ dependencies, Miniflare and the Cloudflare vitest plugin move past these version
 is the 4.6.6 hardening D-050 describes. D-050's reasoning about impact stands (outside input is length-capped before
 it is parsed, and every array parsed from outside input has a `.max()`), but whether to raise the floor is the
 maintainer's decision.
+
+## D-052: development pin 1.7.13, the floor stays 1.7.10 (2026-10-26)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.12 → 1.7.13 (published 2026-10-25), and
+  the SAML end-to-end project with them. It brings `@better-auth/utils` 0.5.1 and `@better-fetch/fetch` 1.3.3;
+  `better-call` stays 1.4.4. The peer range stays `>=1.7.10 <1.8.0` and CI's floor rows stay on 1.7.10: no advisory
+  covers 1.7.10 to 1.7.12 (D-044).
+- **1.7.13's changes we checked:** type declarations no longer list type-only exports as values (#11985), token
+  endpoint authentication for the Vercel and Cloudflare social providers, Stripe SDK v23, an organization-members
+  route; `@better-auth/utils` 0.5.1 adds raw byte secrets to OTP. Nothing in the token endpoint, token exchange,
+  JWT, `oauth-provider` or `mcp` source.
+- **Evidence:** the full suite on 1.7.13 (Node and workerd, 973 passed, 119 skipped), typecheck, lint, `docs:check`,
+  `pack:check`; `pnpm audit` clean at every level; the lockfile has only 1.7.13 (`better-auth`, every
+  `@better-auth/*`); the SAML end-to-end (better-auth-saml-idp 1.2.0 from npm) passes on 1.7.13.
+- **Also needed:** the demo Workers, built from the development dependencies, run 1.7.13 from their next deploy.

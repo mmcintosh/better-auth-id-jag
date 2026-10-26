@@ -11,7 +11,7 @@ It also checks the attacks that cross the two repositories:
 - another client presenting the agent's assertion with the agent's `client_id` forged in the body, refused on both paths, and it doesn't consume it either.
 
 It runs as its own project, so both packages share **one** Better Auth (pnpm overrides). The sibling develops on
-1.7.5, this repository on 1.7.12.
+1.7.5, this repository on 1.7.13.
 
 ```sh
 pnpm build                                  # this repository's dist
