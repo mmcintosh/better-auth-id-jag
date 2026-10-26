@@ -1096,4 +1096,11 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
 - **Evidence:** the full suite on 1.7.13 (Node and workerd, 973 passed, 119 skipped), typecheck, lint, `docs:check`,
   `pack:check`; `pnpm audit` clean at every level; the lockfile has only 1.7.13 (`better-auth`, every
   `@better-auth/*`); the SAML end-to-end (better-auth-saml-idp 1.2.0 from npm) passes on 1.7.13.
+- **CI's version switch (`scripts/use-better-auth.sh`) now also installs the `@better-auth/utils` the chosen Better
+  Auth pins.** 1.7.13 is the first 1.7.x on utils 0.5.1. `@better-auth/core` takes utils as a peer, and pnpm keeps an
+  auto-installed peer at its old version, so switching back to 1.7.10 (utils 0.5.0) left two copies of
+  `@better-auth/core` and the floor rows failed typecheck (29 errors, as with drizzle-adapter in 1.7.8). With utils
+  installed explicitly there is one 1.7.10 core again; typecheck and the full suite pass on 1.7.10.
+  `better-auth-saml-idp`, an optional peer, still resolves its own `better-auth` at the development pin (the same
+  pnpm behaviour); the suite, which loads it, passes on 1.7.10 with it.
 - **Also needed:** the demo Workers, built from the development dependencies, run 1.7.13 from their next deploy.
