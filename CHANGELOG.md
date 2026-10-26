@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Requires `zod` 4.6.6 or later** (`^4.6.6`, was `^4.6.5`, D-053).
+  [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5) (high) covers zod 4.6.5 and earlier:
+  a large array can exhaust memory while zod collects its validation issues. This package caps the size of outside
+  input before zod parses it, so it isn't exposed itself, but the old range let a host install the affected zod.
+  A host whose lockfile still has zod 4.6.5 gets a second copy until it runs `pnpm update zod` (or the npm or yarn
+  equivalent); Better Auth accepts 4.6.6 and later.
+
 ## [0.5.1] - 2026-10-23
 
 ### Changed

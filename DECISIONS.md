@@ -1104,3 +1104,23 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   `better-auth-saml-idp`, an optional peer, still resolves its own `better-auth` at the development pin (the same
   pnpm behaviour); the suite, which loads it, passes on 1.7.10 with it.
 - **Also needed:** the demo Workers, built from the development dependencies, run 1.7.13 from their next deploy.
+
+## D-053: `zod` floor 4.6.6 (2026-10-26)
+
+The maintainer's decision (2026-10-26), the question D-051 left open.
+
+- **`"zod": "^4.6.6"`** (was `^4.6.5`, D-050). GHSA-mrhx-c7xc-m3w5 (high; CVE-2023-54404, added 2026-10-23, after
+  0.5.1 shipped) covers zod 4.6.5 and earlier: `$ZodArray` collects an issue for every failing element with no cap,
+  so a large array can exhaust memory. 4.6.6 is the hardening D-050 describes (size limits checked before the
+  elements are parsed). D-050's "no advisory covers zod 4.6.x" no longer holds.
+- **This package isn't exposed itself:** outside input is length-capped before zod sees it (tokens 16 KiB, SAML
+  assertions 64 KiB, JWKS documents `maxBytes`, registry bodies 256 KiB), and every array parsed from outside input
+  has a `.max()`. The arrays without one parse host configuration or the trust table's rows, written by the host's
+  administrator. The range is raised anyway because it let a host install the affected zod next to this package,
+  and scanners flag it; the same rule as D-044 for Better Auth: a floor rises past a security fix.
+- **Cost:** a host whose lockfile still has zod 4.6.5 gets a second copy, the thing D-050 avoided, until it updates
+  zod. Better Auth asks for `^4.5.4`, so one copy at 4.6.6 or later serves both. jose stays `^6.2.12`; no advisory
+  covers it.
+- **Evidence:** the suite and typecheck pass with every zod in the tree at 4.6.6 (all 973 tests, as on 4.6.7); the
+  lockfile still resolves 4.6.7. The development override for `@cloudflare/vitest-plugin`'s pinned 4.6.5 (D-051)
+  stays.
