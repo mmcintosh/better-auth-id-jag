@@ -1140,3 +1140,22 @@ The maintainer's decision (2026-10-26), the question D-051 left open.
   bundles undici 6.29.1 / ip-address 10.7.4 or later.
 - **Why by hand:** Dependabot's weekly npm update for this folder never proposed 12.2.1. The release job, its
   provenance and the published package are otherwise unchanged; nothing for the changelog.
+
+## D-055: development pin 1.7.14, the floor stays 1.7.10 (2026-10-27)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.13 → 1.7.14 (published 2026-10-26), and
+  the SAML end-to-end project with them. `better-call` 1.4.4, `@better-auth/utils` 0.5.1 and `@better-fetch/fetch`
+  1.3.3 are unchanged. The peer range stays `>=1.7.10 <1.8.0` and CI's floor rows stay on 1.7.10: no advisory covers
+  1.7.10 to 1.7.13 (D-044).
+- **The SAML end-to-end project's `@better-auth/utils` override is now 0.5.1** (was 0.5.0, left over from 1.7.10):
+  the Better Auth it pins asks for 0.5.1, and the project exists to run both packages on one Better Auth.
+- **1.7.14's changes we checked:** two-factor TOTP accepts imported Base32 secrets stored as `base32:<secret>`
+  (#12031) and Kakao sign-in forwards `loginHint` (#12045). Nothing in the token endpoint, token exchange, JWT,
+  `oauth-provider` or `mcp` source.
+- **Evidence:** the full suite on 1.7.14 (Node and workerd, 973 passed, 119 skipped), typecheck, lint, `docs:check`,
+  `pack:check`; `pnpm audit` clean at every level; the lockfile has only 1.7.14 (`better-auth`, every
+  `@better-auth/*`) and one `@better-auth/utils` (0.5.1); the SAML end-to-end (better-auth-saml-idp 1.2.0 from npm)
+  passes on 1.7.14, 19 checks.
+- **Also needed:** the demo Workers, built from the development dependencies, run 1.7.14 from their next deploy.
