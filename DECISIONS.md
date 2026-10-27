@@ -1138,6 +1138,11 @@ The maintainer's decision (2026-10-26), the question D-051 left open.
   6.29.0 and ip-address 10.7.2 as newly added, and the action can't exclude a folder, so the allowance is repo-wide. `runtime-audit`
   (`pnpm audit --prod`) still blocks them in what the package installs. Remove each ID when an npm release
   bundles undici 6.29.1 / ip-address 10.7.4 or later.
+- **Later the same day (2026-10-27):** three more undici advisories (GHSA-2m5v-pch6-74hx, GHSA-qrxm-fqhp-jwvm,
+  GHSA-9fm3-97px-rjf6; Dependabot #35–#37), fixed in 6.29.1, which no npm release bundles yet. In npm 12.2.1 only
+  `node-gyp` loads undici, and the release job never runs it. Dismissed as tolerable risk (the maintainer's
+  decision) and added to the OSV list. Not added to `allow-ghsas`: dependency review reads it only when this
+  folder's lockfile changes, and the npm that changes it next should bundle the fix.
 - **Why by hand:** Dependabot's weekly npm update for this folder never proposed 12.2.1. The release job, its
   provenance and the published package are otherwise unchanged; nothing for the changelog.
 
