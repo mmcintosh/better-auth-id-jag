@@ -1133,10 +1133,10 @@ The maintainer's decision (2026-10-26), the question D-051 left open.
 - **`.github/npm-cli/osv-scanner.toml` lists only what 12.2.1 still bundles:** `ip-address` GHSA-rxp7-6hxx-x8q5
   and `undici` GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c (Dependabot #31–#33, dismissed as tolerable risk on
   2026-10-26; no npm release fixes them yet). The twelve earlier entries are fixed in 12.2.1 and removed.
-- **Dependency review lets the two undici advisories through** (`allow-ghsas` in `dependencies.yml`; the
+- **Dependency review lets those three advisories through** (`allow-ghsas` in `dependencies.yml`; the
   maintainer's decision, 2026-10-27). Changing this folder's lockfile makes the review read npm's bundled undici
-  6.29.0 as newly added, and the action can't exclude a folder, so the allowance is repo-wide. `runtime-audit`
-  (`pnpm audit --prod`) still blocks undici in what the package installs. Remove the two IDs when an npm release
-  bundles undici 6.29.1 or later.
+  6.29.0 and ip-address 10.7.2 as newly added, and the action can't exclude a folder, so the allowance is repo-wide. `runtime-audit`
+  (`pnpm audit --prod`) still blocks them in what the package installs. Remove each ID when an npm release
+  bundles undici 6.29.1 / ip-address 10.7.4 or later.
 - **Why by hand:** Dependabot's weekly npm update for this folder never proposed 12.2.1. The release job, its
   provenance and the published package are otherwise unchanged; nothing for the changelog.
