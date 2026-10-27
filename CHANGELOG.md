@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-27
+
 ### Changed
 
 - **Requires `zod` 4.6.6 or later** (`^4.6.6`, was `^4.6.5`, D-053).
