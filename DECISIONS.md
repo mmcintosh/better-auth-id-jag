@@ -1124,3 +1124,14 @@ The maintainer's decision (2026-10-26), the question D-051 left open.
 - **Evidence:** the suite and typecheck pass with every zod in the tree at 4.6.6 (all 973 tests, as on 4.6.7); the
   lockfile still resolves 4.6.7. The development override for `@cloudflare/vitest-plugin`'s pinned 4.6.5 (D-051)
   stays.
+
+## D-054: the release job stages with npm 12.2.1 (2026-10-27)
+
+- **`.github/npm-cli` pins `npm` 12.2.1** (was 12.2.0, published 2026-10-15). Its bundled `postcss-selector-parser`
+  is 7.1.6, the fix for GHSA-rj75-hqrm-r3gf (moderate; Dependabot alert #34, 2026-10-26). It also bundles fixed
+  `brace-expansion`, `http-cache-semantics` and `ip-address` copies. Same engines as 12.2.0; `npm stage` unchanged.
+- **`.github/npm-cli/osv-scanner.toml` lists only what 12.2.1 still bundles:** `ip-address` GHSA-rxp7-6hxx-x8q5
+  and `undici` GHSA-4qv8-2p9j-2685, GHSA-xjj6-f33q-929c (Dependabot #31–#33, dismissed as tolerable risk on
+  2026-10-26; no npm release fixes them yet). The twelve earlier entries are fixed in 12.2.1 and removed.
+- **Why by hand:** Dependabot's weekly npm update for this folder never proposed 12.2.1. The release job, its
+  provenance and the published package are otherwise unchanged; nothing for the changelog.
