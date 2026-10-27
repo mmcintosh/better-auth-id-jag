@@ -295,7 +295,7 @@ turn the handlers on. We'll test both directions when an Authelia release or nig
 `INTEROP_NODE_OAUTH2_DIR` are set.
 
 The grant is [node-oauth/node-oauth2-server#462](https://github.com/node-oauth/node-oauth2-server/pull/462).
-It is open and unreleased: npm's latest `@node-oauth/oauth2-server` is 5.3.0, which doesn't have it, and the
+It is open and unreleased: npm's latest `@node-oauth/oauth2-server` is 5.3.1 (2026-10-13), which doesn't have it, and the
 maintainer would rather merge generic RFC 7523 support (#453) first. So it isn't a dependency of this package. The
 test loads it from a directory you install it into, at the PR's head commit:
 

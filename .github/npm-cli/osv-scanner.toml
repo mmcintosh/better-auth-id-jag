@@ -19,3 +19,18 @@ reason = "undici, bundled inside npm (release job only); updated only by a newer
 id = "GHSA-xjj6-f33q-929c"
 ignoreUntil = 2027-01-06T00:00:00Z
 reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-2m5v-pch6-74hx"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-qrxm-fqhp-jwvm"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-9fm3-97px-rjf6"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
