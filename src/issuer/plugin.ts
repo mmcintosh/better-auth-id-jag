@@ -75,8 +75,9 @@ export function createIssuerState(options: IdJagIssuerOptions = {}): IssuerState
 
 /** The ID-JAG issuer plugin. */
 /**
- * Better Auth's default jwt signing algorithm: its own `DEFAULT_JWT_ALGORITHM` where it exports one (better-auth#9935
- * adds it, RS256), else EdDSA, the default of every release without it (1.7 and before). D-038.
+ * Better Auth's default jwt signing algorithm: its own `DEFAULT_JWT_ALGORITHM` where it exports one, else EdDSA, the
+ * default of every release without it. better-auth#9935 would have added it (RS256); it was closed unmerged, and 1.8
+ * still defaults to EdDSA with no such export (D-038, D-056).
  */
 export function betterAuthJwtDefault(): string {
   const exported = (betterAuthPlugins as Record<string, unknown>).DEFAULT_JWT_ALGORITHM;

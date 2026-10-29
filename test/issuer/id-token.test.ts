@@ -96,6 +96,16 @@ describe("verifyOwnIdToken", () => {
     const inGrace = { adapter: { getJwks: async () => [{ ...k.jwk, expiresAt: new Date((NOW - 86_400) * 1000) }] } } as unknown as JwtOptions;
     expect(await outcome(await k.sign({}), inGrace)).toBe("ok:user-1");
   });
+
+  it("acr and amr: a control character, an empty value or more than 32 amr entries is refused, never passed on (D-056)", async () => {
+    const k = await ours();
+    expect(await outcome(await k.sign({ acr: "urn:mfa", amr: ["pwd", "otp"] }), k.jwtOptions)).toBe("ok:user-1");
+    expect(await outcome(await k.sign({ acr: "urn:x\u0001" }), k.jwtOptions)).toBe("invalid_subject_token:claims: acr");
+    expect(await outcome(await k.sign({ amr: ["pwd\u0007"] }), k.jwtOptions)).toBe("invalid_subject_token:claims: amr.0");
+    expect(await outcome(await k.sign({ amr: ["pwd", "otp\u0085"] }), k.jwtOptions)).toBe("invalid_subject_token:claims: amr.1");
+    expect(await outcome(await k.sign({ amr: [""] }), k.jwtOptions)).toBe("invalid_subject_token:claims: amr.0");
+    expect(await outcome(await k.sign({ amr: Array.from({ length: 33 }, (_, i) => `m${i}`) }), k.jwtOptions)).toBe("invalid_subject_token:claims: amr");
+  });
 });
 
 describe("a stored key without alg (#19): its algorithm comes from the key, not from Better Auth's default", () => {

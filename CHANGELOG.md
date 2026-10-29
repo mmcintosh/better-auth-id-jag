@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Issuer: a subject token's `acr` or `amr` the ID-JAG can't carry is refused, never a 500** (D-056). An ID token
+  whose `acr` or an `amr` entry has a control character, or a SAML Assertion whose class is empty or has one, passed
+  the subject-token check and then failed the ID-JAG's own claim check: HTTP 500, no ID-JAG issued. Now it's
+  `invalid_subject_token`. The ID-token case needs Better Auth 1.8's `authenticationContext` (1.7 always says
+  `acr: "0"`); the SAML case needs a SAML IdP configured with such a class.
+
+### Documentation
+
+- **How the person signed in, on Better Auth 1.8** (D-056): with oauth-provider's `authenticationContext`, an
+  ID-JAG from an ID token carries exactly the `acr`/`amr` your resolver returned, so it can claim MFA. A refresh-token
+  subject still carries neither. `docs/security.md` and the README's policy section.
+
 ## [0.5.2] - 2026-10-27
 
 ### Changed

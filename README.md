@@ -141,7 +141,7 @@ Options are checked when the plugin starts: an unknown key, a misspelling or an 
 
 ### Policy
 
-The `authorize` hook gets the user as the database has it now, the requesting client (`clientId`, `name`, `referenceId`, `metadata`), the `audience`, the `resource` and the `requestedScopes`, and what the subject token said (`tokenType`, `sub`, `auth_time`, `acr`, `amr`, `raw`). The ID-JAG carries `auth_time`, `acr` and `amr` exactly as the subject token said them: the issuer never derives them. From an ID token that is always `acr: "0"` and no `amr`, because oauth-provider fixes them; only a SAML Assertion's class can say more. See [How the person signed in](docs/security.md#how-the-person-signed-in). An allow returns:
+The `authorize` hook gets the user as the database has it now, the requesting client (`clientId`, `name`, `referenceId`, `metadata`), the `audience`, the `resource` and the `requestedScopes`, and what the subject token said (`tokenType`, `sub`, `auth_time`, `acr`, `amr`, `raw`). The ID-JAG carries `auth_time`, `acr` and `amr` exactly as the subject token said them: the issuer never derives them. From an ID token on Better Auth 1.7 that is always `acr: "0"` and no `amr`, because oauth-provider fixes them, and only a SAML Assertion's class can say more; on 1.8 it is whatever oauth-provider's `authenticationContext.resolve` returned. A refresh token carries neither. See [How the person signed in](docs/security.md#how-the-person-signed-in). An allow returns:
 
 | Field | |
 |---|---|

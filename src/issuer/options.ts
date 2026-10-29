@@ -24,7 +24,8 @@ export interface PolicyClient {
 
 /**
  * What the subject token said about the authentication, carried into the ID-JAG. For a refresh
- * token: `auth_time` as the provider stored it, no `acr`/`amr` (not stored), and `raw` holds
+ * token: `auth_time` as the provider stored it, no `acr`/`amr` (Better Auth 1.7 doesn't store them;
+ * 1.8 does, and this package doesn't read them yet), and `raw` holds
  * `{ token_type, client_id, scope, iat, exp }` (never the token or its hash).
  */
 export interface SubjectTokenClaims {

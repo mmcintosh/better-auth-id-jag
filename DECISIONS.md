@@ -789,7 +789,7 @@ Sending `act` for every client would have hidden the `WRITERS` layer (every writ
 - **Deployed** 2026-10-14 with the maintainer's go-ahead (a new `SETUP_KEY` on both Workers, then `--setup`): the
   four runs pass on the live demo, the writer's tokens 120 s, the reader's 300 s.
 
-## D-038: no assumption about Better Auth's signing default (2026-10-14)
+## D-038: no assumption about Better Auth's signing default (2026-10-14) (the #9935 parts closed by D-056)
 
 Issue #19. Better Auth 1.7's jwt plugin defaults to EdDSA; better-auth/better-auth#9935 (open, base `next`, breaking)
 makes it RS256 and exports it as `DEFAULT_JWT_ALGORITHM`. The issuer hard-coded EdDSA in two places, which would break on
@@ -814,6 +814,7 @@ that release.
   mints its default instead), `test/issuer/id-token.test.ts` (`keyAlgorithm` table; keys without `alg`; a corrupt key).
   Mutations: a wrong default, no post-sign check and the parse outside `try` each fail at least one test.
 - **Still to do for 1.8:** run the suite against the release that contains #9935 before widening the peer range.
+  (Closed by D-056: #9935 was closed unmerged; its replacement, #11787, keeps the EdDSA default.)
 
 ## D-039: a weekly watch for upstream changes (2026-10-14)
 
@@ -1164,3 +1165,48 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   `@better-auth/*`) and one `@better-auth/utils` (0.5.1); the SAML end-to-end (better-auth-saml-idp 1.2.0 from npm)
   passes on 1.7.14, 19 checks.
 - **Also needed:** the demo Workers, built from the development dependencies, run 1.7.14 from their next deploy.
+
+## D-056: ready for Better Auth 1.8's betas: two refusals moved upstream, a 500 closed (2026-10-29)
+
+The weekly upstream watch (D-039) failed on 2026-10-19 and 2026-10-26 with four findings. Each was checked upstream
+before acting on it.
+
+- **better-auth/better-auth#9935 was closed unmerged (2026-10-15).** #11787 replaced it (merged to `next` the same
+  day, in 1.8.0-beta.0 and later): oauth-provider's `authenticationContext: { acrValuesSupported, resolve }` puts the
+  host's `acr`/`amr` in ID tokens and stores them on the code and refresh-token rows. #9935's RS256 default did not
+  come with it: 1.8.0-beta.3's jwt plugin still has `keyPairConfig?.alg ?? "EdDSA"`, with no `DEFAULT_JWT_ALGORITHM`.
+  The watch no longer follows #9935, so nothing watches the default now; `assertIssuableAlgorithm` and
+  `signing-default.test.ts` (D-038) still hold whichever it is.
+- **#11763, linked to #11267, was merged (2026-10-15):** "Phase 1: impersonation only"; access-token `acr`/`auth_time`
+  come in a later phase, after #11267, which is still open. Acknowledged; #11267 closing still fails the watch.
+- **On 1.8, a repeated `scope` or `subject_token` is refused by oauth-provider**, before our handler (it refuses any
+  repeated form parameter except `resource` and `audience`): a 400 `invalid_request`, no ID-JAG, but no
+  `id-jag.refused` event either, since our handler never runs. A repeated `resource` and an over-long `scope` still
+  reach us (`unsupported_parameter`). The test asserts each version's refusal.
+- **The 500 (fixed).** With `authenticationContext`, a host's resolver decides the ID token's `acr`/`amr`. The
+  ID-token schema accepted a control character in them, the ID-JAG's schema (`core/jwt.ts`) doesn't, so
+  `buildIdJag` threw: HTTP 500, empty body (reproduced on 1.8.0-beta.3 with `amr: ["pwd\u0007"]` and with an `acr`
+  in `acrValuesSupported`). The ID token's `acr` and `amr` items now refuse control characters, so such a token is
+  `invalid_subject_token`. Unreachable on 1.7 (always `acr: "0"`, no `amr`).
+- **The same gap on the SAML path (fixed), reachable on 1.7.** `authnContextClassRef` from the verifier was a bare
+  string: an empty class or one with a control character also reached `buildIdJag` and gave a 500 (reproduced with
+  the test SAML IdP). It now needs 1 to 2048 characters and no control characters, else it is the verifier's
+  malformed result (`invalid_subject_token`). better-auth-saml-idp takes the class from the host's own `authnContext`,
+  so this needed the host to configure such a class.
+- **Docs:** `docs/security.md` "How the person signed in", the README's policy section and the `SubjectTokenClaims`
+  JSDoc no longer say an ID token can never claim MFA: on 1.8 it says what `authenticationContext.resolve` returned.
+  A refresh-token subject still carries neither: 1.8 stores them on the row and this package doesn't read them
+  (left for the maintainer to decide).
+- **Telling 1.7 from 1.8 in tests:** `test/support/better-auth-version.ts`, by the `oauthTokenExchange` export
+  (1.8 on). A version read doesn't work: oauth-provider doesn't export its `package.json`, workerd has no fs, and our
+  own pin is what `scripts/use-better-auth.sh` rewrites.
+- **Not acknowledged yet:** the two 1.8 pre-release findings (`npm:better-auth@1.8-pre`,
+  `npm:@better-auth/oauth-provider@1.8-pre`): acknowledging them leaves later betas unwatched while CI's 1.8 row
+  stays non-blocking. The maintainer's call.
+- **Evidence:** on 1.7.14: typecheck, lint, `docs:check`, `pack:check`; the suite (Node and workerd) 977 passed,
+  125 skipped (D-055: 973 and 119; +4 run, +6 skipped: the 1.8-only tests). On 1.8.0-beta.3 (a scratch copy, by
+  `scripts/use-better-auth.sh latest-1.8`): typecheck, lint, `docs:check`, `pack:check`; the suite 989 passed,
+  113 skipped, 0 failed (CI's 1.8 row had 2 failed, run 40587150382). New tests: `test/issuer/id-token.test.ts`
+  (control character, empty value, 33 `amr`), `test/issuer/saml-subject.test.ts` (empty class, control character),
+  `test/issuer/exchange.test.ts` (1.8: the resolver's values carried; a resolver that says nothing, with and without
+  `"0"` supported; four values the ID-JAG can't carry). Mutations: both new refusals caught; the full issuer list 232 caught, 10 expected survivors, 0 problems.

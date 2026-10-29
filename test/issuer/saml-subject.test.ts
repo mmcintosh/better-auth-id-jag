@@ -94,6 +94,25 @@ describe("path (a): saml2 → ID-JAG", () => {
     expect(seen[1]?.subjectToken.acr).toBeUndefined();
   });
 
+  it("a class the ID-JAG can't carry (empty, a control character) is a malformed result: refused, never a 500 (D-056)", async () => {
+    const { host, client, assertion } = await world();
+    const original = host.ctx.logger.error;
+    host.ctx.logger.error = () => {};
+    try {
+      for (const acr of ["", "urn:x\u0001"]) {
+        const r = await exchangeSaml(host, client, samlToken(assertion({ acr }).xml));
+        expect(r.status, JSON.stringify(acr)).toBe(400);
+        expect(r.body).toEqual(GENERIC_GRANT);
+      }
+    } finally {
+      host.ctx.logger.error = original;
+    }
+    expect(host.recorded.refused.map((e) => [e.reason, e.detail])).toEqual([
+      ["invalid_subject_token", "saml2: the verifier returned a malformed result"],
+      ["invalid_subject_token", "saml2: the verifier returned a malformed result"],
+    ]);
+  });
+
   it("padded standard base64 works too; one ID-JAG per assertion", async () => {
     const { host, client, assertion } = await world();
     const a = assertion();
