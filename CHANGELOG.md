@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-30
+
 ### Fixed
 
 - **Issuer: a subject token's `acr` or `amr` the ID-JAG can't carry is refused, never a 500** (D-056). An ID token
