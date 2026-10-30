@@ -5,6 +5,7 @@ import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, publicDescription, type ReasonCode, TOKEN_EXCHANGE_GRANT } from "../../src/core";
 import type { AuthorizeResult } from "../../src/issuer";
+import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
 import { AUDIENCE, createClient, createIssuerHost, exchange, getIdToken, ISSUER, type IssuerHost, RESOURCE, setup, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
@@ -95,8 +96,17 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
   it("a repeated parameter, two resources, an over-long scope: unsupported_parameter", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
-    await refused(host, await exchange(host, client, idToken, { scope: ["read", "write"] }), "unsupported_parameter", "invalid_request");
-    await refused(host, await exchange(host, client, idToken, { subject_token: [idToken, idToken] }), "unsupported_parameter", "invalid_request");
+    for (const repeated of [{ scope: ["read", "write"] }, { subject_token: [idToken, idToken] }]) {
+      const r = await exchange(host, client, idToken, repeated);
+      if (!BETTER_AUTH_1_8) await refused(host, r, "unsupported_parameter", "invalid_request");
+      else {
+        // 1.8 refuses a repeated parameter (other than resource and audience) itself, before our handler (D-056).
+        expect(r.status).toBe(400);
+        expect(r.body.error).toBe("invalid_request");
+        expect(r.body).not.toHaveProperty("access_token");
+        expect(takeReasons(host)).toEqual([]);
+      }
+    }
     await refused(host, await exchange(host, client, idToken, { resource: [RESOURCE, "https://mcp2.example/mcp"] }), "unsupported_parameter", "invalid_request");
     await refused(host, await exchange(host, client, idToken, { scope: "a".repeat(4097) }), "unsupported_parameter", "invalid_request");
   });

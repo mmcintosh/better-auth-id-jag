@@ -4,10 +4,11 @@
 //   shape, typ, alg, kid, exp, iat, age  →  iss  →  signature by one of our keys  →  aud/azp  →  sid  →  sub.
 // An ID token from any other issuer is refused, even one this host trusts elsewhere.
 //
-// What oauth-provider 1.7.6 puts in an ID token (dist, createIdToken): `iss` = jwt.issuer ??
+// What oauth-provider 1.7 puts in an ID token (dist, createIdToken): `iss` = jwt.issuer ??
 // baseURL, `aud` = the client id (a string), `sub` = the user id, or a pairwise value for a
 // pairwise client (refused here: it can't be resolved to a user without the user), `auth_time`,
-// `acr` = "0" and no `amr` (customIdTokenClaims can't set either: reserved names are stripped),
+// `acr` = "0" and no `amr` (customIdTokenClaims can't set either: reserved names are stripped;
+// on 1.8, authenticationContext.resolve can, D-056),
 // `iat`, `exp` = iat + idTokenExpiresIn (default 36000: 10 hours), no `typ` header, and `sid` =
 // the session's id only for a client with `enableEndSession` or a `backchannelLogoutUri`
 // (createIdToken's `emitSid`).
@@ -45,6 +46,10 @@ const IAT_SKEW_SECONDS = 60;
 const DEFAULT_GRACE_SECONDS = 30 * 86_400;
 
 const str = z.string().min(1).max(2048);
+// acr/amr are copied into the ID-JAG, whose schema refuses control characters (core/jwt.ts). On Better Auth 1.8 they
+// come from the host's authenticationContext.resolve, so refuse them here as a bad subject token, not a 500 (D-056).
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+const claimText = str.refine((s) => !/[\u0000-\u001f\u007f-\u009f]/.test(s), "control characters");
 const seconds = z.number().int().nonnegative();
 const idTokenClaimsSchema = z.looseObject({
   iss: str,
@@ -56,8 +61,8 @@ const idTokenClaimsSchema = z.looseObject({
   azp: str.optional(),
   sid: str.optional(),
   auth_time: seconds.optional(),
-  acr: str.optional(),
-  amr: z.array(str).max(32).optional(),
+  acr: claimText.optional(),
+  amr: z.array(claimText).max(32).optional(),
 });
 export type IdTokenClaims = z.infer<typeof idTokenClaimsSchema>;
 

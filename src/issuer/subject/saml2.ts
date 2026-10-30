@@ -72,6 +72,10 @@ export function decodeSaml2SubjectToken(token: string): string {
 }
 
 const nonEmpty = z.string().min(1);
+// The class becomes the ID-JAG's acr, whose schema wants 1 to 2048 characters and no control characters (core/jwt.ts):
+// anything else is a malformed result here, not a 500 at buildIdJag (D-056).
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
+const classRef = z.string().min(1).max(2048).refine((s) => !/[\u0000-\u001f\u007f-\u009f]/.test(s), "control characters");
 /** What we rely on from the verifier's result; anything else it adds is ignored. */
 const verifiedSchema = z.object({
   assertionId: nonEmpty,
@@ -83,7 +87,7 @@ const verifiedSchema = z.object({
   nameId: z.string(),
   nameIdFormat: nonEmpty,
   authnInstant: z.date(),
-  authnContextClassRef: z.string().optional(),
+  authnContextClassRef: classRef.optional(),
   notOnOrAfter: z.date(),
 });
 

@@ -4,7 +4,8 @@ import { decodeJwt, decodeProtectedHeader } from "jose";
 import { describe, expect, it } from "vitest";
 import { ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, JTI_MODEL, hasJti, TOKEN_EXCHANGE_GRANT } from "../../src/core";
 import type { AuthorizeInput } from "../../src/issuer";
-import { AUDIENCE, BASE, createIssuerHost, exchange, ISSUER, RESOURCE, setup, verifyWithHostJwks } from "../support/issuer-host";
+import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
+import { AUDIENCE, BASE, createIssuerHost, exchange, ISSUER, RESOURCE, setup, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
 
 const allowRead = () => ({ decision: "allow" as const, scopes: ["read", "write"] });
 
@@ -33,7 +34,7 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(r.headers.get("content-type")).toMatch(/application\/json/);
   });
 
-  it("carries auth_time and acr from the ID token; sub is the user id", async () => {
+  it("carries auth_time, acr and amr from the ID token; sub is the user id", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allowRead } });
     const { client, idToken, user } = await setup(host);
     const idClaims = decodeJwt(idToken);
@@ -41,10 +42,11 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(claims.sub).toBe(user.id);
     expect(claims.auth_time).toBe(idClaims.auth_time);
     expect(claims.acr).toBe(idClaims.acr);
+    expect(claims.amr).toEqual(idClaims.amr);
     expect(claims.email).toBeUndefined();
   });
 
-  it("an ID token can't claim MFA: oauth-provider fixes acr at \"0\" and strips a host's acr/amr, so the ID-JAG says acr \"0\" and has no amr", async () => {
+  it("customIdTokenClaims can't claim MFA: oauth-provider writes acr \"0\" and strips a host's acr/amr, so the ID-JAG says acr \"0\" and has no amr (on 1.8, only authenticationContext can: below)", async () => {
     const host = await createIssuerHost({
       issuer: { authorize: allowRead },
       provider: { customIdTokenClaims: () => ({ acr: "http://schemas.microsoft.com/claims/multipleauthn", amr: ["pwd", "mfa"] }) },
@@ -214,6 +216,49 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
       globalThis.fetch = original;
     }
     expect(calls).toEqual([]);
+  });
+});
+
+// Better Auth 1.8's authenticationContext (better-auth#11787): the host's resolver states acr/amr, oauth-provider puts
+// them in the ID token, and we copy them unchanged (D-033, D-056). Not in 1.7.
+describe.skipIf(!BETTER_AUTH_1_8)("on Better Auth 1.8, how the person signed in comes from authenticationContext (D-056)", () => {
+  const hostWith = (resolve: () => unknown, acrValuesSupported = ["0", "urn:mfa"]) =>
+    createIssuerHost({ issuer: { authorize: allowRead }, provider: { authenticationContext: { acrValuesSupported, resolve } } });
+
+  it("the resolver's acr and amr are in the ID token and, unchanged, in the ID-JAG", async () => {
+    const host = await hostWith(() => ({ acr: "urn:mfa", amr: ["pwd", "otp"] }));
+    const { client, idToken } = await setup(host);
+    expect(decodeJwt(idToken)).toMatchObject({ acr: "urn:mfa", amr: ["pwd", "otp"] });
+    const r = await exchange(host, client, idToken);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(decodeJwt(r.body.access_token as string)).toMatchObject({ acr: "urn:mfa", amr: ["pwd", "otp"] });
+  });
+
+  it("a resolver that says nothing: acr \"0\" and no amr when \"0\" is supported; no ID token at all when it isn't", async () => {
+    const host = await hostWith(() => undefined);
+    const { client, idToken } = await setup(host);
+    const claims = decodeJwt((await exchange(host, client, idToken)).body.access_token as string);
+    expect(claims.acr).toBe("0");
+    expect(claims).not.toHaveProperty("amr");
+    // oauth-provider refuses at authorize (server_error: acr "0" isn't in acrValuesSupported).
+    await expect(setup(await hostWith(() => undefined, ["urn:mfa"]))).rejects.toThrow();
+  });
+
+  it("a value the ID-JAG can't carry is invalid_subject_token, never a 500: a control character, an empty or a 33rd amr", async () => {
+    const cases: [() => unknown, string[]][] = [
+      [() => ({ acr: "urn:x\u0001" }), ["urn:x\u0001"]],
+      [() => ({ acr: "0", amr: ["pwd\u0007"] }), ["0"]],
+      [() => ({ acr: "0", amr: [""] }), ["0"]],
+      [() => ({ acr: "0", amr: Array.from({ length: 33 }, (_, i) => `m${i}`) }), ["0"]],
+    ];
+    for (const [resolve, supported] of cases) {
+      const host = await hostWith(resolve, supported);
+      const { client, idToken } = await setup(host);
+      const r = await exchange(host, client, idToken);
+      expect(r.status, JSON.stringify(r.body)).toBe(400);
+      expect(r.body.error).toBe("invalid_grant");
+      expect(takeReasons(host)).toEqual(["invalid_subject_token"]);
+    }
   });
 });
 

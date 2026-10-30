@@ -216,6 +216,15 @@
   ]
  },
  {
+  "name": "S6 acr/amr control characters accepted (a 500 at buildIdJag on 1.8)",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "const claimText = str.refine((s) => !/[\\u0000-\\u001f\\u007f-\\u009f]/.test(s), \"control characters\");",
+  "b": "const claimText = str;",
+  "paths": [
+   "test/issuer/id-token.test.ts"
+  ]
+ },
+ {
   "name": "S6 expired accepted",
   "file": "src/issuer/subject/id-token.ts",
   "a": "  if (claims.exp <= expected.now) refuse(\"subject_token_expired\");\n",
@@ -1602,6 +1611,15 @@
   "file": "src/issuer/subject/saml2.ts",
   "a": "{ clientId: expected.clientId, now: expected.now }",
   "b": "{ clientId: expected.clientId }",
+  "paths": [
+   "test/issuer/saml-subject.test.ts"
+  ]
+ },
+ {
+  "name": "P3 SAML class the ID-JAG cannot carry accepted (a 500 at buildIdJag)",
+  "file": "src/issuer/subject/saml2.ts",
+  "a": "  authnContextClassRef: classRef.optional(),",
+  "b": "  authnContextClassRef: z.string().optional(),",
   "paths": [
    "test/issuer/saml-subject.test.ts"
   ]

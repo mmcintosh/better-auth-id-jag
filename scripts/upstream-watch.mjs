@@ -1,23 +1,25 @@
 // Fails when an upstream Better Auth change this package depends on lands, so it is noticed without anyone watching
-// (#20): better-auth/better-auth#9935 (the jwt default EdDSA → RS256, ID-token authentication context; #19) merged or
-// closed; #8023 (RFC 8693 token exchange as an official plugin) or #11267 (authentication context in access tokens)
+// (#20): #8023 (RFC 8693 token exchange as an official plugin) or #11267 (authentication context in access tokens)
 // closed, or a pull request linked to either merged; or a 1.8 version of better-auth or @better-auth/oauth-provider on
-// npm (the peer range stops at <1.8.0). Public GitHub and npm APIs only; GITHUB_TOKEN, when set, only raises the rate
+// npm (the peer range stops at <1.8.0). It also watched #9935 (the jwt default EdDSA → RS256, ID-token authentication
+// context): closed unmerged, replaced by #11787 without the RS256 default (D-056); nothing watches the default now,
+// and assertIssuableAlgorithm and signing-default.test.ts guard it (D-038). Public GitHub and npm APIs only; GITHUB_TOKEN, when set, only raises the rate
 // limit. Run weekly by .github/workflows/draft-watch.yml; by hand: node scripts/upstream-watch.mjs
 // Once a finding has been looked at, add its key (printed with it) to ACKNOWLEDGED so the watch goes quiet.
 
 const REPO = "better-auth/better-auth";
-const PR = 9935;
 const ISSUES = [8023, 11267];
 const PACKAGES = ["better-auth", "@better-auth/oauth-provider"];
 const ACKNOWLEDGED = [
   // D-046: idJagIssuer({ otherTokenExchange: tokenExchangeFrom(oauthTokenExchange()) }) is how both coexist.
   "issue:8023:pr:11742",
   "issue:8023:pr:11763",
+  // D-056: #11763 is phase 1 (impersonation only); access-token acr/auth_time waits for #11267, whose closing fires
+  // issue:11267:closed.
+  "issue:11267:pr:11763",
 ];
 
 const what = {
-  9935: "run the full suite against it, check the issuer's signing (#19, D-038) and ID-token acr/amr (D-033), then widen the peer range",
   8023: "move the issuer's token exchange onto the official plugin, or document how both coexist",
   11267: "carry auth_time/acr/amr into the receiver's access token, update docs/security.md and the #26 test",
   npm: "run the full suite against it (scripts/use-better-auth.sh), fix what breaks, then widen the peer range (a 0.x minor)",
@@ -35,11 +37,7 @@ const found = (key, message) => {
   if (!ACKNOWLEDGED.includes(key)) findings.set(key, message);
 };
 
-const pr = await json(`https://api.github.com/repos/${REPO}/pulls/${PR}`);
-console.log(`${REPO}#${PR}: ${pr.state}${pr.merged_at ? ", merged" : ""}`);
 const next = (n) => what[n] ?? "check what it changes here";
-if (pr.merged_at) found(`pr:${PR}:merged`, `${REPO}#${PR} was merged (${pr.merged_at.slice(0, 10)}): ${next(PR)}`);
-else if (pr.state === "closed") found(`pr:${PR}:closed`, `${REPO}#${PR} was closed without merging: check what replaced it, then ${next(PR)}`);
 
 for (const n of ISSUES) {
   const issue = await json(`https://api.github.com/repos/${REPO}/issues/${n}`);
