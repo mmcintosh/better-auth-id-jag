@@ -338,6 +338,15 @@ function samlOptions(t: StaticTrustedIssuer): Pick<TrustEntry, "samlSubjects" | 
  * entries may share it, e.g. two ID-JAG issuers relaying one SAML IdP's NameIDs), or an entry's `sub`s.
  */
 function checkAccountProvidersAcrossEntries(entries: TrustEntry[]): void {
+  // A multi-tenant issuer's sub is unique only within its tenant (draft -06 §6.3, iss+tenant+sub): two tenants of one
+  // issuer (or a pinned tenant and an entry that takes every tenant) under one account namespace would link one
+  // tenant's "u1" to another tenant's user.
+  for (const [i, a] of entries.entries())
+    for (const b of entries.slice(i + 1))
+      if (a.issuer === b.issuer && a.accountProviderId === b.accountProviderId && a.tenant !== b.tenant)
+        throw new Error(
+          `id-jag receiver: trusted issuer ${a.issuer}: tenants ${a.tenant ?? "(any)"} and ${b.tenant ?? "(any)"} share an accountProviderId (${a.accountProviderId}); give each tenant its own accountProviderId`,
+        );
   const owners = new Map<string, string>();
   for (const e of entries) owners.set(e.accountProviderId, `the sub of ${e.issuer}`);
   for (const e of entries)

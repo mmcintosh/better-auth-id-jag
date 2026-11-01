@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Receiver: two tenants of one issuer could resolve to the same user** (D-057). Subjects are looked up by
+  (`accountProviderId`, `sub`), and the default `accountProviderId` is `id-jag:<issuer>` whatever the tenant. With
+  two trust entries for one multi-tenant issuer pinned to different tenants (or one pinned and one not), and no
+  `accountProviderId` of their own, an ID-JAG from tenant B whose `sub` equals a tenant A user's was accepted as that
+  user. A multi-tenant IdP's `sub` is unique only within its tenant. Now such static entries are a startup error,
+  and such `idJagTrustedIssuer` rows are refused (`untrusted_issuer`, with a warning) until each tenant has its own
+  `ssoProviderId`. Only hosts with several tenant entries for one issuer are affected; a single entry per issuer
+  behaves as before.
+
 ## [0.5.3] - 2026-10-30
 
 ### Fixed

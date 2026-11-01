@@ -297,7 +297,7 @@ idJagGrant({
 });
 ```
 
-`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
+`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. A multi-tenant IdP's `sub` is unique only within its tenant, so **each tenant of one issuer needs its own `accountProviderId`**: two entries for one issuer with different tenants (or one with a tenant and one without) that share it are a startup error, and table rows that do are refused (`untrusted_issuer`) until each has its own `ssoProviderId`. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
 
 **Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14). The whole Okta setup, with the console values and what each refusal means: [docs/okta.md](docs/okta.md).
 
@@ -452,7 +452,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ✅ | §3.1 `act` | Accepted (shape-checked, at most 4 nested actors) and carried into the access token. |
 | ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.5). |
 | ⚠️ | §3.1 `email` | Used only with `emailFallback` for listed domains (a verified local user) or JIT; never by default. |
-| ✅ | §3.1 `tenant` | A trust entry can pin it. |
+| ✅ | §3.1 `tenant` | A trust entry can pin it. Each tenant of one issuer resolves subjects in its own account namespace (`accountProviderId`). |
 | ❌ | §3.1 `aud_tenant`, `aud_sub` | Ignored. |
 | ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
 | ❌ | §9.8 DPoP / `cnf`, `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`), as §9.8.1.2 requires without a DPoP proof. |
