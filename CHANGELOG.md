@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-01
+
 ### Security
 
 - **Receiver: two tenants of one issuer could resolve to the same user** (D-057). Subjects are looked up by
