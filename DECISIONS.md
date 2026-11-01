@@ -1210,3 +1210,24 @@ before acting on it.
   (control character, empty value, 33 `amr`), `test/issuer/saml-subject.test.ts` (empty class, control character),
   `test/issuer/exchange.test.ts` (1.8: the resolver's values carried; a resolver that says nothing, with and without
   `"0"` supported; four values the ID-JAG can't carry). Mutations: both new refusals caught; the full issuer list 232 caught, 10 expected survivors, 0 problems.
+
+## D-057: each tenant of one issuer has its own account namespace (2026-11-01)
+
+Found while comparing draft -06 with the code. Draft -06 §4.4.1 says a receiver
+"MUST resolve the subject only within the recipient tenant", and §6.3 that a multi-tenant issuer's `sub` is unique only
+with its tenant (`iss`+`tenant`+`sub`). -04 already implied it.
+
+- **The defect.** `resolveSubject` links by (`accountProviderId`, `sub`). Every trust entry's default
+  `accountProviderId` is `id-jag:<issuer>`, tenant or not, and nothing stopped two entries for one issuer and different
+  tenants from sharing it. Shown by a test before the fix: static entries for `t-1` and `t-2`, a user linked for
+  `t-1`'s `sub`, an ID-JAG from `t-2` with the same `sub` → 200, that user.
+- **The fix, without moving anyone's linked accounts.** The default stays `id-jag:<issuer>`. Two entries for one issuer
+  whose tenants differ (an entry without a tenant counts as "any") and whose `accountProviderId` is the same are
+  refused: static entries at startup (`resolveReceiverOptions` throws), table and sso rows when an ID-JAG for that
+  issuer is redeemed (`findTrustedIssuer`: `untrusted_issuer`, "share an account namespace", and a warning), since
+  rows can change at any time. A host gives each tenant its own `accountProviderId` (`ssoProviderId` on a row).
+  Changing the default to include the tenant was rejected: a host with one pinned entry would lose its links.
+- **Not covered here (part of supporting draft -06):** refusing an ID-JAG without `tenant` from an issuer the host marks
+  multi-tenant. SAML `sub_id` mappings have their own namespace (issuer and qualifiers), unchanged.
+- **Evidence:** `test/receiver/trust.test.ts`, two tests (static entries; table rows, including a row without a tenant
+  and the fixed setup where each tenant resolves only its own subjects).

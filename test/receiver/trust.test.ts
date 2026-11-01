@@ -2,6 +2,7 @@
 // idJagTrustedIssuer table; their union, with ambiguity refused; S1: nothing trusted, nothing accepted.
 import { describe, expect, it } from "vitest";
 import { TRUSTED_ISSUER_MODEL } from "../../src/receiver";
+import { resolveReceiverOptions } from "../../src/receiver/options";
 import type { IdJagGrantOptions } from "../../src/receiver";
 import { createClient, linkedUser, network, type ReceiverHost, receiverHost, recorder, redeem, type TestIdp, testIdp, uniqueEmail } from "../support/receiver-host";
 
@@ -130,6 +131,56 @@ describe("trust: static config and the idJagTrustedIssuer table", () => {
     expect((await s.attempt(idp, { sub })).reason).toBe("untrusted_issuer");
     expect((await s.attempt(idp, { sub, tenant: "t-2" })).reason).toBe("untrusted_issuer");
     expect((await s.attempt(idp, { sub, tenant: "t-1" })).reason).toBe("accepted");
+  });
+
+  // Draft -06 §4.4.1 / §6.3: a multi-tenant issuer's sub is unique only within its tenant (iss+tenant+sub), so the
+  // subject must be resolved within the tenant. Two tenants of one issuer under one account namespace would link
+  // tenant B's "u1" to tenant A's user.
+  it("two tenants of one issuer can't share an account namespace (static entries)", async () => {
+    const idp = await testIdp();
+    const shared = { issuer: idp.issuer, discoveryUri: idp.discoveryUri };
+    expect(() => resolveReceiverOptions({ trustedIssuers: [{ ...shared, tenant: "t-1" }, { ...shared, tenant: "t-2" }] })).toThrow(/share an accountProviderId/);
+    expect(() => resolveReceiverOptions({ trustedIssuers: [{ ...shared, tenant: "t-1", accountProviderId: "corp" }, { ...shared, tenant: "t-2", accountProviderId: "corp" }] })).toThrow(/share an accountProviderId/);
+    // One per tenant is fine, and each tenant's sub resolves only in its own namespace.
+    const s = await host([idp], { trustedIssuers: [{ ...shared, tenant: "t-1" }, { ...shared, tenant: "t-2", accountProviderId: "id-jag-t-2" }] }, { sso: false });
+    const sub = crypto.randomUUID();
+    const userA = await linkedUser(s.h, `id-jag:${idp.issuer}`, sub);
+    expect((await s.attempt(idp, { sub, tenant: "t-1" })).reason).toBe("accepted");
+    expect(s.rec.accepted.at(-1)?.userId).toBe(userA.id);
+    expect((await s.attempt(idp, { sub, tenant: "t-2" })).reason).toBe("unknown_subject");
+  });
+
+  it("two tenants of one issuer can't share an account namespace (table rows, and a row without a tenant)", async () => {
+    const idp = await testIdp();
+    const s = await host([idp], { trustedIssuerTable: true }, { sso: false });
+    const row = (tenant: string | null, ssoProviderId?: string) => ({
+      issuer: idp.issuer,
+      jwksUri: idp.jwksUri,
+      tenant,
+      ...(ssoProviderId ? { ssoProviderId } : {}),
+      enabled: true,
+      jitProvisioning: false,
+      jitTrustEmailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const t1 = await s.h.ctx.adapter.create<{ id: string }>({ model: TRUSTED_ISSUER_MODEL, data: row("t-1") });
+    const t2 = await s.h.ctx.adapter.create<{ id: string }>({ model: TRUSTED_ISSUER_MODEL, data: row("t-2") });
+    const sub = crypto.randomUUID();
+    await linkedUser(s.h, `id-jag:${idp.issuer}`, sub);
+    for (const tenant of ["t-1", "t-2"]) {
+      const r = await s.attempt(idp, { sub, tenant });
+      expect(r.reason).toBe("untrusted_issuer");
+      expect(s.rec.refused.at(-1)?.detail).toMatch(/share an account namespace/);
+    }
+    // A row without a tenant accepts every tenant: it can't share a namespace with a pinned one either.
+    await s.h.ctx.adapter.update({ model: TRUSTED_ISSUER_MODEL, where: [{ field: "id", value: t2.id }], update: { tenant: null } });
+    expect((await s.attempt(idp, { sub, tenant: "t-2" })).reason).toBe("untrusted_issuer");
+    // Separate namespaces: each tenant resolves only its own subjects.
+    await s.h.ctx.adapter.update({ model: TRUSTED_ISSUER_MODEL, where: [{ field: "id", value: t2.id }], update: { tenant: "t-2", ssoProviderId: "tenant-2" } });
+    expect((await s.attempt(idp, { sub, tenant: "t-1" })).reason).toBe("accepted");
+    expect((await s.attempt(idp, { sub, tenant: "t-2" })).reason).toBe("unknown_subject");
+    void t1;
   });
 
   it("table rows: enabled rows are trusted, disabled ones aren't; ssoProviderId sets the account link", async () => {

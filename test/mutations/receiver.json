@@ -506,8 +506,8 @@
  {
   "name": "trust: tenant not compared",
   "file": "src/receiver/trust.ts",
-  "a": "(t) => t.tenant === undefined || t.tenant === claims.tenant,",
-  "b": "(t) => t.tenant === undefined || true,",
+  "a": "all.filter((t) => t.tenant === undefined || t.tenant === claims.tenant)",
+  "b": "all.filter((t) => t.tenant === undefined || true)",
   "paths": [
    "test/receiver"
   ]
@@ -1761,6 +1761,33 @@
   "b": "(false ? {} : { x5t:",
   "paths": [
    "test/receiver/jwks.test.ts"
+  ]
+ },
+ {
+  "name": "D-057 trust: tenants of one issuer may share an account namespace (rows not checked at redemption)",
+  "file": "src/receiver/trust.ts",
+  "a": "t !== entry && t.accountProviderId === entry.accountProviderId && t.tenant !== entry.tenant",
+  "b": "false",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "D-057 trust: an entry without a tenant doesn't count as another tenant",
+  "file": "src/receiver/trust.ts",
+  "a": "t.accountProviderId === entry.accountProviderId && t.tenant !== entry.tenant",
+  "b": "t.accountProviderId === entry.accountProviderId && t.tenant !== undefined && entry.tenant !== undefined && t.tenant !== entry.tenant",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "D-057 options: static entries of two tenants may share an accountProviderId",
+  "file": "src/receiver/options.ts",
+  "a": "a.issuer === b.issuer && a.accountProviderId === b.accountProviderId && a.tenant !== b.tenant",
+  "b": "false",
+  "paths": [
+   "test/receiver"
   ]
  }
 ]

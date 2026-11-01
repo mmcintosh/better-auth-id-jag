@@ -170,13 +170,21 @@ async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions
 /** The one trust entry for this ID-JAG's (unverified) `iss` and `tenant`, or a refusal. */
 export async function findTrustedIssuer(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, claims: Pick<IdJagClaims, "iss" | "tenant">): Promise<TrustEntry> {
   const iss = claims.iss;
-  const candidates = [...o.trustedIssuers.filter((t) => t.issuer === iss), ...(await fromSso(ctx, o, iss)), ...(await fromTable(ctx, o, iss))].filter(
-    (t) => t.tenant === undefined || t.tenant === claims.tenant,
-  );
+  const all = [...o.trustedIssuers.filter((t) => t.issuer === iss), ...(await fromSso(ctx, o, iss)), ...(await fromTable(ctx, o, iss))];
+  const candidates = all.filter((t) => t.tenant === undefined || t.tenant === claims.tenant);
   if (candidates.length === 0) refuse("untrusted_issuer", iss);
   if (candidates.length > 1) {
     ctx.context.logger.warn(`[id-jag] ${candidates.length} trust entries match one issuer (${candidates.map((c) => `${c.source}:${c.id}`).join(", ")}); refusing`);
     refuse("untrusted_issuer", `ambiguous: ${candidates.length} trust entries for ${iss}`);
   }
-  return candidates[0] as TrustEntry;
+  const entry = candidates[0] as TrustEntry;
+  // Subjects are resolved by (accountProviderId, sub), but a multi-tenant issuer's sub is unique only within its tenant
+  // (draft -06 §6.3): another tenant's entry under the same namespace would let this tenant's sub reach its users.
+  // Static entries are checked at startup; rows can change at any time, so they're checked here.
+  const sharing = all.find((t) => t !== entry && t.accountProviderId === entry.accountProviderId && t.tenant !== entry.tenant);
+  if (sharing) {
+    ctx.context.logger.warn(`[id-jag] trust entries ${entry.source}:${entry.id} and ${sharing.source}:${sharing.id} for ${iss} are for different tenants but share the account namespace ${entry.accountProviderId}; refusing. Give each tenant its own (ssoProviderId on a table row).`);
+    refuse("untrusted_issuer", `ambiguous: tenants of ${iss} share an account namespace (${entry.accountProviderId})`);
+  }
+  return entry;
 }
