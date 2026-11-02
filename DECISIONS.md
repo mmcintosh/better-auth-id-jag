@@ -1231,3 +1231,24 @@ with its tenant (`iss`+`tenant`+`sub`). -04 already implied it.
   multi-tenant. SAML `sub_id` mappings have their own namespace (issuer and qualifiers), unchanged.
 - **Evidence:** `test/receiver/trust.test.ts`, two tests (static entries; table rows, including a row without a tenant
   and the fixed setup where each tenant resolves only its own subjects).
+
+## D-058: development pin 1.7.15, the floor stays 1.7.10; npm's bundled glob and minimatch (2026-11-02)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.14 → 1.7.15 (published 2026-11-01), and
+  the SAML end-to-end project with them. `better-call` 1.4.4, `@better-auth/utils` 0.5.1 and `@better-fetch/fetch`
+  1.3.3 are unchanged. The peer range stays `>=1.7.10 <1.8.0` and CI's floor rows stay on 1.7.10: no advisory covers
+  1.7.10 to 1.7.14 (D-044).
+- **1.7.15's changes we checked:** prototype-pollution false positives on metadata (#12142), `BETTER_AUTH_SECRETS`
+  error messages (#12098), admin `update-user` and banned-user fixes (#12099, #12100), headers and cookies from a
+  non-returning `hooks.before` kept (#12145; this package registers no `hooks`), and fixes in the Vue client,
+  `genericOAuth`, username sign-in, the CLI, Stripe and API keys. Nothing in the token endpoint, token exchange, JWT,
+  `oauth-provider` or `mcp` source.
+- **npm's bundled `glob` 13.0.6 and `minimatch` 10.2.5** (GHSA-3g3m-2fjr-6pw4, GHSA-g3hv-75wg-m249; Dependabot #38,
+  #39, both medium): the same case as D-054. They are inside npm 12.2.1 in `.github/npm-cli` (release job only, on
+  patterns we control), npm 12.2.1 is the newest release, and its own ranges (`^13`, `^10`) don't reach the fixes
+  (glob 14.0.2, minimatch 11.0.1). Dismissed as tolerable risk (the maintainer's decision, 2026-11-02), added to the
+  OSV list and to Dependabot's ignore list for that folder. Not added to `allow-ghsas` (as D-054's later entries).
+- **Evidence:** typecheck, lint, `docs:check`, `pack:check`, `pnpm audit --prod` clean; the suite 981 passed,
+  125 skipped (unchanged from D-057); the SAML end-to-end project on 1.7.15, 19 passed.
