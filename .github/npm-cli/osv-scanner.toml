@@ -34,3 +34,13 @@ reason = "undici, bundled inside npm (release job only); updated only by a newer
 id = "GHSA-9fm3-97px-rjf6"
 ignoreUntil = 2027-01-06T00:00:00Z
 reason = "undici, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "glob, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "minimatch, bundled inside npm (release job only); updated only by a newer npm"
