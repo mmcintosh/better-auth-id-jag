@@ -1,7 +1,7 @@
-// The token-exchange grant (RFC 8693) that issues ID-JAGs (draft -04 §4.3), plan §3.3:
+// The token-exchange grant (RFC 8693) that issues ID-JAGs (draft -06 §4.3), plan §3.3:
 //   1. client  2. parameters  3. subject token  4. policy  5. mint  6. record, audit, respond.
 // With `saml.refreshTokens`, one more exact pair: requested_token_type=refresh_token for
-// subject_token_type=saml2 issues a refresh token instead (draft -04 §4.5,
+// subject_token_type=saml2 issues a refresh token instead (draft -06 §4.5,
 // issueRefreshTokenForAssertion, D-B27). Every other requested type is refused.
 // Exported as a plain function too (`handleTokenExchange`), so a host, or a future core grant
 // that owns the token-exchange key, can compose it: two extensions can't share a grant key
@@ -336,7 +336,7 @@ function tokenBody(r: unknown): Record<string, unknown> {
 }
 
 /**
- * Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -04
+ * Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -06
  * §4.5: `requested_token_type=refresh_token`, `subject_token_type=saml2`). In order: the client
  * (confidential, allowed `refresh_token`, not pairwise); no `audience` or `resource` (the token is
  * for us); scopes (openid and offline_access, within the configured list, the client's and the
@@ -398,7 +398,7 @@ async function issueRefreshTokenForAssertion(
   const expiresAt = storedSeconds(row?.expiresAt);
   if (expiresAt === undefined) throw new Error("id-jag: the provider's refresh token has no stored expiry");
 
-  // 6. Audit, respond (draft -04 §4.5: the refresh token in access_token, token_type N_A).
+  // 6. Audit, respond (draft -06 §4.5: the refresh token in access_token, token_type N_A).
   emit(ctx, options, { type: "id-jag.refresh-issued", userId: user.id, clientId: client.clientId, scopes, spEntityId: assertion.serviceProvider.entityId, assertionId: assertion.assertionId });
   maybeSweep(ctx, state);
   const response = {

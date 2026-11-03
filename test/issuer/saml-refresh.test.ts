@@ -1,4 +1,4 @@
-// Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -04 §4.5,
+// Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -06 §4.5,
 // what Okta's SAML requesting app and MCP's Enterprise-Managed Authorization send), which then
 // yields ID-JAGs through the existing refresh-token subject path (D-B14).
 import { decodeJwt } from "jose";

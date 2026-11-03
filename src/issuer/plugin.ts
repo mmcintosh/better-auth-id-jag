@@ -1,5 +1,5 @@
 // idJagIssuer(): makes a Better Auth OIDC provider (@better-auth/oauth-provider + jwt) an ID-JAG
-// issuer (draft-ietf-oauth-identity-assertion-authz-grant-04 §4.3). It registers, from `init`:
+// issuer (draft-ietf-oauth-identity-assertion-authz-grant-06 §4.3). It registers, from `init`:
 // - grants["urn:ietf:params:oauth:grant-type:token-exchange"], serving only
 //   requested_token_type=urn:ietf:params:oauth:token-type:id-jag;
 // - metadata: identity_chaining_requested_token_types_supported (grant_types_supported lists the

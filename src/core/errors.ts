@@ -14,7 +14,7 @@
 // check. So the code tells "not allowed" from "bad token"; within each, every reason still looks alike.
 import { APIError, isAPIError } from "better-auth/api";
 
-// insufficient_user_authentication: draft -04 §9.2 step-up (RFC 9470's code, at the token endpoint).
+// insufficient_user_authentication: draft -06 §9.3 step-up (RFC 9470's code, at the token endpoint).
 // access_denied: draft -06 §4.3.4.3 / §4.4.3, a valid token whose user or client isn't authorized.
 export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "access_denied" | "insufficient_user_authentication";
 
@@ -73,7 +73,7 @@ export const REASONS = {
   // host's hook threw). Not an authorization answer, so not access_denied: invalid_grant, as any other failed check.
   subject_unavailable: { error: "invalid_grant", public: false },
   no_scope: { error: "invalid_scope", public: false },
-  // Issuer, a SAML assertion exchanged for a refresh token (draft -04 §4.5): the request lacks a
+  // Issuer, a SAML assertion exchanged for a refresh token (draft -06 §4.5): the request lacks a
   // scope it must carry. The caller sent the scope parameter, so naming the defect is safe.
   scope_required: { error: "invalid_scope", public: true, description: "openid and offline_access are required." },
   // Issuer: the exchange.
@@ -93,7 +93,7 @@ export const REASONS = {
   // The requesting client is registered for pairwise subjects, which the issuer doesn't support: a new token won't help.
   pairwise_client: { error: "access_denied", public: false },
   policy_denied: { error: "access_denied", public: false },
-  // The host's authorize hook asked for step-up (draft -04 §9.2, D-043): it chose to tell the caller.
+  // The host's authorize hook asked for step-up (draft -06 §9.3, D-043): it chose to tell the caller.
   step_up_required: { error: "insufficient_user_authentication", public: true, description: "The subject does not meet the authentication requirements." },
   blocked: { error: "access_denied", public: false },
   no_policy: { error: "access_denied", public: false },
@@ -117,7 +117,7 @@ export function logSafe(s: string, max = 300): string {
 }
 
 /**
- * A step-up challenge (draft -04 §9.2, RFC 9470 §3): what the caller is told to come back with. Validated by the
+ * A step-up challenge (draft -06 §9.3, RFC 9470 §3): what the caller is told to come back with. Validated by the
  * issuer's policy before it gets here (RFC 6749 §5.2 characters, an https error_uri).
  */
 export interface StepUpChallenge {

@@ -63,7 +63,7 @@ interface Allow {
 const subProfileName = "(?:(?![\\u115f\\u1160\\u3164\\uffa0\\u2800])[\\p{L}\\p{N}\\p{P}\\p{S}])+";
 const subProfile = z.string().max(256).regex(new RegExp(`^${subProfileName}(?: ${subProfileName})*$`, "u"), "space-separated names");
 
-// Step-up (draft -04 §9.2, D-043), sent to the caller as RFC 6749 §5.2 / RFC 9470 parameters, so their character
+// Step-up (draft -06 §9.3, D-043), sent to the caller as RFC 6749 §5.2 / RFC 9470 parameters, so their character
 // sets: error_description and error_uri exclude `"` and `\`; acr_values is space-separated NQCHAR values. The uri is
 // an absolute https URL the client shows a person (no credentials, no fragment).
 const descriptionChars = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;

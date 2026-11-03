@@ -1332,3 +1332,28 @@ implement (§3), and adds an OPTIONAL issuer metadata field, `id_jag_signing_alg
   RS256), `test/issuer/signing-default.test.ts` (no `keyPairConfig`: published only if Better Auth's default is RS256;
   RS256 from `keyPairConfigs`: published), `test/issuer/exchange.test.ts` (ES256: absent), the two warning tests.
   7 new mutants caught.
+
+## D-062: implements draft -06 (2026-11-03)
+
+`SUPPORTED_DRAFT` moves to `draft-ietf-oauth-identity-assertion-authz-grant-06` (31 October 2026, expires 2027-05-04),
+after D-057 and D-059 to D-061 closed the gaps a paragraph-level comparison of -04 and -06 found.
+
+- **Nothing on the wire was renamed.** URNs, `typ`, grant types, claim names and the metadata fields we already
+  published are the same. An -04 issuer and a 0.6.0 receiver interoperate, and the other way round, except that a
+  client switching on `error` sees D-059's codes.
+- **Section references.** Code comments, the README and `docs/security.md` cite -06's numbers; design records
+  (`docs/tracks/`, `docs/phase-*.md`) and earlier DECISIONS keep the draft they were written against, which they
+  name. Moved: §4.4.3 → §4.4.4 (refresh token; -06's §4.4.3 is the new error-response section), §9.2 → §9.3
+  (step-up), §9.3 → §9.4 (cross-domain use), §9.5 → §9.8 (subject trust), §9.6 → §9.9 (subject disclosure), §9.8 →
+  §9.11 (sender constraining).
+- **Conformance table.** Single use goes from ⚠️ to ✅: -06 §4.4.4 says a receiver can "accept each ID-JAG only once
+  by tracking its jti", which settles what wg issue #130 asked. New rows: the subject-token type (§4.3.3), the
+  profiled error codes on both sides (§4.3.4.3, §4.4.3), `sub` for the resource authorization server (§5.2: ⚠️,
+  always the user's id; a pairwise RP registration isn't detected), tenants (§4.4.1, §6.3), RS256 (§3) and
+  `id_jag_signing_alg_values_supported` (§7.1).
+- **Not changed by -06, still refused by name:** DPoP and mTLS binding, `authorization_details`, several resources per
+  access token, minting `aud_sub` / `sub_id` / `aud_tenant`, accepting self-issued ID-JAGs, `actor_token`.
+- **Draft watch.** `scripts/draft-watch.mjs` now reports -06 as both implemented and latest, 181 days before expiry.
+- **Interop.** The dated rows in `docs/interop.md` were run against -04 releases; it says so. The weekly suite
+  (Keycloak, node-oauth2-server, identity-provider.net) re-runs them; the live Okta and xaa.dev checks are #23.
+

@@ -45,7 +45,7 @@ export interface IssuedEvent extends EventBase {
 }
 
 /**
- * The issuer exchanged a SAML assertion it issued for a refresh token (draft -04 §4.5). Never the
+ * The issuer exchanged a SAML assertion it issued for a refresh token (draft -06 §4.5). Never the
  * token or the assertion: the assertion's ID and the SP it was issued to identify it.
  */
 export interface RefreshIssuedEvent extends EventBase {

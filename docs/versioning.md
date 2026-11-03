@@ -4,7 +4,7 @@ This package follows [Semantic Versioning](https://semver.org). **Before 1.0**, 
 
 ## The draft
 
-ID-JAG is an IETF draft: [draft-ietf-oauth-identity-assertion-authz-grant](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/). Each release implements one draft, named in `SUPPORTED_DRAFT` ([src/core/urns.ts](../src/core/urns.ts)), the README and the release notes. Today that's **-04**.
+ID-JAG is an IETF draft: [draft-ietf-oauth-identity-assertion-authz-grant](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/). Each release implements one draft, named in `SUPPORTED_DRAFT` ([src/core/urns.ts](../src/core/urns.ts)), the README and the release notes. Today that's **-06** (from 0.6.0; 0.5.x implemented -04).
 
 A new draft can rename a claim, a token type URN or a metadata field. When one does:
 
