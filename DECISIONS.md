@@ -1286,3 +1286,26 @@ follow the draft (decisions D1 and D2 in the private draft -06 plan).
   `test/issuer/refusals.test.ts`, `registry.test.ts`, the SAML and refresh-token subject tests, and the receiver tests
   assert each body; `test/interop/self.test.ts` runs the hook's `unknown_audience` end to end. 9 new mutants and
   the 9 changed ones caught (one documented survivor, unchanged).
+
+## D-060: every resource in the claim must be ours; subject-token types proved (2026-11-03)
+
+Draft -06 §4.4.1: "If the resource claim is present, each identifier MUST be a protected resource governed by this
+Resource Authorization Server ... If any identifier is not, [it] MUST reject the request with invalid_grant ... because
+the ID-JAG was not issued for resources it governs."
+
+- **Receiver.** Right after the `client_id` check, every identifier in the claim is looked up in the registered set,
+  by exact string (draft §4.3: Simple String Comparison); one that isn't there is `foreign_resource` (`invalid_grant`,
+  generic). Before, we checked only the one resource we picked: `[ours, foreign]` with `resource=ours` was accepted.
+  What stays: one resource per access token; the request may pick one from the claim, and one not in the claim is
+  `unknown_resource` (`invalid_target`: the request's fault, not the token's). "None acceptable → access_denied"
+  can't happen here: after this check every claimed resource is registered, and we refuse rather than narrow.
+  Per-tenant resource sets (`aud_tenant`) are not modelled: the registered set is the server's.
+- **Issuer, subject-token type** (§4.3.3: the IdP MUST confirm the token is of the indicated type). End to end, as
+  `subject_token_type=id_token`: our own ID-JAG, oauth-provider's JWT access token (`typ: at+jwt`, signed with the
+  same JWKS as the ID tokens), an opaque access token and a refresh token are all `invalid_subject_token`; the two
+  JWTs stop at the `typ` check. No code change: `id-token.ts` already refused them. Also proved: a granted resource
+  is copied into the ID-JAG unchanged (case, trailing slash, default port).
+- **Evidence:** `test/receiver/grant.test.ts` (foreign in every position, exact comparison, before the subject),
+  `test/receiver/hosts.test.ts` (two registered resources, both claimed), `test/issuer/refusals.test.ts` (the token
+  types, the pass-through). 5 new mutants caught; the `at+jwt` one first survived (the access token is also refused
+  later, by `aud`), so the test now pins the `typ` step.

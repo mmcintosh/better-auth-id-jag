@@ -2329,5 +2329,14 @@
    "test/core/errors.test.ts",
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "D-060 an at+jwt access token taken for an ID token",
+  "file": "src/issuer/subject/id-token.ts",
+  "a": "  if (header.typ !== undefined && (typeof header.typ !== \"string\" || header.typ.toLowerCase() !== \"jwt\")) bad(\"typ\");",
+  "b": "  if (header.typ !== undefined && (typeof header.typ !== \"string\" || ![\"jwt\", \"at+jwt\"].includes(header.typ.toLowerCase()))) bad(\"typ\");",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

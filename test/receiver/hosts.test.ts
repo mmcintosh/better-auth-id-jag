@@ -106,9 +106,13 @@ describe("on oauthProvider() instead of mcp()", () => {
     expect(d.status, d.text).toBe(200);
     expect(decodePayload(d.body.access_token as string).aud).toBe(MCP_RESOURCE);
     const bad = await redeem(h, client, await mint({ resource: "https://unregistered.example/api" }));
-    expect(bad.body.error).toBe("invalid_target");
+    expect(bad.body.error).toBe("invalid_grant");
     await rec.settle();
-    expect(rec.refused.at(-1)?.reason).toBe("unknown_resource");
+    expect(rec.refused.at(-1)?.reason).toBe("foreign_resource");
+    // Two registered resources, both in the claim: the request picks one.
+    const both = await redeem(h, client, await mint({ resource: [MCP_RESOURCE, OTHER_RESOURCE] }), { resource: OTHER_RESOURCE });
+    expect(both.status, both.text).toBe(200);
+    expect(decodePayload(both.body.access_token as string).aud).toBe(OTHER_RESOURCE);
     const doc = (await (await h.auth.handler(new Request("http://localhost:3000/.well-known/oauth-authorization-server/api/auth"))).json()) as Record<string, unknown>;
     expect(doc.authorization_grant_profiles_supported).toEqual(["urn:ietf:params:oauth:grant-profile:id-jag"]);
     expect(doc.grant_types_supported).toContain(JWT_BEARER_GRANT);

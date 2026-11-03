@@ -1,12 +1,12 @@
 // Every refusal the issuer can produce, asserted by reason (onRefused) and by response body. The
 // registry's own refusals (unknown_resource, no_policy without a resource server) are in
 // registry.test.ts.
-import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { decodeJwt, decodeProtectedHeader, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, publicDescription, type ReasonCode, TOKEN_EXCHANGE_GRANT } from "../../src/core";
 import type { AuthorizeResult } from "../../src/issuer";
 import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
-import { AUDIENCE, createClient, createIssuerHost, exchange, getIdToken, ISSUER, type IssuerHost, RESOURCE, setup, signUp, takeReasons } from "../support/issuer-host";
+import { AUDIENCE, createClient, createIssuerHost, exchange, getIdToken, getTokens, ISSUER, type IssuerHost, RESOURCE, setup, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
 const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
@@ -417,6 +417,43 @@ describe("refusals: policy (S1, S7)", () => {
     const { client, idToken, user, owner } = await setup(host);
     await host.ctx.adapter.create({ model: "idJagBlock", data: { userId: user.id, clientId: null, audience: null, reason: "r", createdBy: owner.id, createdAt: new Date(), expiresAt: null } });
     await refused(host, await exchange(host, client, idToken), "blocked", "access_denied");
+  });
+});
+
+describe("subject token type (draft -06 §4.3.3, D-060): a token of another kind is never taken for an ID token", () => {
+  it("our ID-JAG, a JWT access token, an opaque access token and a refresh token, as subject_token_type id_token: invalid_subject_token", async () => {
+    const host = await createIssuerHost({ provider: { resources: [RESOURCE], clientRegistrationDefaultResources: [RESOURCE] }, issuer: { authorize: allow } });
+    const { client, user } = await setupRefresh(host);
+    const tokens = await getTokens(host, user.browser, client, { scope: "openid profile email offline_access", resource: RESOURCE });
+    const jwtAccess = tokens.access_token as string;
+    // The provider's JWT access token: RFC 9068, typ at+jwt, signed with the same JWKS as our ID tokens.
+    expect(decodeProtectedHeader(jwtAccess).typ).toBe("at+jwt");
+    const opaque = (await getTokens(host, user.browser, client)).access_token as string;
+    expect(opaque.split(".")).toHaveLength(1);
+    const idJag = (await exchange(host, client, tokens.id_token as string)).body.access_token as string;
+    expect(decodeProtectedHeader(idJag).typ).toBe("oauth-id-jag+jwt");
+    takeReasons(host);
+    const issuedBefore = host.recorded.issued.length;
+    for (const [name, t] of [["ID-JAG", idJag], ["JWT access token", jwtAccess], ["opaque access token", opaque], ["refresh token", tokens.refresh_token as string]]) {
+      const r = await exchange(host, client, t as string);
+      expect([r.status, r.body], name).toEqual([400, { error: "invalid_request", error_description: "The request is invalid." }]);
+      // The JWTs stop at the typ check, before anything else is looked at.
+      if (name === "ID-JAG" || name === "JWT access token") expect(host.recorded.refused.at(-1)?.detail, name).toBe("typ");
+      expect(takeReasons(host), name).toEqual(["invalid_subject_token"]);
+    }
+    expect(host.recorded.issued.length).toBe(issuedBefore);
+    // And the ID token itself still works.
+    expect((await exchange(host, client, tokens.id_token as string)).status).toBe(200);
+  });
+
+  it("a granted resource appears in the ID-JAG exactly as sent: not normalised (draft -06 §4.3.3, Simple String Comparison)", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { client, idToken } = await setup(host);
+    for (const resource of ["https://MCP.example/mcp", "https://mcp.example/mcp/", "https://mcp.example:443/mcp", "urn:example:MCP"]) {
+      const r = await exchange(host, client, idToken, { resource });
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+      expect(decodeJwt(r.body.access_token as string).resource, resource).toBe(resource);
+    }
   });
 });
 

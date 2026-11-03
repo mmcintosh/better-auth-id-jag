@@ -21,6 +21,10 @@
     (`invalid_grant`, with its description), was `subject_rejected`.
   - Trust failures at the receiver (issuer, signature, `aud`, `client_id`, replay) are still one generic
     `invalid_grant`.
+- **Receiver: every resource in the ID-JAG's `resource` claim must be one of ours** (D-060, draft -06 §4.4.1). An
+  ID-JAG naming a resource this server doesn't govern, even beside one it does, is refused (`foreign_resource`,
+  `invalid_grant`), whichever resource the request picks. It used to be accepted when the request picked ours, and
+  refused as `unknown_resource` (`invalid_target`) otherwise. Identifiers are compared exactly.
 
 ### Added
 

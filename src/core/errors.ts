@@ -63,6 +63,8 @@ export const REASONS = {
   client_mismatch: { error: "invalid_grant", public: false },
   replay: { error: "invalid_grant", public: false },
   unknown_resource: { error: "invalid_target", public: false },
+  // Draft -06 §4.4.1: the ID-JAG's resource claim names something we don't govern, so it wasn't issued for us.
+  foreign_resource: { error: "invalid_grant", public: false },
   // Both sides: the token is valid, but the user or client isn't allowed (draft -06 §4.3.4.3, §4.4.3).
   unknown_subject: { error: "access_denied", public: false },
   subject_rejected: { error: "access_denied", public: false },
