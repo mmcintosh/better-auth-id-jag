@@ -147,7 +147,11 @@ export interface IdJagGrantOptions extends AuditOptions {
   scim?: { acquireActiveSCIMUserLink: AcquireActiveScimUserLink } | undefined;
   /** The resource used when neither the ID-JAG nor the request names one. Must be a registered resource. */
   defaultResource?: string | undefined;
-  /** Accept public clients (the draft: SHOULD be confidential only). Default false; logs a warning when set. */
+  /**
+   * Accept public clients (no client authentication). Default false. Draft -06 §4.4 says a request with neither client
+   * authentication nor a sender-constrained ID-JAG MUST be refused, so turning it on is outside the draft; it logs a
+   * warning at startup.
+   */
   allowPublicClients?: boolean | undefined;
   /** Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. Default false. */
   allowEmptyScope?: boolean | undefined;

@@ -25,9 +25,16 @@
   ID-JAG naming a resource this server doesn't govern, even beside one it does, is refused (`foreign_resource`,
   `invalid_grant`), whichever resource the request picks. It used to be accepted when the request picked ours, and
   refused as `unknown_resource` (`invalid_target`) otherwise. Identifiers are compared exactly.
+- **`allowPublicClients`'s startup warning** (both sides) now says the option is outside draft -06 (§4.3.3 at the
+  issuer, §4.4 at the receiver), which makes client authentication a MUST. The option, its default (off) and its
+  behaviour are unchanged (D-061).
 
 ### Added
 
+- **Issuer: `id_jag_signing_alg_values_supported` in the metadata** (draft -06 §7.1, D-061), as `["RS256"]`, when the
+  issuer signs ID-JAGs with RS256. Omitted otherwise: if present the list MUST include RS256. Exported as
+  `ISSUER_SIGNING_ALG_METADATA_FIELD`. The signing default doesn't change (the `jwt()` plugin's key); set
+  `signingAlgorithm: "RS256"` for a receiver that accepts only RS256.
 - **Issuer: `authorize` can answer `{ decision: "unknown_audience" }`** (D-059): the caller gets `invalid_target`,
   as draft -06 §4.3.3 requires for an audience the IdP has no trust relationship with. A plain deny is
   `access_denied`.

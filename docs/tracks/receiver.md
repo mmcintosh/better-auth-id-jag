@@ -39,7 +39,7 @@ idJagGrant({
   trustedIssuerTable?: boolean,                                                           // default off
   resolveSubject?: (input) => { action: "link", userId } | { action: "continue" } | { action: "reject" },
   defaultResource?: string,
-  allowPublicClients?: boolean,      // default false; warns at startup
+  allowPublicClients?: boolean,      // default false; true is outside draft -06 §4.4 and warns at startup
   allowEmptyScope?: boolean,         // default false
   requireResourceClaim?: boolean,    // default false (D-A06, D-A21)
   clockSkewSeconds?, maxLifetimeSeconds?,                 // validated by the core: [0, 300], [1, 900]

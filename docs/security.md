@@ -10,7 +10,7 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 
 - **A database that enforces UNIQUE.** Single use of each ID-JAG is a unique key on `idJagJti`: the INSERT is the check. Better Auth's memory adapter doesn't enforce it, and the plugin warns at startup. Use SQLite, D1, PostgreSQL, MySQL or another adapter that does.
 - **The issuer needs `jwt()`, with local keys.** ID tokens and ID-JAGs are signed with the jwt plugin's keys and verified with the keys in your database, with no outbound request. The plugin refuses to start with `oauthProvider({ disableJwtPlugin: true })` (HS256 under each client's secret) or with remote keys (`jwt.sign`, `jwks.remoteUrl`).
-- **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA (`jwt()`'s default through Better Auth 1.7). This is interop, not security, but a receiver that refuses your algorithm fails closed.
+- **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA (`jwt()`'s default through Better Auth 1.7). Draft -06 makes RS256 mandatory to implement, so RS256 is the safe choice for a receiver you don't know. This is interop, not security, but a receiver that refuses your algorithm fails closed.
 - **Configure a policy.** With neither `authorize` nor `registry`, every token exchange is refused (`no_policy`), and the plugin warns at startup.
 - **Configure trusted issuers.** With none, every ID-JAG is refused, and the plugin warns at startup. With `sso: true` but no sso plugin, no sso provider is trusted (also a warning).
 - **Restrict `canManage`.** The registry API (`registry.canManage`) decides who gets ID-JAGs for what, and the blocks API (`blocks.canManage`) who is cut off; either also reads the audit log. Each must return exactly `true`; give them to administrators only.
@@ -58,7 +58,7 @@ idJagGrant({
 | Threat | Control |
 |---|---|
 | Exchanging someone else's token | The subject token must be an ID token or refresh token **this IdP** issued, **to the client presenting it** (S6), verified with local keys only (S10). |
-| Public clients holding ID-JAGs | Confidential clients only, unless `allowPublicClients` (S5; a startup warning). |
+| Public clients holding ID-JAGs | Client authentication required on both sides, as draft -06 requires (§4.3.3, §4.4). `allowPublicClients` turns it off, outside the draft (S5; a startup warning). |
 | An agent reaching more than intended | Code policy, registry policy or both; with both, both must allow and the narrower result wins (scopes ∩, shortest lifetime). Audiences are https and normalised; ambiguous resource servers are refused, and there are no wildcard client ids. |
 | A user who should have lost access | Banned users (the admin plugin) are refused. Blocks refuse new ID-JAGs by user, client and audience, at once. The user is re-read from the database at each exchange. |
 | An old sign-in minting ID-JAGs for hours | An ID token usually names no session, and the provider's live 10 hours, so an ID token older than `maxIdTokenAgeSeconds` (by `iat`; an hour by default) is refused even before it expires. An ID token that carries `sid` is refused once that session is gone. A refresh token stops working as a subject token once it is revoked or rotated. |

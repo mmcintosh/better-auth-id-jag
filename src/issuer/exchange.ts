@@ -53,6 +53,8 @@ export interface IssuerState {
   options: ResolvedIssuerOptions;
   directory: RegistryDirectory | undefined;
   lastSweep: number;
+  /** The ID-JAG's signing algorithm as resolved at startup (`checkIssuerHost`); unset before init. */
+  signingAlgorithm?: string | undefined;
 }
 
 const MAX_SCOPE_LENGTH = 4096;

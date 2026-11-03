@@ -117,7 +117,7 @@ Then create the tables with your usual migration (`npx auth migrate`, or `npx au
 
 > **Experimental.** The issuer works and is tested, including against Keycloak and node-oauth2-server, but no production client has used it yet. Its options and admin API may change in a 0.x minor release. Better Auth may also add a general RFC 8693 token-exchange plugin (better-auth/better-auth#8023). Two extensions can't register the same grant type, so this plugin may then have to sit on top of that one. The handler is also exported as a plain function (`handleTokenExchange`) for that reason. The receiver isn't affected.
 
-Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint, advertises `identity_chaining_requested_token_types_supported` in its metadata, and signs ID-JAGs with the `jwt()` plugin's keys.
+Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint, advertises `identity_chaining_requested_token_types_supported` in its metadata (and `id_jag_signing_alg_values_supported` when it signs RS256), and signs ID-JAGs with the `jwt()` plugin's keys.
 
 ### Options
 
@@ -127,8 +127,8 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | `registry` | | Database policy: `{ enabled, canManage?, cacheSeconds? }` (`cacheSeconds`: 60 by default, 0 to 3600). See [Registry and admin API](#registry-and-admin-api). |
 | `blocks` | | `{ canManage? }`: who may manage [blocks](#blocks) over the API. Blocks are enforced either way. |
 | `maxIdTokenAgeSeconds` | `3600` | The oldest ID token (by `iat`) accepted as a subject token, even when it hasn't expired. 60 to 86400. An older one is refused as `subject_token_expired`; exchange the refresh token instead. |
-| `allowPublicClients` | `false` | The draft: "SHOULD only be supported for confidential clients". Turning it on logs a warning at startup. |
-| `signingAlgorithm` | the `jwt()` plugin's | `"RS256"`, `"ES256"` or `"EdDSA"`; must be the jwt plugin's `keyPairConfig.alg` (or Better Auth's default) or one of its `keyPairConfigs` (checked at startup). With `keyPairConfig.alg` unset, Better Auth's own default is used (EdDSA through 1.7). Whatever key Better Auth then signs with must be one of those three: an ID-JAG with any other is never issued (a 500, with the key's algorithm in the server log). |
+| `allowPublicClients` | `false` | Let a public client exchange without client authentication. Outside the draft: -06 §4.3.3 says the IdP MUST authenticate the client. Turning it on logs a warning at startup. |
+| `signingAlgorithm` | the `jwt()` plugin's | `"RS256"`, `"ES256"` or `"EdDSA"`; must be the jwt plugin's `keyPairConfig.alg` (or Better Auth's default) or one of its `keyPairConfigs` (checked at startup). With `keyPairConfig.alg` unset, Better Auth's own default is used (EdDSA through 1.7). Whatever key Better Auth then signs with must be one of those three: an ID-JAG with any other is never issued (a 500, with the key's algorithm in the server log). Draft -06 makes RS256 mandatory to implement, so set `"RS256"` for a receiver that accepts only RS256; the metadata then lists `id_jag_signing_alg_values_supported: ["RS256"]`. |
 | `defaultLifetimeSeconds` | `300` | When no policy sets a lifetime. At most 900. |
 | `allowLoopbackHttpAudiences` | `false` | Allow `http://` audiences on `localhost`, `127.0.0.1` and `[::1]`, for local development. Otherwise audiences are https. |
 | `sweepIntervalSeconds` | `3600` | Seconds between opportunistic sweeps of expired rows, per isolate. `0` never sweeps. |
@@ -272,7 +272,7 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 | `defaultResource` | | The resource when neither the ID-JAG nor the request names one. Must be a registered resource. |
 | `requireResourceClaim` | `false` | Refuse an ID-JAG without a `resource` claim. |
 | `allowEmptyScope` | `false` | Issue a token with no scope when the intersection is empty, instead of `invalid_scope`. |
-| `allowPublicClients` | `false` | Logs a warning at startup when set. |
+| `allowPublicClients` | `false` | Accept a client without client authentication. Outside the draft: -06 §4.4 says a request with neither client authentication nor a sender-constrained ID-JAG MUST be refused, and sender-constrained ID-JAGs aren't supported here. Logs a warning at startup when set. |
 | `clockSkewSeconds` | `60` | Allowed skew on `iat`, `nbf` and `exp`, 0 to 300. |
 | `maxLifetimeSeconds` | `900` | The longest `exp − iat` accepted. |
 | `fetch` | the global `fetch` | The only fetch the receiver uses (JWKS and discovery). |
@@ -439,7 +439,9 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ❌ | §3.1 `aud_sub`, `sub_id` (minting), `act` (minting), `authorization_details` | Not minted. (`sub_id` minting is deferred until a resource server needs it.) |
 | ✅ | §4.3.4 Response: `issued_token_type`, `token_type: N_A`, `expires_in`, `scope` | |
 | ✅ | §7 Metadata `identity_chaining_requested_token_types_supported` | |
-| ⚠️ | §9.1 Confidential clients only (SHOULD) | Default; `allowPublicClients` turns it off, with a startup warning. |
+| ✅ | -06 §7.1 Metadata `id_jag_signing_alg_values_supported` (OPTIONAL) | Published, as `["RS256"]`, only when the issuer signs RS256: if present, the list MUST include RS256, and we sign with one algorithm. |
+| ⚠️ | -06 §3 RS256 mandatory to implement | Implemented (`signingAlgorithm: "RS256"`), but not the default: the default is the `jwt()` plugin's key (EdDSA through Better Auth 1.7), so an existing host's keys don't change. |
+| ⚠️ | -06 §4.3.3 Client authentication (MUST) | Required by default. `allowPublicClients` lets a public client exchange, which is outside the draft; a startup warning says so. |
 | ✅ | Short lifetimes (§3.1's examples use 5 minutes) | 300 s by default, 900 s at most. |
 | ✅ | §9.2 Step-up (`insufficient_user_authentication`) | When the `authorize` hook denies with `stepUp`: `max_age`, `acr_values`, `error_description`, `error_uri` (RFC 9470). See [Policy](#policy). |
 | ❌ | §9.8 DPoP / `cnf` sender-constrained ID-JAGs | Not minted. |
@@ -462,7 +464,8 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
 | ❌ | §9.8 DPoP / `cnf`, `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`), as §9.8.1.2 requires without a DPoP proof. |
 | ✅ | §9.3 Not self-issued | An ID-JAG whose `iss` is this server is refused. |
-| ⚠️ | §9.1 Confidential clients only (SHOULD) | Default; a CIMD client counts as confidential only with `private_key_jwt`. |
+| ⚠️ | -06 §4.4 Client authentication (MUST, absent a sender-constrained ID-JAG) | Required by default; a CIMD client counts only with `private_key_jwt`. `allowPublicClients` turns it off, which is outside the draft; a startup warning says so. |
+| ✅ | -06 §3 RS256 (MUST), ES256 (SHOULD) | Both accepted, and EdDSA. |
 | ✅ | §7 Metadata `authorization_grant_profiles_supported`, jwt-bearer in `grant_types_supported` | |
 
 ## 🤝 Interoperability
@@ -486,7 +489,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 
 Each row's date, version, commands and the ways the other side differs are in [docs/interop.md](docs/interop.md). Nothing there is claimed from reading docs alone.
 
-**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way.
+**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way. Draft -06 makes RS256 the one algorithm every receiver must accept, so for a receiver you know nothing about, RS256 is the safe choice.
 
 ## ☁️ Example: two Workers
 
