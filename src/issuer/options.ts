@@ -152,14 +152,17 @@ export interface IdJagIssuerOptions extends AuditOptions {
    */
   maxIdTokenAgeSeconds?: number | undefined;
   /**
-   * The draft: "SHOULD only be supported for confidential clients". Off by default (S5); turning
-   * it on logs a warning at startup.
+   * Let a public client (no client authentication) exchange. Off by default (S5). Draft -06 §4.3.3
+   * says the IdP MUST authenticate the client, so turning it on is outside the draft; it logs a
+   * warning at startup.
    */
   allowPublicClients?: boolean | undefined;
   /**
    * The JWS algorithm of the ID-JAG. Default: the jwt plugin's configured one. It must be the jwt
    * plugin's `keyPairConfig.alg` or one of its `keyPairConfigs`. EdDSA may not interoperate with
-   * some receivers (several accept RS256 and ES256 only).
+   * some receivers (several accept RS256 and ES256 only). Draft -06 makes RS256 mandatory to
+   * implement: choose it for a receiver that accepts only RS256. With RS256, the metadata also
+   * publishes `id_jag_signing_alg_values_supported`.
    */
   signingAlgorithm?: IssuerSigningAlgorithm | undefined;
   /** When neither source sets a lifetime. Default 300, at most 900 (S7). */

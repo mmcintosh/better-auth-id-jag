@@ -25,6 +25,8 @@ export const ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
 
 /** Issuer metadata: the token types it can be asked for. */
 export const ISSUER_METADATA_FIELD = "identity_chaining_requested_token_types_supported";
+/** Issuer metadata (draft -06 §7.1, OPTIONAL): the ID-JAG signing algorithms; if present it MUST include RS256. */
+export const ISSUER_SIGNING_ALG_METADATA_FIELD = "id_jag_signing_alg_values_supported";
 /** Receiver metadata: the grant profiles it accepts. */
 export const RECEIVER_METADATA_FIELD = "authorization_grant_profiles_supported";
 

@@ -34,7 +34,7 @@ idJagIssuer({
   registry?: { enabled: boolean; canManage?: ({ user, session }) => boolean | Promise<boolean>; cacheSeconds?: number },
   blocks?: { canManage?: ({ user, session }) => boolean | Promise<boolean> }, // D-B24; blocks are enforced regardless
   maxIdTokenAgeSeconds?: number,         // D-B22: oldest ID token (by iat) accepted; default 3600, 60…86400
-  allowPublicClients?: boolean,          // default false; true logs a startup warning (S5)
+  allowPublicClients?: boolean,          // default false; true is outside draft -06 §4.3.3 and logs a startup warning (S5)
   signingAlgorithm?: "RS256" | "ES256" | "EdDSA", // default: the jwt plugin's keyPairConfig.alg
   defaultLifetimeSeconds?: number,       // default 300, max 900 (S7)
   allowLoopbackHttpAudiences?: boolean,  // http://localhost etc. for development; default false

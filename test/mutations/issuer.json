@@ -2338,5 +2338,42 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "D-061 signing-alg metadata published for any algorithm",
+  "file": "src/issuer/plugin.ts",
+  "a": "state.signingAlgorithm === \"RS256\" ? {",
+  "b": "state.signingAlgorithm !== \"never\" ? {",
+  "paths": [
+   "test/issuer/exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-061 signing-alg metadata never published",
+  "file": "src/issuer/plugin.ts",
+  "a": "state.signingAlgorithm === \"RS256\" ? {",
+  "b": "state.signingAlgorithm === \"never\" ? {",
+  "paths": [
+   "test/issuer/rs256.test.ts"
+  ]
+ },
+ {
+  "name": "D-061 resolved algorithm not kept",
+  "file": "src/issuer/plugin.ts",
+  "a": "  state.signingAlgorithm = alg;",
+  "b": "  void alg;",
+  "paths": [
+   "test/issuer/rs256.test.ts",
+   "test/issuer/signing-default.test.ts"
+  ]
+ },
+ {
+  "name": "D-061 issuer public-client warning loses the draft section",
+  "file": "src/issuer/plugin.ts",
+  "a": "This is outside draft -06 §4.3.3, which",
+  "b": "The draft says",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

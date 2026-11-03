@@ -3,7 +3,7 @@
 // - grants["urn:ietf:params:oauth:grant-type:token-exchange"], serving only
 //   requested_token_type=urn:ietf:params:oauth:token-type:id-jag;
 // - metadata: identity_chaining_requested_token_types_supported (grant_types_supported lists the
-//   grant automatically: docs/phase-0.md);
+//   grant automatically: docs/phase-0.md), and id_jag_signing_alg_values_supported when signing RS256;
 // the jti and block tables (blocks are always enforced); with `registry.enabled`, the registry's
 // tables; the registry's routes with `registry.canManage` (and enabled), the blocks routes with
 // `blocks.canManage`, and the audit route with either (D-B24).
@@ -14,7 +14,7 @@ import type { AuthContext, BetterAuthPlugin } from "better-auth";
 import * as betterAuthPlugins from "better-auth/plugins";
 import type { JwtOptions } from "better-auth/plugins";
 import { extendOAuthProvider, type OAuthProviderExtension } from "@better-auth/oauth-provider";
-import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, TOKEN_EXCHANGE_GRANT, warnIfReplayUnsafe } from "../core";
+import { ALLOWED_ALGORITHMS, ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, TOKEN_EXCHANGE_GRANT, warnIfReplayUnsafe } from "../core";
 import { RegistryDirectory } from "./directory";
 import { handleTokenExchange, type IssuerState } from "./exchange";
 import { type IdJagIssuerOptions, resolveIssuerOptions } from "./options";
@@ -48,6 +48,7 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
     throw new Error(`idJagIssuer: signingAlgorithm ${alg} is neither the jwt plugin's keyPairConfig.alg (${primary}) nor in its keyPairConfigs`);
   if (!(ALLOWED_ALGORITHMS as readonly string[]).includes(alg))
     throw new Error(`idJagIssuer: the ID-JAG would be signed with ${alg}; receivers accept RS256, ES256 or EdDSA (S4). Set signingAlgorithm, or the jwt plugin's keyPairConfig.alg.`);
+  state.signingAlgorithm = alg;
   // SAML subject tokens (D-B26): the SAML IdP's exchange capability must already be on the context.
   // Plugins' init run in order, so it must be installed before this one.
   if (state.options.saml !== undefined && getSamlIdpExchange({ context: ctx }) === undefined)
@@ -55,7 +56,7 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
       "idJagIssuer: the saml option needs better-auth-saml-idp (>= 1.2.0) with token exchange enabled, installed before idJagIssuer() in plugins: ctx.context.samlIdpExchange (version 1) is missing",
     );
   if (state.options.allowPublicClients)
-    ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs. The draft says this grant SHOULD only be supported for confidential clients.");
+    ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs without client authentication. This is outside draft -06 §4.3.3, which says the IdP MUST authenticate the client.");
   if (!state.options.authorize && !state.directory) ctx.logger.warn("[id-jag] no policy source (authorize or registry): every token exchange is refused (no_policy).");
 }
 
@@ -89,7 +90,12 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
   const resolved = state.options;
   const extension: OAuthProviderExtension = {
     grants: { [TOKEN_EXCHANGE_GRANT]: (input) => handleTokenExchange(input, state) },
-    metadata: () => ({ [ISSUER_METADATA_FIELD]: [ID_JAG_TOKEN_TYPE] }),
+    // Draft -06 §7.1: id_jag_signing_alg_values_supported is OPTIONAL and, if present, MUST include RS256. We sign
+    // with one algorithm, so it is published only when that one is RS256 (D-061).
+    metadata: () => ({
+      [ISSUER_METADATA_FIELD]: [ID_JAG_TOKEN_TYPE],
+      ...(state.signingAlgorithm === "RS256" ? { [ISSUER_SIGNING_ALG_METADATA_FIELD]: ["RS256"] } : {}),
+    }),
   };
   // Typed as mounted so the client plugin can infer the routes; at runtime each group is mounted
   // only with its canManage (D-B24): the registry's (when enabled), the blocks', the audit with either.

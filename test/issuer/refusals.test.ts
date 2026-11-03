@@ -156,7 +156,7 @@ describe("refusals: the client (S5)", () => {
   it("allowPublicClients: a public client gets an ID-JAG, and startup warns", async () => {
     const warnings: string[] = [];
     const host = await createIssuerHost({ issuer: { authorize: allow, allowPublicClients: true }, auth: { logger: { level: "warn", log: (_l: string, m: string) => void warnings.push(m) } } });
-    expect(warnings.some((w) => w.includes("allowPublicClients"))).toBe(true);
+    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 §4.3.3"))).toBe(true);
     const owner = await signUp(host);
     const pub = await createClient(host, owner.browser, { authMethod: "none", extra: { application_type: "native" } });
     const idToken = await getIdToken(host, owner.browser, pub);

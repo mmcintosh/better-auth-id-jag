@@ -384,7 +384,7 @@ describe("receiver: client authentication (S5)", () => {
       plugins: [jwt(), oauthProvider({ loginPage: "/l", consentPage: "/c" }) as never, idJagGrant({ allowPublicClients: true, trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }] })],
     });
     await probe.$context;
-    expect(warnings.some((w) => w.includes("allowPublicClients"))).toBe(true);
+    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 §4.4"))).toBe(true);
     const pub = await createClient(s.h, { authMethod: "none" });
     const r = await redeem(s.h, null, await s.valid({ client_id: pub.client_id }), { client_id: pub.client_id });
     expect(r.status, r.text).toBe(200);
