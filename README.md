@@ -252,9 +252,9 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 2. the ID-JAG's format (`typ`, `alg`, a key reference: `kid`, or else an `x5t` / `x5t#S256` certificate thumbprint as PingFederate sends, required claims, refused claims, lifetime) and its time claims, which are checks a caller can make for itself, so they come before anything that depends on whom we trust;
 3. that the issuer is trusted, looked up from the unverified `iss` before any key is fetched;
 4. that it isn't self-issued, then the signature against the issuer's JWKS, then `aud`, exactly;
-5. that `client_id` is the authenticated client;
+5. that `client_id` is the authenticated client, and that every resource in the ID-JAG's `resource` claim is one of ours (else `invalid_grant`: the ID-JAG wasn't issued for us, draft -06 §4.4.1);
 6. the scopes, which only narrow, decided before the subject so `no_scope` can't reveal whether a user exists;
-7. the resource;
+7. the resource the token is for: the one the request names (it must be in the claim), else the claim's only one, else `defaultResource` or the only registered resource (`invalid_target` otherwise);
 8. single use of `jti`;
 9. the subject.
 
@@ -452,7 +452,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ✅ | §4.4.1 `typ`, signature, `iss` trusted, `aud` = our issuer exactly (a single-element array allowed), `client_id` = the authenticated client, `exp`/`iat`/`nbf` | In the order shown under [Receiver](#-receiver-idjaggrant); refusals that depend on trust are indistinguishable to the caller. |
 | ⚠️ | §4.4.3 Re-presenting an ID-JAG | **Refused: single use** ([#130](https://github.com/oauth-wg/oauth-identity-assertion-authz-grant/issues/130)). Get a fresh ID-JAG from the IdP. |
 | ✅ | §4.4.3 No refresh token | Never issued (`offline_access` is stripped), and no ID token. |
-| ✅ | `resource`, `scope` | The resource must be one of ours (`invalid_target`); scopes intersect the ID-JAG's, the client's and the resource's. |
+| ✅ | `resource`, `scope` | Every resource in the claim must be one of ours, compared exactly (`invalid_grant`); the one the request picks must be in the claim (`invalid_target`); one resource per access token. Scopes intersect the ID-JAG's, the client's and the resource's. |
 | ✅ | MCP: the access token is audience-restricted to the MCP server | `aud` = the resource. |
 | ✅ | §3.1 `act` | Accepted (shape-checked, at most 4 nested actors) and carried into the access token. |
 | ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.5). |

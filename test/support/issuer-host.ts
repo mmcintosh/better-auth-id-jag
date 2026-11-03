@@ -195,7 +195,7 @@ export async function getIdToken(host: IssuerHost, browser: Browser, client: Cli
 }
 
 /** The authorization_code grant's whole response (id_token, refresh_token with offline_access). */
-export async function getTokens(host: IssuerHost, browser: Browser, client: Client, o: { scope?: string; post?: boolean } = {}): Promise<{ id_token?: string; refresh_token?: string; access_token?: string }> {
+export async function getTokens(host: IssuerHost, browser: Browser, client: Client, o: { scope?: string; post?: boolean; resource?: string } = {}): Promise<{ id_token?: string; refresh_token?: string; access_token?: string }> {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
   const q = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: REDIRECT, scope: o.scope ?? "openid profile email", state: "s1", code_challenge: challenge, code_challenge_method: "S256" });
@@ -215,6 +215,8 @@ export async function getTokens(host: IssuerHost, browser: Browser, client: Clie
         code_verifier: verifier,
         ...(client.client_secret && !o.post ? {} : { client_id: client.client_id }),
         ...(o.post ? { client_secret: client.client_secret } : {}),
+        // With a resource the provider issues a JWT access token for it (one of its configured resources).
+        ...(o.resource ? { resource: o.resource } : {}),
       }),
     }),
   );

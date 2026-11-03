@@ -249,13 +249,27 @@ describe("receiver: every refusal, by reason and by body", () => {
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ scope: "admin", sub: "nobody" })), "no_scope");
   });
 
-  it("unknown_resource (invalid_target): a resource outside the registered set, in the claim or the request", async () => {
+  it("foreign_resource (invalid_grant): the claim names a resource we don't govern, even beside ours (draft -06 §4.4.1, D-060)", async () => {
     const s = await setup();
-    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: "https://elsewhere.example/mcp" })), "unknown_resource");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: "https://elsewhere.example/mcp" })), "foreign_resource");
+    // Every identifier counts, whichever one the request picks: this ID-JAG wasn't issued for resources we govern.
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: [MCP_RESOURCE, "http://localhost:3000/other"] })), "foreign_resource");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: [MCP_RESOURCE, "http://localhost:3000/other"] }), { resource: MCP_RESOURCE }), "foreign_resource");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: ["http://localhost:3000/other", MCP_RESOURCE] }), { resource: MCP_RESOURCE }), "foreign_resource");
+    // Compared exactly (Simple String Comparison): a trailing slash or another case is another resource.
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: `${MCP_RESOURCE}/` })), "foreign_resource");
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: MCP_RESOURCE.toUpperCase() })), "foreign_resource");
+    // Checked before the subject: the same for a subject nobody here knows (S8).
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: "https://elsewhere.example/mcp", sub: "nobody" })), "foreign_resource");
+    // All ours: accepted.
+    expect((await redeem(s.h, s.client, await s.valid({ resource: [MCP_RESOURCE] }))).status).toBe(200);
+  });
+
+  it("unknown_resource (invalid_target): the request names a resource outside the registered set or the claim", async () => {
+    const s = await setup();
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: undefined }), { resource: "https://elsewhere.example/mcp" }), "unknown_resource");
     // The request may only pick among the claim's resources.
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid(), { resource: "http://localhost:3000/other" }), "unknown_resource");
-    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: [MCP_RESOURCE, "http://localhost:3000/other"] })), "unknown_resource");
     // No claim, no request parameter: the one registered resource.
     const r = await redeem(s.h, s.client, await s.valid({ resource: undefined }));
     expect(r.status, r.text).toBe(200);

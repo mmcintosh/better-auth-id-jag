@@ -1819,5 +1819,43 @@
    "test/core/errors.test.ts",
    "test/receiver/grant.test.ts"
   ]
+ },
+ {
+  "name": "D-060 resource claim: foreign identifiers not checked",
+  "file": "src/receiver/grant.ts",
+  "a": "    if (foreign !== undefined) refuse(\"foreign_resource\", foreign);\n",
+  "b": "",
+  "paths": [
+   "test/receiver/grant.test.ts",
+   "test/receiver/hosts.test.ts"
+  ]
+ },
+ {
+  "name": "D-060 resource claim: only the first identifier checked",
+  "file": "src/receiver/grant.ts",
+  "a": "    const foreign = stringList(claims.resource)?.find((r) => !registered.includes(r));",
+  "b": "    const foreign = stringList(claims.resource)?.slice(0, 1).find((r) => !registered.includes(r));",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-060 resource claim: compared case-insensitively",
+  "file": "src/receiver/grant.ts",
+  "a": "    const foreign = stringList(claims.resource)?.find((r) => !registered.includes(r));",
+  "b": "    const foreign = stringList(claims.resource)?.find((r) => !registered.map((x) => x.toLowerCase()).includes(r.toLowerCase()));",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-060 foreign_resource answered as invalid_target",
+  "file": "src/core/errors.ts",
+  "a": "  foreign_resource: { error: \"invalid_grant\", public: false },",
+  "b": "  foreign_resource: { error: \"invalid_target\", public: false },",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/receiver/hosts.test.ts"
+  ]
  }
 ]

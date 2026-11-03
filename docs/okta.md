@@ -135,7 +135,7 @@ real reason is always in the receiver's audit trail: `events.onRefused` (`e.reas
 `auditLog: { retentionDays }`.
 
 The checks run in a fixed order ([README, "Receiver"](../README.md#-receiver-idjaggrant)): client, format and times,
-issuer, signature, `aud`, `client_id`, scopes, resource, single use, then the subject. So you see one problem at a
+issuer, signature, `aud`, `client_id` and the `resource` claim, scopes, resource, single use, then the subject. So you see one problem at a
 time, and fixing it can reveal the next. An ID-JAG is spent at the single-use step, before the subject is resolved:
 after an `unknown_subject`, the agent needs a new ID-JAG.
 
