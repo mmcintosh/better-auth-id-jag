@@ -151,7 +151,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
 | `claims` | `{ email?: boolean, tenant?: string, act?: boolean \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one: space-separated names of letters, digits, punctuation and symbols, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. Tell agents apart by something only an administrator sets, not by metadata a client registers for itself (dynamic registration, a client ID metadata document): a client could otherwise drop the mark and lose the agent rules. |
 
-A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `invalid_grant`.
+A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `access_denied`. For an audience you don't serve at all, return `{ decision: "unknown_audience" }` instead: the caller gets `invalid_target`, which tells it to change the request rather than ask for access (draft -06 §4.3.3). Use it only for an audience you don't know, never for one this user or client may not use. With the registry, an audience with no resource server is `invalid_target` already.
 
 **Step-up** (draft -04 §9.2). To tell the client the person must sign in again, for example because their second factor is older than the resource allows, deny with `stepUp`:
 
@@ -396,7 +396,12 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 
 ## 🚫 Errors
 
-Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`). The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Trust, binding, subject and policy failures all get the generic description for their code, so an agent can't probe which users exist or what a policy allows. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
+Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`), with the codes draft -06 profiles, so the client knows what to do next:
+
+- **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience` is `invalid_request`. An audience with no resource server is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user) is `access_denied`: a new token won't help.
+- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay) is `invalid_grant`: get a new one. A valid ID-JAG whose subject isn't allowed here (unknown, rejected, banned) is `access_denied`. A failure a retry may fix (a concurrent first use, a database error) stays `invalid_grant`.
+
+The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Every other refusal gets the generic description for its code, so an agent can't tell an unknown user from a denied policy, or one trust failure from another. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
 
 ## 🛡️ What ID-JAG controls, and what your MCP server still must
 

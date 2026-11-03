@@ -8,11 +8,12 @@ import type { AuthorizeInput, AuthorizeResult } from "../../src/issuer";
 import { AUDIENCE, basic, createIssuerHost, exchange, exchangeRefresh, type IssuerHost, RESOURCE, refresh, setupRefresh, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read", "write"] });
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
+const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 const MODEL = "oauthRefreshToken";
 
-async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode) {
-  expect(r.body, JSON.stringify(r.body)).toEqual({ error: "invalid_grant", error_description: publicDescription(reason) });
+async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode, error: "invalid_request" | "access_denied" = "invalid_request") {
+  expect(r.body, JSON.stringify(r.body)).toEqual({ error, error_description: publicDescription(reason) });
   expect(r.status).toBe(400);
   expect(takeReasons(host)).toEqual([reason]);
 }
@@ -138,7 +139,7 @@ describe("refresh token subject: allowed", () => {
     }) as typeof host.ctx.adapter.findOne;
     try {
       const r = await exchangeRefresh(host, client, refreshToken);
-      expect(r.body).toEqual(GENERIC_GRANT);
+      expect(r.body).toEqual(GENERIC_REQUEST);
       expect(host.recorded.refused.map((e) => e.detail)).toEqual(["refresh token: unknown"]);
     } finally {
       host.ctx.adapter.findOne = findOne;
@@ -170,7 +171,7 @@ describe("refresh token subject: refused", () => {
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["refresh token: unknown", "refresh token: issued to another client", "refresh token: unknown", "refresh token: revoked"]);
     expect(takeReasons(host)).toEqual(Array(4).fill("invalid_subject_token"));
     expect(new Set(answers).size).toBe(1);
-    expect(JSON.parse(answers[0]!)).toEqual([400, GENERIC_GRANT]);
+    expect(JSON.parse(answers[0]!)).toEqual([400, GENERIC_REQUEST]);
     // b's own token still works for b.
     expect((await exchangeRefresh(host, b.client, b.refreshToken)).status).toBe(200);
   });
@@ -197,7 +198,7 @@ describe("refresh token subject: refused", () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const a = await setupRefresh(host);
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: a.user.id }], update: { banned: true } });
-    await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "banned_user");
+    await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "banned_user", "access_denied");
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: a.user.id }], update: { banExpires: new Date(Date.now() - 1000) } });
     expect((await exchangeRefresh(host, a.client, a.refreshToken)).status).toBe(200);
   });
@@ -206,7 +207,7 @@ describe("refresh token subject: refused", () => {
     const host = await createIssuerHost({ provider: { pairwiseSecret: "p".repeat(40) }, issuer: { authorize: allow } });
     const a = await setupRefresh(host, { clientExtra: { subject_type: "pairwise" } });
     expect(decodeJwt(a.idToken).sub).not.toBe(a.user.id);
-    await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "invalid_subject_token");
+    await refused(host, await exchangeRefresh(host, a.client, a.refreshToken), "pairwise_client", "access_denied");
   });
 
   it("a sender-constrained refresh token (cnf) is refused: we can't check the proof of possession", async () => {
@@ -224,7 +225,7 @@ describe("refresh token subject: refused", () => {
     const row = await rowOf(host, a.client, a.user.id);
     await setRow(host, row.id, { scopes: ["profile", "offline_access"] });
     const r = await exchangeRefresh(host, a.client, a.refreshToken);
-    expect(r.body).toEqual(GENERIC_GRANT);
+    expect(r.body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.map((e) => [e.reason, e.detail])).toEqual([["invalid_subject_token", "refresh token: not granted openid"]]);
   });
 
@@ -232,7 +233,7 @@ describe("refresh token subject: refused", () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const a = await setupRefresh(host);
     const r = await exchangeRefresh(host, a.client, "x".repeat(20_000));
-    expect(r.body).toEqual(GENERIC_GRANT);
+    expect(r.body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["length"]);
   });
 

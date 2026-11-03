@@ -128,8 +128,9 @@ short for agents, and shorter for sensitive scopes with `scopeExpirations` (the 
 What the agent sees depends on the check. Problems it could see for itself (a malformed ID-JAG, a wrong `typ` or
 `alg`, a lifetime over 900 s, an expired token, an unsupported claim) come back as `invalid_grant` with a specific
 `error_description`. Everything that depends on whom your server trusts (the issuer, the signature, the audience,
-the client, the subject, a replay) comes back as `invalid_grant` with one generic description, so a caller can't probe
-your configuration. Client authentication is oauth-provider's own (`invalid_client`, `unauthorized_client`). The
+the client, a replay) comes back as `invalid_grant` with one generic description, so a caller can't probe your
+configuration. A valid ID-JAG whose subject your server won't accept (`unknown_subject`, `subject_rejected`,
+`banned_user`) comes back as `access_denied`, also generic (draft -06 §4.4.3). Client authentication is oauth-provider's own (`invalid_client`, `unauthorized_client`). The
 real reason is always in the receiver's audit trail: `events.onRefused` (`e.reason`), or the `idJagAudit` table with
 `auditLog: { retentionDays }`.
 

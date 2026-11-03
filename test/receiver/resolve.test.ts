@@ -52,7 +52,8 @@ describe("subject resolution: the host hook runs first", () => {
     decision = () => {
       throw new Error("hook bug");
     };
-    expect((await s.attempt({ sub })).reason).toBe("subject_rejected");
+    // A throw may be transient: invalid_grant, not access_denied (D-059).
+    expect((await s.attempt({ sub })).reason).toBe("subject_unavailable");
     decision = { action: "maybe" } as unknown as SubjectResolution;
     expect((await s.attempt({ sub })).reason).toBe("subject_rejected");
   });
@@ -137,7 +138,7 @@ describe("subject resolution: the email fallback needs a verified local email (D
     const sub = crypto.randomUUID();
     const r = await s.attempt({ sub, email });
     expect(r.reason).toBe("unknown_subject");
-    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
     expect(s.rec.refused.at(-1)?.detail).toBe("email fallback: the local user's email is not verified");
     expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toBeNull();
     // Not JIT-provisioned instead: still exactly the one local user with that email, and its only account is the password one.

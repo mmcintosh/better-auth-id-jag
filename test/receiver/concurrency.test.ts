@@ -74,7 +74,9 @@ async function twoInstances(o: Setup) {
 function expectClean(results: { status: number; text: string; body: Record<string, unknown> }[]) {
   for (const r of results) {
     expect(r.status, r.text).not.toBe(500);
-    if (r.status !== 200) expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    // A lost race is subject_unavailable (invalid_grant: a retry may work); a loser that finds the winner's user by email
+    // first is unknown_subject (access_denied). Either way the generic body of its code (D-059).
+    if (r.status !== 200) expect([{ error: "invalid_grant", error_description: "The grant is invalid." }, { error: "access_denied", error_description: "The subject or client is not authorized for this request." }]).toContainEqual(r.body);
   }
 }
 
@@ -151,8 +153,8 @@ describe("concurrent first use through JIT converges on one user", () => {
       expectClean(results);
       expect(results.filter((r) => r.status === 200).length).toBeGreaterThan(0);
       // The ones that lost the race to create the user were refused (audited), never a 500.
-      for (const reason of s.refusedReasons()) expect(["subject_rejected", "unknown_subject"]).toContain(reason);
-      if (forced) expect(s.refusedReasons().filter((r) => r === "subject_rejected").length).toBeGreaterThan(0);
+      for (const reason of s.refusedReasons()) expect(["subject_unavailable", "unknown_subject"]).toContain(reason);
+      if (forced) expect(s.refusedReasons().filter((r) => r === "subject_unavailable").length).toBeGreaterThan(0);
       const found = await s.a.ctx.internalAdapter.findUserByEmail(email);
       expect(found).not.toBeNull();
       expect([...s.acceptedUsers()]).toEqual([found?.user.id]);
@@ -262,7 +264,7 @@ describe("a JIT request that lost removes what it created, itself", () => {
 });
 
 describe("an unexpected error in subject resolution is an audited refusal, not an empty 500", () => {
-  it("the adapter throwing: subject_rejected, logged", async () => {
+  it("the adapter throwing: subject_unavailable, logged", async () => {
     const s = await twoInstances({ trust: { jitProvisioning: true } });
     const o = resolveReceiverOptions({ trustedIssuers: [{ issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, jitProvisioning: true }] });
     const errors: string[] = [];
@@ -279,7 +281,7 @@ describe("an unexpected error in subject resolution is an audited refusal, not a
       () => "accepted",
       (e: IdJagRefusal) => `${e.reason}: ${e.detail}`,
     );
-    expect(outcome).toBe("subject_rejected: unexpected error in subject resolution");
+    expect(outcome).toBe("subject_unavailable: unexpected error in subject resolution");
     expect(errors.some((m) => m.includes("subject resolution failed unexpectedly"))).toBe(true);
   });
 });
@@ -334,8 +336,8 @@ describe("concurrent first use through a SAML NameID sub_id converges on one lin
       const results = await s.burst((i) => ({ sub: subs[i], email, sub_id }));
       expectClean(results);
       expect(results.filter((r) => r.status === 200).length).toBeGreaterThan(0);
-      for (const reason of s.refusedReasons()) expect(["subject_rejected", "unknown_subject"]).toContain(reason);
-      if (forced) expect(s.refusedReasons().filter((r) => r === "subject_rejected").length).toBeGreaterThan(0);
+      for (const reason of s.refusedReasons()) expect(["subject_unavailable", "unknown_subject"]).toContain(reason);
+      if (forced) expect(s.refusedReasons().filter((r) => r === "subject_unavailable").length).toBeGreaterThan(0);
       const found = await s.a.ctx.internalAdapter.findUserByEmail(email);
       expect(found).not.toBeNull();
       expect([...s.acceptedUsers()]).toEqual([found?.user.id]);

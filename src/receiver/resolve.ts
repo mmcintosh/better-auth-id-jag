@@ -64,7 +64,7 @@ export function subjectKey(trust: TrustEntry, claims: IdJagClaims): SubjectKey {
   try {
     subId = parseSamlNameIdSubId(claims.sub_id);
   } catch (e) {
-    if (e instanceof IdJagRefusal) refuse("subject_rejected", `sub_id malformed (${e.detail ?? ""})`);
+    if (e instanceof IdJagRefusal) refuse("invalid_claim", `sub_id malformed (${e.detail ?? ""})`);
     throw e;
   }
   if (!subId) {
@@ -160,7 +160,7 @@ async function converge(ctx: GenericEndpointContext, key: SubjectKey, mine: Link
   const { adapter, internalAdapter, logger } = ctx.context;
   const rows = await linkedAccounts(ctx, key.providerId, key.accountId);
   const winner = rows[0];
-  if (!winner) refuse("subject_rejected", "the account just linked is gone");
+  if (!winner) refuse("subject_unavailable", "the account just linked is gone");
   if (rows.length === 1) return mine.user;
   const lost = winner.id !== mine.account.id;
   const remove = rows.slice(1).filter((r) => r.userId === winner.userId || (lost && r.id === mine.account.id));
@@ -197,7 +197,7 @@ export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedRec
     // A database error, a unique violation lost to a concurrent request, anything unforeseen:
     // refused and audited like any other refusal, not an empty HTTP 500 (D-A24).
     ctx.context.logger.error("[id-jag] subject resolution failed unexpectedly; refusing", e);
-    refuse("subject_rejected", "unexpected error in subject resolution");
+    refuse("subject_unavailable", "unexpected error in subject resolution");
   }
 }
 
@@ -211,7 +211,7 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
       decision = await o.resolveSubject({ ctx, iss: claims.iss, sub: claims.sub, claims, clientId, trustedIssuer: view(trust) });
     } catch (e) {
       ctx.context.logger.error("[id-jag] resolveSubject threw; refusing", e);
-      refuse("subject_rejected", "resolveSubject threw");
+      refuse("subject_unavailable", "resolveSubject threw");
     }
     if (decision?.action === "reject") refuse("subject_rejected", "resolveSubject");
     if (decision?.action === "link") {

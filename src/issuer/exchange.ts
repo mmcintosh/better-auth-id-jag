@@ -178,7 +178,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     seen.clientId = client.clientId;
 
     // 2. Parameters.
-    for (const name of SINGLE) if ((form.get(name)?.length ?? 0) > 1) refuse(name === "audience" ? "invalid_audience" : "unsupported_parameter", `repeated ${name}`);
+    for (const name of SINGLE) if ((form.get(name)?.length ?? 0) > 1) refuse(name === "audience" ? "repeated_audience" : "unsupported_parameter", `repeated ${name}`);
     const one = (name: string) => form.get(name)?.[0];
     const requestedTokenType = one("requested_token_type");
     // An ID-JAG always; a refresh token only for a SAML assertion, with saml.refreshTokens (D-B27).
@@ -217,7 +217,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     const jwtOptions = jwtOptionsOf(ctx.context as unknown as { getPlugin(id: string): unknown });
     // A pairwise client's ID tokens carry a per-client hash, not the user id: refused, not guessed.
     // Its refresh tokens too: the ID-JAG's sub is the user id, which the client could read (D-B14).
-    if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("invalid_subject_token", "pairwise subject (not supported in v1)");
+    if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("pairwise_client", "pairwise subject (not supported in v1)");
     const at = new Date();
     const now = Math.floor(at.getTime() / 1000);
     // Our ID tokens carry the provider's raw issuer (jwt.issuer ?? baseURL), which getIssuer may
@@ -357,7 +357,7 @@ async function issueRefreshTokenForAssertion(
   //    carry the user id).
   if (client.tokenEndpointAuthMethod === "none" || (client as { public?: unknown }).public === true) refuse("public_client", "refresh token for a public client");
   if (!(client.grantTypes ?? []).includes("refresh_token")) refuse("client_not_allowed_grant", "refresh_token not in the client's grant types");
-  if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("invalid_subject_token", "pairwise subject (not supported in v1)");
+  if (client.subjectType === "pairwise" && opts.pairwiseSecret) refuse("pairwise_client", "pairwise subject (not supported in v1)");
 
   // 2. Parameters: the refresh token is for this IdP, so no audience and no resource.
   if (form.has("audience")) refuse("unsupported_parameter", "audience with requested_token_type=refresh_token");

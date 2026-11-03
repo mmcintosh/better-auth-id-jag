@@ -158,7 +158,9 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
       for (const r of recs) await r.settle();
       for (const r of results) {
         expect(r.status, r.text).not.toBe(500);
-        if (r.status !== 200) expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+        // A lost race is subject_unavailable (invalid_grant); a loser that finds the winner's user by email first is
+        // unknown_subject (access_denied). Either way its code's generic body (D-059).
+        if (r.status !== 200) expect([{ error: "invalid_grant", error_description: "The grant is invalid." }, { error: "access_denied", error_description: "The subject or client is not authorized for this request." }]).toContainEqual(r.body);
       }
       const accounts = await a.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: providerId }, { field: "accountId", value: sub }] });
       expect(accounts).toHaveLength(1);

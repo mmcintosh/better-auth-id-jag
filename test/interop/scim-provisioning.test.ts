@@ -84,7 +84,7 @@ describe.skipIf(workerd)("better-auth-scim-provisioning at the IdP → @better-a
     await w.idp.settle();
     expect(await w.scimUserFor(user.id)).toMatchObject({ active: false });
     const refused = await redeemAt(w.mcp, w.atMcp, idJag);
-    expect(refused.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(refused.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
     expect(w.mcp.refused.at(-1)).toMatchObject({ reason: "unknown_subject", detail: "SCIM: no active provisioned user for this sub" });
     await w.idp.ctx.internalAdapter.updateUser(user.id, { banned: false });
     await w.idp.settle();

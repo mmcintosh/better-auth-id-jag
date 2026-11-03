@@ -317,8 +317,8 @@
  {
   "name": "S8 unknown_subject made public (core)",
   "file": "src/core/errors.ts",
-  "a": "unknown_subject: { error: \"invalid_grant\", public: false },",
-  "b": "unknown_subject: { error: \"invalid_grant\", public: true, description: \"Unknown subject.\" },",
+  "a": "unknown_subject: { error: \"access_denied\", public: false },",
+  "b": "unknown_subject: { error: \"access_denied\", public: true, description: \"Unknown subject.\" },",
   "paths": [
    "test/receiver"
   ]
@@ -425,7 +425,7 @@
  {
   "name": "resolve: hook throw treated as continue",
   "file": "src/receiver/resolve.ts",
-  "a": "      refuse(\"subject_rejected\", \"resolveSubject threw\");\n    }",
+  "a": "      refuse(\"subject_unavailable\", \"resolveSubject threw\");\n    }",
   "b": "      decision = { action: \"continue\" };\n    }",
   "paths": [
    "test/receiver"
@@ -977,7 +977,7 @@
  {
   "name": "D-A24 converge: our own row missing on re-read not refused",
   "file": "src/receiver/resolve.ts",
-  "a": "  if (!winner) refuse(\"subject_rejected\", \"the account just linked is gone\");\n",
+  "a": "  if (!winner) refuse(\"subject_unavailable\", \"the account just linked is gone\");\n",
   "b": "",
   "paths": [
    "test/receiver/concurrency.test.ts"
@@ -1199,7 +1199,7 @@
  {
   "name": "R3-S3 sub_id: a malformed one falls back to sub",
   "file": "src/receiver/resolve.ts",
-  "a": "if (e instanceof IdJagRefusal) refuse(\"subject_rejected\", `sub_id malformed (${e.detail ?? \"\"})`);\n    throw e;",
+  "a": "if (e instanceof IdJagRefusal) refuse(\"invalid_claim\", `sub_id malformed (${e.detail ?? \"\"})`);\n    throw e;",
   "b": "return bySub;",
   "paths": [
    "test/receiver/sub-id.test.ts"
@@ -1788,6 +1788,36 @@
   "b": "false",
   "paths": [
    "test/receiver"
+  ]
+ },
+ {
+  "name": "D-059 an unexpected resolution error answered as access_denied",
+  "file": "src/receiver/resolve.ts",
+  "a": "    refuse(\"subject_unavailable\", \"unexpected error in subject resolution\");",
+  "b": "    refuse(\"subject_rejected\", \"unexpected error in subject resolution\");",
+  "paths": [
+   "test/receiver/concurrency.test.ts",
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 unknown subject back to invalid_grant",
+  "file": "src/core/errors.ts",
+  "a": "  unknown_subject: { error: \"access_denied\", public: false },",
+  "b": "  unknown_subject: { error: \"invalid_grant\", public: false },",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 a trust failure answered as access_denied",
+  "file": "src/core/errors.ts",
+  "a": "  untrusted_issuer: { error: \"invalid_grant\", public: false },",
+  "b": "  untrusted_issuer: { error: \"access_denied\", public: false },",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/receiver/grant.test.ts"
   ]
  }
 ]

@@ -293,7 +293,7 @@
  {
   "name": "S6 pairwise not refused",
   "file": "src/issuer/exchange.ts",
-  "a": "    if (client.subjectType === \"pairwise\" && opts.pairwiseSecret) refuse(\"invalid_subject_token\", \"pairwise subject (not supported in v1)\");\n",
+  "a": "    if (client.subjectType === \"pairwise\" && opts.pairwiseSecret) refuse(\"pairwise_client\", \"pairwise subject (not supported in v1)\");\n",
   "b": "",
   "paths": [
    "test/issuer/refusals.test.ts"
@@ -457,9 +457,9 @@
   ]
  },
  {
-  "name": "S8 no_policy answered as no_scope",
+  "name": "S8 unknown_audience answered as no_scope",
   "file": "src/issuer/policy.ts",
-  "a": "  if (entries.length === 0) refuse(\"no_policy\", \"no resource server for this audience\");",
+  "a": "  if (entries.length === 0) refuse(\"unknown_audience\", \"no resource server for this audience\");",
   "b": "  if (entries.length === 0) refuse(\"no_scope\", \"no resource server for this audience\");",
   "paths": [
    "test/issuer/registry.test.ts"
@@ -1475,9 +1475,9 @@
   ]
  },
  {
-  "name": "P3-S12 ALREADY_EXCHANGED not mapped to replay",
+  "name": "P3-S12 ALREADY_EXCHANGED not mapped to subject_token_replay",
   "file": "src/issuer/subject/saml2.ts",
-  "a": "        return refuse(\"replay\", `saml2: ALREADY_EXCHANGED${message}`);",
+  "a": "        return refuse(\"subject_token_replay\", `saml2: ALREADY_EXCHANGED${message}`);",
   "b": "        return bad(`ALREADY_EXCHANGED${message}`);",
   "paths": [
    "test/issuer/saml-subject.test.ts",
@@ -1495,9 +1495,9 @@
   ]
  },
  {
-  "name": "P3-S12 NOT_YET_VALID not mapped to not_yet_valid",
+  "name": "P3-S12 NOT_YET_VALID not mapped to subject_token_not_yet_valid",
   "file": "src/issuer/subject/saml2.ts",
-  "a": "        return refuse(\"not_yet_valid\", `saml2: NOT_YET_VALID${message}`);",
+  "a": "        return refuse(\"subject_token_not_yet_valid\", `saml2: NOT_YET_VALID${message}`);",
   "b": "        return bad(`NOT_YET_VALID${message}`);",
   "paths": [
    "test/issuer/saml-subject.test.ts",
@@ -1726,7 +1726,7 @@
  {
   "name": "P3-S10 pairwise client gets a refresh token",
   "file": "src/issuer/exchange.ts",
-  "a": "  if (client.subjectType === \"pairwise\" && opts.pairwiseSecret) refuse(\"invalid_subject_token\", \"pairwise subject (not supported in v1)\");\n\n  // 2. Parameters: the refresh token",
+  "a": "  if (client.subjectType === \"pairwise\" && opts.pairwiseSecret) refuse(\"pairwise_client\", \"pairwise subject (not supported in v1)\");\n\n  // 2. Parameters: the refresh token",
   "b": "\n  // 2. Parameters: the refresh token",
   "paths": [
    "test/issuer/saml-refresh.test.ts"
@@ -2272,6 +2272,62 @@
   "b": "  if (typeof handler !== \"function\")",
   "paths": [
    "test/issuer/other-token-exchange.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 hook unknown_audience answered as a deny",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (v.decision === \"unknown_audience\") return refuse(\"unknown_audience\", `authorize: ${v.reason ?? \"unknown audience\"}`);",
+  "b": "  if (v.decision === \"unknown_audience\") return refuse(\"policy_denied\", `authorize: ${v.reason ?? \"unknown audience\"}`);",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 hook unknown_audience treated as an allow",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (v.decision === \"unknown_audience\") return refuse(\"unknown_audience\", `authorize: ${v.reason ?? \"unknown audience\"}`);\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 several audiences answered as invalid_audience",
+  "file": "src/issuer/exchange.ts",
+  "a": "refuse(name === \"audience\" ? \"repeated_audience\" : \"unsupported_parameter\"",
+  "b": "refuse(name === \"audience\" ? \"invalid_audience\" : \"unsupported_parameter\"",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 registry: an unknown audience answered as no_policy",
+  "file": "src/issuer/policy.ts",
+  "a": "  if (entries.length === 0) refuse(\"unknown_audience\", \"no resource server for this audience\");",
+  "b": "  if (entries.length === 0) refuse(\"no_policy\", \"no resource server for this audience\");",
+  "paths": [
+   "test/issuer/registry.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 subject token failure back to invalid_grant",
+  "file": "src/core/errors.ts",
+  "a": "  invalid_subject_token: { error: \"invalid_request\", public: false },",
+  "b": "  invalid_subject_token: { error: \"invalid_grant\", public: false },",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-059 policy deny back to invalid_grant",
+  "file": "src/core/errors.ts",
+  "a": "  policy_denied: { error: \"access_denied\", public: false },",
+  "b": "  policy_denied: { error: \"invalid_grant\", public: false },",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/issuer/refusals.test.ts"
   ]
  }
 ]

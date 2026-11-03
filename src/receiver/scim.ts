@@ -66,7 +66,7 @@ async function acquireWithRetries(ctx: GenericEndpointContext, acquire: AcquireA
       return link?.userId ?? null;
     } catch (e) {
       if (!isConflict(e)) throw e;
-      if (attempt >= MAX_SCIM_ATTEMPTS || Date.now() - started >= SCIM_RETRY_BUDGET_MS) refuse("subject_rejected", "SCIM: the provisioned identity changed concurrently");
+      if (attempt >= MAX_SCIM_ATTEMPTS || Date.now() - started >= SCIM_RETRY_BUDGET_MS) refuse("subject_unavailable", "SCIM: the provisioned identity changed concurrently");
       await sleep(backoffMs(attempt));
     }
   }

@@ -211,7 +211,7 @@ describe("JIT membership: without the organization plugin, and when it fails", (
     const r = await s.attempt({ sub, email });
     expect(r.reason).toBe("subject_rejected");
     expect(s.rec.refused.at(-1)?.detail).toBe("JIT: organization membership failed");
-    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
     expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: `id-jag:${s.idp.issuer}`, accountId: sub })).toBeNull();
     expect(logs.some((l) => l.startsWith("error") && l.includes("removing the user and refusing"))).toBe(true);
@@ -318,7 +318,7 @@ describe("JIT roles are checked against the organization plugin's roles (D-A26)"
     const email = uniqueEmail();
     const r = await s.attempt({ sub: crypto.randomUUID(), email });
     expect(r.reason).toBe("subject_rejected");
-    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
     expect(logs.some((l) => l.startsWith("error") && l.includes("superuser"))).toBe(true);
     expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     expect(await membersOf(s.h, org)).toHaveLength(0);

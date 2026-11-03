@@ -44,7 +44,7 @@ export function createAuth(env: Env, origin: string) {
       }) as unknown as BetterAuthPlugin,
       idJagIssuer({
         authorize: ({ audience, resource, client, user }) => {
-          if (audience !== env.MCP_AS_ISSUER) return { decision: "deny", reason: "unknown audience" };
+          if (audience !== env.MCP_AS_ISSUER) return { decision: "unknown_audience", reason: "not the MCP server" };
           if (resource !== undefined && resource !== env.MCP_RESOURCE) return { decision: "deny", reason: "unknown resource" };
           const atResource = client.metadata?.clientIdAtResource;
           if (typeof atResource !== "string") return { decision: "deny", reason: "client not registered at the MCP server" };

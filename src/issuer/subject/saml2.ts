@@ -115,11 +115,11 @@ export async function verifyOwnSamlAssertion(ctx: GenericEndpointContext, token:
     const message = e instanceof Error && e.message && e.message !== code ? `: ${e.message}` : "";
     switch (code) {
       case "ALREADY_EXCHANGED":
-        return refuse("replay", `saml2: ALREADY_EXCHANGED${message}`);
+        return refuse("subject_token_replay", `saml2: ALREADY_EXCHANGED${message}`);
       case "EXPIRED":
         return refuse("subject_token_expired", `saml2: EXPIRED${message}`);
       case "NOT_YET_VALID":
-        return refuse("not_yet_valid", `saml2: NOT_YET_VALID${message}`);
+        return refuse("subject_token_not_yet_valid", `saml2: NOT_YET_VALID${message}`);
       case undefined:
         // Not one of its refusals: fail closed, and tell the operator.
         ctx.context.logger.error("[id-jag] better-auth-saml-idp's verifyIssuedAssertion threw", e);

@@ -27,11 +27,13 @@ import {
   verifyWithHostJwks,
 } from "../support/issuer-host";
 
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
+const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
+const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read", "write"] });
 
-async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode) {
-  expect(r.body, JSON.stringify(r.body)).toEqual({ error: "invalid_grant", error_description: publicDescription(reason) });
+async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode, error: "invalid_request" | "access_denied") {
+  expect(r.body, JSON.stringify(r.body)).toEqual({ error, error_description: publicDescription(reason) });
   expect(r.status).toBe(400);
   expect(takeReasons(host)).toEqual([reason]);
 }
@@ -102,7 +104,7 @@ describe("path (a): saml2 → ID-JAG", () => {
       for (const acr of ["", "urn:x\u0001"]) {
         const r = await exchangeSaml(host, client, samlToken(assertion({ acr }).xml));
         expect(r.status, JSON.stringify(acr)).toBe(400);
-        expect(r.body).toEqual(GENERIC_GRANT);
+        expect(r.body).toEqual(GENERIC_REQUEST);
       }
     } finally {
       host.ctx.logger.error = original;
@@ -142,11 +144,11 @@ describe("path (a): saml2 → ID-JAG", () => {
       const r = await exchangeSaml(host, client, samlToken(assertion().xml));
       expect(r.status, code).toBe(400);
       expect(takeReasons(host), code).toEqual([reason]);
-      if (reason !== "subject_token_expired" && reason !== "not_yet_valid") bodies.add(JSON.stringify(r.body));
-      else expect(r.body, code).toEqual({ error: "invalid_grant", error_description: publicDescription(reason) });
+      if (reason !== "subject_token_expired" && reason !== "subject_token_not_yet_valid") bodies.add(JSON.stringify(r.body));
+      else expect(r.body, code).toEqual({ error: "invalid_request", error_description: publicDescription(reason) });
     }
     // ALREADY_EXCHANGED and WRONG_CLIENT can't be told from NOT_OURS (or any other failure).
-    expect([...bodies]).toEqual([JSON.stringify(GENERIC_GRANT)]);
+    expect([...bodies]).toEqual([JSON.stringify(GENERIC_REQUEST)]);
     expect(publicDescription("subject_token_expired")).toBe("The subject token has expired.");
     expect(publicDescription("not_yet_valid")).toBe("The assertion is not yet valid.");
   });
@@ -169,7 +171,7 @@ describe("path (a): saml2 → ID-JAG", () => {
       for (const m of malformed) {
         host.idp.override = () => m;
         const r = await exchangeSaml(host, client, samlToken(assertion().xml));
-        expect(r.body, JSON.stringify(m)).toEqual(GENERIC_GRANT);
+        expect(r.body, JSON.stringify(m)).toEqual(GENERIC_REQUEST);
       }
     } finally {
       host.ctx.logger.error = original;
@@ -192,16 +194,16 @@ describe("path (a): saml2 → ID-JAG", () => {
     const a = assertion();
     expect((await exchangeSaml(host, client, samlToken(a.xml))).status).toBe(200);
     const replay = await exchangeSaml(host, client, samlToken(a.xml));
-    expect(replay.body).toEqual(GENERIC_GRANT);
-    expect(takeReasons(host)).toEqual(["replay"]);
+    expect(replay.body).toEqual(GENERIC_REQUEST);
+    expect(takeReasons(host)).toEqual(["subject_token_replay"]);
     const b = assertion();
     const wrong = await exchangeSaml(host, other.client, samlToken(b.xml));
-    expect(wrong.body).toEqual(GENERIC_GRANT);
+    expect(wrong.body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["saml2: WRONG_CLIENT"]);
     expect(host.idp.calls.at(-1)?.clientId).toBe(other.client.client_id);
     takeReasons(host);
     // Never ours at all.
-    expect((await exchangeSaml(host, client, samlToken('<saml:Assertion ID="_unknown"/>'))).body).toEqual(GENERIC_GRANT);
+    expect((await exchangeSaml(host, client, samlToken('<saml:Assertion ID="_unknown"/>'))).body).toEqual(GENERIC_REQUEST);
     // The rightful client can still use b: WRONG_CLIENT didn't consume it (the IdP's order).
     expect((await exchangeSaml(host, client, samlToken(b.xml))).status).toBe(200);
   });
@@ -213,7 +215,7 @@ describe("path (a): saml2 → ID-JAG", () => {
       const a = assertion();
       // The provider authenticates the Basic credentials and ignores the body's client_id.
       const forged = await send(host, other.client, samlToken(a.xml), { client_id: client.client_id });
-      expect(forged.body, send.name).toEqual(GENERIC_GRANT);
+      expect(forged.body, send.name).toEqual(GENERIC_REQUEST);
       expect(host.recorded.refused.at(-1)?.detail).toBe("saml2: WRONG_CLIENT");
       expect(host.idp.calls.at(-1)?.clientId).toBe(other.client.client_id);
       // Not consumed: the mapped client still exchanges it.
@@ -225,15 +227,15 @@ describe("path (a): saml2 → ID-JAG", () => {
 
   it("expired and not-yet-valid assertions: the public refusals, with the IdP deciding the window on our clock", async () => {
     const { host, client, assertion } = await world();
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion({ lifetimeSeconds: -1 }).xml)), "subject_token_expired");
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion({ notBefore: new Date(Date.now() + 60_000) }).xml)), "not_yet_valid");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion({ lifetimeSeconds: -1 }).xml)), "subject_token_expired", "invalid_request");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion({ notBefore: new Date(Date.now() + 60_000) }).xml)), "subject_token_not_yet_valid", "invalid_request");
   });
 
   it("a malformed token is refused before the verifier is called: nothing consumed", async () => {
     const { host, client } = await world();
     for (const t of ["not base64!", "QUJ", btoa(String.fromCharCode(0xff, 0xfe)), "A".repeat(87_385)]) {
       const r = await exchangeSaml(host, client, t);
-      expect(r.body).toEqual(GENERIC_GRANT);
+      expect(r.body).toEqual(GENERIC_REQUEST);
     }
     expect(takeReasons(host)).toEqual(["invalid_subject_token", "invalid_subject_token", "invalid_subject_token", "invalid_subject_token"]);
     expect(host.idp.calls).toHaveLength(0);
@@ -264,7 +266,7 @@ describe("path (a): saml2 → ID-JAG", () => {
     const host = await createSamlHost({ provider: { pairwiseSecret: "p".repeat(40) }, issuer: { authorize: allow } });
     const a = await setupSaml(host, { clientExtra: { subject_type: "pairwise" } });
     const r = await exchangeSaml(host, a.client, samlToken(host.idp.issue({ userId: a.user.id, clientId: a.client.client_id }).xml));
-    expect(r.body).toEqual(GENERIC_GRANT);
+    expect(r.body).toEqual(GENERIC_DENIED);
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["pairwise subject (not supported in v1)"]);
     expect(host.idp.calls).toHaveLength(0);
   });
@@ -274,10 +276,10 @@ describe("path (a): a verifier that accepts anything can't widen what we mint", 
   it("the user must exist (re-read) and not be banned (P3-S7, our side)", async () => {
     const { host, client, user, assertion } = await world();
     host.idp.override = () => host.idp.verified({ id: "_any", userId: "no-such-user" });
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "unknown_subject");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "unknown_subject", "access_denied");
     host.idp.override = () => host.idp.verified({ id: "_any", userId: user.id });
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: user.id }], update: { banned: true } });
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "banned_user");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "banned_user", "access_denied");
   });
 
   it("blocks and the policy are ours: a block refuses, a deny refuses, scopes and audience are the policy's", async () => {
@@ -289,10 +291,10 @@ describe("path (a): a verifier that accepts anything can't widen what we mint", 
     const claims = (await verifyWithHostJwks(host, ok.body.access_token as string)).claims;
     expect(claims).toMatchObject({ sub: user.id, aud: AUDIENCE, client_id: client.client_id, scope: "read" });
     verdict = { decision: "deny", reason: "no" };
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "policy_denied");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "policy_denied", "access_denied");
     verdict = { decision: "allow", scopes: ["read"] };
     await host.ctx.adapter.create({ model: BLOCK_MODEL, data: { userId: user.id, clientId: null, audience: null, reason: "r", createdBy: owner.id, createdAt: new Date(), expiresAt: null } });
-    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "blocked");
+    await refused(host, await exchangeSaml(host, client, samlToken(assertion().xml)), "blocked", "access_denied");
   });
 });
 
