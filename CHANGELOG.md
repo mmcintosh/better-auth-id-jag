@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Error codes follow ID-JAG draft -06** (D-059). Draft -05/-06 profile which OAuth error code each refusal uses, so a
+  client knows whether a new token will help. A client that switches on `error` needs updating; audit reason codes
+  are unchanged except where noted.
+  - Issuer: a subject token that fails validation (`invalid_subject_token`, `subject_token_expired`) is
+    `invalid_request`, was `invalid_grant`. More than one `audience` is `invalid_request` (new reason
+    `repeated_audience`), was `invalid_target`. An audience with no resource server in the registry is
+    `invalid_target` (new reason `unknown_audience`, was `no_policy`/`invalid_grant`). A policy deny, a block, a
+    banned or deleted user and "no policy" are `access_denied`, were `invalid_grant`. A pairwise client is
+    `access_denied` (new reason `pairwise_client`, was `invalid_subject_token`). A SAML Assertion already exchanged
+    or not yet valid is `invalid_request` (new reasons `subject_token_replay`, `subject_token_not_yet_valid`, were
+    `replay`, `not_yet_valid`).
+  - Receiver: `unknown_subject`, `subject_rejected` and `banned_user` are `access_denied`, were `invalid_grant`.
+    A failure a retry may fix (a concurrent first use, a database error, a `resolveSubject` that throws) has its own
+    reason, `subject_unavailable`, and stays `invalid_grant`. A malformed `sub_id` is `invalid_claim`
+    (`invalid_grant`, with its description), was `subject_rejected`.
+  - Trust failures at the receiver (issuer, signature, `aud`, `client_id`, replay) are still one generic
+    `invalid_grant`.
+
+### Added
+
+- **Issuer: `authorize` can answer `{ decision: "unknown_audience" }`** (D-059): the caller gets `invalid_target`,
+  as draft -06 §4.3.3 requires for an audience the IdP has no trust relationship with. A plain deny is
+  `access_denied`.
+
 ## [0.5.4] - 2026-11-01
 
 ### Security

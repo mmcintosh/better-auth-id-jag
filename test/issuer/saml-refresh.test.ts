@@ -26,7 +26,9 @@ import {
 } from "../support/issuer-host";
 
 
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
+const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
+const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const GENERIC_SCOPE = { error: "invalid_scope", error_description: "The requested scope is invalid." };
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read", "write"] });
 
@@ -96,7 +98,7 @@ describe("path (b): saml2 → refresh token", () => {
     expect(claims).toMatchObject({ sub: user.id, aud: AUDIENCE, client_id: client.client_id, scope: "read", auth_time: authnInstant.getTime() / 1000 });
     // Another client can't use it (the existing D-B15 check).
     const stolen = await exchangeRefresh(host, other.client, rt);
-    expect(stolen.body).toEqual(GENERIC_GRANT);
+    expect(stolen.body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.at(-1)?.detail).toBe("refresh token: issued to another client");
     // The client can refresh with it as with any refresh token (and the ID token from that is ours).
     const refreshed = await refresh(host, client, rt);
@@ -106,7 +108,7 @@ describe("path (b): saml2 → refresh token", () => {
     // Revoked at /oauth2/revoke: refused afterwards.
     expect(await revoke(host, client, next)).toBe(200);
     const after = await exchangeRefresh(host, client, next);
-    expect(after.body).toEqual(GENERIC_GRANT);
+    expect(after.body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.at(-1)?.detail).toBe("refresh token: revoked");
   });
 
@@ -114,7 +116,7 @@ describe("path (b): saml2 → refresh token", () => {
     const { host, client, assertion } = await world();
     const rt = (await requestSamlRefresh(host, client, samlToken(assertion().xml))).body.access_token as string;
     expect(await revoke(host, client, rt)).toBe(200);
-    expect((await exchangeRefresh(host, client, rt)).body).toEqual(GENERIC_GRANT);
+    expect((await exchangeRefresh(host, client, rt)).body).toEqual(GENERIC_REQUEST);
     expect((await refresh(host, client, rt)).status).toBe(400);
   });
 
@@ -198,7 +200,7 @@ describe("path (b): saml2 → refresh token", () => {
   it("a pairwise client is refused before the verifier (D-B02)", async () => {
     const { host, client, assertion } = await world({ provider: { pairwiseSecret: "p".repeat(40) }, setup: { clientExtra: { subject_type: "pairwise" } } });
     const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));
-    expect(r.body).toEqual(GENERIC_GRANT);
+    expect(r.body).toEqual(GENERIC_DENIED);
     expect(host.recorded.refused.map((e) => e.detail)).toEqual(["pairwise subject (not supported in v1)"]);
     expect(host.idp.calls).toHaveLength(0);
   });
@@ -211,7 +213,7 @@ describe("path (b): saml2 → refresh token", () => {
     for (const b of [{ userId: user.id }, { userId: user.id, clientId: client.client_id }, { clientId: client.client_id }]) {
       const row = await block(b);
       const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));
-      expect(r.body, JSON.stringify(b)).toEqual(GENERIC_GRANT);
+      expect(r.body, JSON.stringify(b)).toEqual(GENERIC_DENIED);
       expect(host.recorded.refused.map((e) => [e.reason, e.detail])).toEqual([["blocked", String(row.id)]]);
       host.recorded.refused.length = 0;
       await clear();
@@ -221,7 +223,7 @@ describe("path (b): saml2 → refresh token", () => {
       const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));
       expect(r.status, JSON.stringify([b, r.body])).toBe(200);
       // The audience block applies later, when the refresh token is exchanged for that audience.
-      if (b.audience && b.userId !== "someone-else") expect((await exchangeRefresh(host, client, r.body.access_token as string)).body).toEqual(GENERIC_GRANT);
+      if (b.audience && b.userId !== "someone-else") expect((await exchangeRefresh(host, client, r.body.access_token as string)).body).toEqual(GENERIC_DENIED);
       await clear();
     }
     expect(host.recorded.refreshIssued).toHaveLength(6);
@@ -233,20 +235,20 @@ describe("path (b): saml2 → refresh token", () => {
       host.idp.failWith = code;
       const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));
       expect(takeReasons(host), code).toEqual([reason]);
-      expect(r.body, code).toEqual(reason === "subject_token_expired" || reason === "not_yet_valid" ? { error: "invalid_grant", error_description: publicDescription(reason) } : GENERIC_GRANT);
+      expect(r.body, code).toEqual(reason === "subject_token_expired" || reason === "subject_token_not_yet_valid" ? { error: "invalid_request", error_description: publicDescription(reason) } : GENERIC_REQUEST);
     }
     host.idp.failWith = undefined;
     const a = assertion();
     expect((await requestSamlRefresh(host, client, samlToken(a.xml))).status).toBe(200);
-    expect((await requestSamlRefresh(host, client, samlToken(a.xml))).body).toEqual(GENERIC_GRANT);
-    expect(takeReasons(host)).toEqual(["replay"]);
+    expect((await requestSamlRefresh(host, client, samlToken(a.xml))).body).toEqual(GENERIC_REQUEST);
+    expect(takeReasons(host)).toEqual(["subject_token_replay"]);
     expect(host.recorded.refreshIssued).toHaveLength(1);
   });
 
   it("a verifier that accepts anything can't widen it: unknown or banned users refused; the token is this client's, with only the scopes we checked", async () => {
     const { host, client, user, assertion } = await world();
     host.idp.override = () => host.idp.verified({ id: "_any", userId: "nobody" });
-    await refusedAs(host, await requestSamlRefresh(host, client, samlToken(assertion().xml)), "unknown_subject", GENERIC_GRANT);
+    await refusedAs(host, await requestSamlRefresh(host, client, samlToken(assertion().xml)), "unknown_subject", GENERIC_DENIED);
     host.idp.override = (_xml, expected) => ({ ...host.idp.verified({ id: "_any", userId: user.id }), clientId: "someone-else", scopes: ["admin"], expected });
     const r = await requestSamlRefresh(host, client, samlToken(assertion().xml), { scope: "openid offline_access email" });
     expect(r.status).toBe(200);
@@ -254,7 +256,7 @@ describe("path (b): saml2 → refresh token", () => {
     expect(row?.clientId).toBe(client.client_id);
     expect(JSON.stringify(row?.scopes)).toBe(JSON.stringify(["openid", "offline_access", "email"]));
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: user.id }], update: { banned: true } });
-    await refusedAs(host, await requestSamlRefresh(host, client, samlToken(assertion().xml)), "banned_user", GENERIC_GRANT);
+    await refusedAs(host, await requestSamlRefresh(host, client, samlToken(assertion().xml)), "banned_user", GENERIC_DENIED);
   });
 
   it("P3-S13: no outbound request, issued or refused", async () => {
@@ -280,6 +282,6 @@ describe("path (b): saml2 → refresh token", () => {
     const { host, client, assertion } = await world();
     const rt = (await requestSamlRefresh(host, client, samlToken(assertion().xml))).body.access_token as string;
     expect((await exchange(host, client, rt, { subject_token_type: REFRESH_TOKEN_TYPE })).status).toBe(200);
-    expect((await exchange(host, client, rt, { subject_token_type: SAML2_TOKEN_TYPE })).body).toEqual(GENERIC_GRANT);
+    expect((await exchange(host, client, rt, { subject_token_type: SAML2_TOKEN_TYPE })).body).toEqual(GENERIC_REQUEST);
   });
 });

@@ -91,6 +91,7 @@ const verdictSchema = z.discriminatedUnion("decision", [
     claims: z.object({ email: z.boolean().optional(), tenant: z.string().min(1).max(512).optional(), act: z.union([z.boolean(), z.strictObject({ sub_profile: subProfile.optional() })]).optional() }).optional(),
   }),
   z.object({ decision: z.literal("deny"), reason: z.string().optional(), stepUp: stepUpSchema.optional() }),
+  z.object({ decision: z.literal("unknown_audience"), reason: z.string().optional() }),
 ]);
 
 const truthy = (v: unknown) => v === true || v === 1 || v === "1" || v === "true";
@@ -113,7 +114,7 @@ const rolesOf = (user: Record<string, unknown>) =>
 
 async function fromRegistry(directory: RegistryDirectory, r: PolicyRequest): Promise<Allow> {
   const entries = await directory.lookup(r.ctx, r.audience);
-  if (entries.length === 0) refuse("no_policy", "no resource server for this audience");
+  if (entries.length === 0) refuse("unknown_audience", "no resource server for this audience");
   const orgs = entries.some((e) => e.resourceServer.config.organizationId !== undefined || e.policies.some((p) => p.config.subjectKind === "organization")) ? await membershipsOf(r.ctx, r.user.id) : new Set<string>();
   const roles = rolesOf(r.user);
   // A resource server of an organization applies only to that organization's members.
@@ -166,6 +167,7 @@ async function fromHook(hook: (input: AuthorizeInput) => unknown, r: PolicyReque
   const parsed = verdictSchema.safeParse(verdict);
   if (!parsed.success) return refuse("policy_denied", "authorize returned a malformed verdict");
   const v = parsed.data as AuthorizeResult;
+  if (v.decision === "unknown_audience") return refuse("unknown_audience", `authorize: ${v.reason ?? "unknown audience"}`);
   if (v.decision !== "allow") {
     if (v.stepUp) {
       const c = v.stepUp;

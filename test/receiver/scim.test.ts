@@ -98,7 +98,7 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
 
   it("required (the default): an unprovisioned sub is refused, and neither JIT nor an existing account brings it in", async () => {
     const w = await world({ jit: true });
-    expect(await w.attempt(crypto.randomUUID(), { email: uniqueEmail() })).toMatchObject({ reason: "unknown_subject", detail: "SCIM: no active provisioned user for this sub", body: { error: "invalid_grant", error_description: "The grant is invalid." } });
+    expect(await w.attempt(crypto.randomUUID(), { email: uniqueEmail() })).toMatchObject({ reason: "unknown_subject", detail: "SCIM: no active provisioned user for this sub", body: { error: "access_denied", error_description: "The subject or client is not authorized for this request." } });
     // A user linked to this issuer by sub (an older link) isn't enough either: SCIM decides.
     const sub = crypto.randomUUID();
     await linkedUser(w.h, `id-jag:${w.idp.issuer}`, sub);
@@ -191,7 +191,7 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     // requireSubId: none at all is refused.
     expect(await w.attempt(sub)).toMatchObject({ reason: "subject_rejected" });
     // Malformed (no nameid), and from a SAML issuer this entry doesn't map: refused, never resolved by SCIM.
-    expect(await w.attempt(sub, { sub_id: { format: "saml-nameid", issuer: SAML_IDP } })).toMatchObject({ reason: "subject_rejected" });
+    expect(await w.attempt(sub, { sub_id: { format: "saml-nameid", issuer: SAML_IDP } })).toMatchObject({ reason: "invalid_claim" });
     expect(await w.attempt(sub, { sub_id: subId({ issuer: "https://other-saml.example/idp" }) })).toMatchObject({ reason: "subject_rejected" });
     // A valid, mapped sub_id: the SCIM step resolves by sub.
     expect(await w.attempt(sub, { sub_id: subId({}) })).toMatchObject({ reason: "accepted", userId: local?.id, resolvedBy: "scim" });
@@ -262,21 +262,21 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     conflicts = Number.POSITIVE_INFINITY;
     calls = 0;
     const started = Date.now();
-    expect(await w.attempt(sub)).toMatchObject({ reason: "subject_rejected", detail: "SCIM: the provisioned identity changed concurrently" });
+    expect(await w.attempt(sub)).toMatchObject({ reason: "subject_unavailable", detail: "SCIM: the provisioned identity changed concurrently", body: { error: "invalid_grant" } });
     expect(calls).toBeGreaterThan(1);
     expect(calls).toBeLessThanOrEqual(MAX_SCIM_ATTEMPTS);
     // The budget bounds the wait (plus one backoff, at most 250 ms, and the request itself).
     expect(Date.now() - started).toBeLessThan(SCIM_RETRY_BUDGET_MS + 1500);
   });
 
-  it("any other error from the lookup is an audited subject_rejected, not a 500", async () => {
+  it("any other error from the lookup is an audited subject_unavailable (invalid_grant: a retry may work), not a 500", async () => {
     let calls = 0;
     const broken: Acquire = async () => {
       calls++;
       throw new Error("database down");
     };
     const w = await world({ acquire: broken });
-    expect(await w.attempt(crypto.randomUUID())).toMatchObject({ reason: "subject_rejected", detail: "unexpected error in subject resolution", body: { error: "invalid_grant" } });
+    expect(await w.attempt(crypto.randomUUID())).toMatchObject({ reason: "subject_unavailable", detail: "unexpected error in subject resolution", body: { error: "invalid_grant", error_description: "The grant is invalid." } });
     // Only a SCIM conflict is retried.
     expect(calls).toBe(1);
   });

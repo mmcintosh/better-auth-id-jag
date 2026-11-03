@@ -2,14 +2,21 @@
 // thrown as Better Auth's APIError, so the token endpoint answers with the standard JSON body (a
 // plain Error from a grant handler becomes an empty 500: docs/phase-0.md, Phase 1 probe).
 //
-// S8: the caller must not be able to tell "unknown user" from "policy denied" from "untrusted
-// issuer". So each reason has a public description that is either specific (the request itself
+// S8: the caller must not be able to tell "unknown user" from "policy denied", or one trust failure
+// from another. So each reason has a public description that is either specific (the request itself
 // was malformed: nothing to learn about our users or policies) or the generic one for its error
 // code. The reason code itself goes to the audit event, never to the caller.
+//
+// Draft -06 (D-059) profiles the codes by what the client should do next: `invalid_request` at the
+// issuer for a subject token that failed validation (get a new one), `access_denied` for a valid
+// token whose user or client isn't allowed (a new token won't help), `invalid_target` for an
+// audience the issuer doesn't know, `invalid_grant` at the receiver for an ID-JAG that failed a
+// check. So the code tells "not allowed" from "bad token"; within each, every reason still looks alike.
 import { APIError, isAPIError } from "better-auth/api";
 
 // insufficient_user_authentication: draft -04 §9.2 step-up (RFC 9470's code, at the token endpoint).
-export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "insufficient_user_authentication";
+// access_denied: draft -06 §4.3.4.3 / §4.4.3, a valid token whose user or client isn't authorized.
+export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "access_denied" | "insufficient_user_authentication";
 
 /** What the caller sees when the reason isn't safe to name. */
 const GENERIC: Record<OAuthErrorCode, string> = {
@@ -19,6 +26,7 @@ const GENERIC: Record<OAuthErrorCode, string> = {
   unauthorized_client: "The client is not authorized for this grant.",
   invalid_scope: "The requested scope is invalid.",
   invalid_target: "The requested resource or audience is invalid.",
+  access_denied: "The subject or client is not authorized for this request.",
   insufficient_user_authentication: "The subject does not meet the authentication requirements.",
 };
 
@@ -55,9 +63,13 @@ export const REASONS = {
   client_mismatch: { error: "invalid_grant", public: false },
   replay: { error: "invalid_grant", public: false },
   unknown_resource: { error: "invalid_target", public: false },
-  unknown_subject: { error: "invalid_grant", public: false },
-  subject_rejected: { error: "invalid_grant", public: false },
-  banned_user: { error: "invalid_grant", public: false },
+  // Both sides: the token is valid, but the user or client isn't allowed (draft -06 §4.3.4.3, §4.4.3).
+  unknown_subject: { error: "access_denied", public: false },
+  subject_rejected: { error: "access_denied", public: false },
+  banned_user: { error: "access_denied", public: false },
+  // Receiver: resolving the subject failed in a way a retry may fix (a concurrent first use, a database error, the
+  // host's hook threw). Not an authorization answer, so not access_denied: invalid_grant, as any other failed check.
+  subject_unavailable: { error: "invalid_grant", public: false },
   no_scope: { error: "invalid_scope", public: false },
   // Issuer, a SAML assertion exchanged for a refresh token (draft -04 §4.5): the request lacks a
   // scope it must carry. The caller sent the scope parameter, so naming the defect is safe.
@@ -67,14 +79,24 @@ export const REASONS = {
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },
+  // Draft -06 §4.3.3: more than one audience is invalid_request.
+  repeated_audience: { error: "invalid_request", public: true, description: "audience must appear once." },
   invalid_resource: { error: "invalid_target", public: true, description: "resource must be an absolute URI without a fragment." },
-  invalid_subject_token: { error: "invalid_grant", public: false },
-  subject_token_expired: { error: "invalid_grant", public: true, description: "The subject token has expired." },
-  policy_denied: { error: "invalid_grant", public: false },
+  // Draft -06 §4.3.4.3: a subject token that fails validation is invalid_request (RFC 8693 §2.2.2).
+  invalid_subject_token: { error: "invalid_request", public: false },
+  subject_token_expired: { error: "invalid_request", public: true, description: "The subject token has expired." },
+  subject_token_not_yet_valid: { error: "invalid_request", public: true, description: "The subject token is not yet valid." },
+  // A SAML Assertion already exchanged once (better-auth-saml-idp's verifier). Not public, as the receiver's replay.
+  subject_token_replay: { error: "invalid_request", public: false },
+  // The requesting client is registered for pairwise subjects, which the issuer doesn't support: a new token won't help.
+  pairwise_client: { error: "access_denied", public: false },
+  policy_denied: { error: "access_denied", public: false },
   // The host's authorize hook asked for step-up (draft -04 §9.2, D-043): it chose to tell the caller.
   step_up_required: { error: "insufficient_user_authentication", public: true, description: "The subject does not meet the authentication requirements." },
-  blocked: { error: "invalid_grant", public: false },
-  no_policy: { error: "invalid_grant", public: false },
+  blocked: { error: "access_denied", public: false },
+  no_policy: { error: "access_denied", public: false },
+  // Draft -06 §4.3.3: an audience with no resource server we trust MUST be invalid_target.
+  unknown_audience: { error: "invalid_target", public: false },
 } as const satisfies Record<string, { error: OAuthErrorCode; public: boolean; description?: string }>;
 
 export type ReasonCode = keyof typeof REASONS;

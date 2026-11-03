@@ -54,7 +54,7 @@ describe("otherTokenExchange (D-046): who answers which request", () => {
     expect(ok.body.issued_token_type).toBe(ID_JAG_TOKEN_TYPE);
     const bad = await exchange(host, client, "not-a-token");
     expect(bad.status).toBe(400);
-    expect(bad.body.error).toBe("invalid_grant");
+    expect(bad.body.error).toBe("invalid_request");
     expect(other.calls).toHaveLength(0);
   });
 

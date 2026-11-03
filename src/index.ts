@@ -60,6 +60,7 @@ export type {
   AuthorizeDeny,
   AuthorizeInput,
   AuthorizeResult,
+  AuthorizeUnknownAudience,
   BlocksOptions,
   CanManage,
   IdJagIssuerOptions,

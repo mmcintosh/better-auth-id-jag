@@ -397,15 +397,15 @@ describe("receiver: scopes only narrow (S7)", () => {
 });
 
 describe("receiver: S8, refusals the caller can't tell apart", () => {
-  it("unknown subject, untrusted issuer, bad signature, replay, wrong audience, client mismatch: byte-identical bodies", async () => {
+  it("untrusted issuer, bad signature, replay, wrong audience, client mismatch: byte-identical bodies; an unknown subject is access_denied (D-059)", async () => {
     const s = await setup();
     const stranger = await testIdp();
     const forger = await s.idp.signingKey("ES256", s.idp.key.kid);
     const replayed = await s.valid();
     expect((await redeem(s.h, s.client, replayed)).status).toBe(200);
     const other = await createClient(s.h);
+    const unknown = await redeem(s.h, s.client, await s.valid({ sub: "nobody" }));
     const results = [
-      await redeem(s.h, s.client, await s.valid({ sub: "nobody" })),
       await redeem(s.h, s.client, await stranger.mint(stranger.claims({ client_id: s.client.client_id }))),
       await redeem(s.h, s.client, await s.idp.mint(s.idp.claims({ sub: s.sub, client_id: s.client.client_id }), {}, forger)),
       await redeem(s.h, s.client, replayed),
@@ -420,6 +420,8 @@ describe("receiver: S8, refusals the caller can't tell apart", () => {
       expect(r.text).toBe(first.text);
     }
     expect(first.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    // Draft -06 §4.4.3: a valid ID-JAG whose subject isn't known here. Only after every trust check passed.
+    expect([unknown.status, unknown.body]).toEqual([400, { error: "access_denied", error_description: "The subject or client is not authorized for this request." }]);
   });
 });
 

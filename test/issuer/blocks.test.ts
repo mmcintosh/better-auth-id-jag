@@ -7,7 +7,8 @@ import { AUDIT_MODEL, auditRow, JTI_MODEL, jtiKey, sweepJtis } from "../../src/c
 import { type IdJagIssuerOptions, BLOCK_MODEL } from "../../src/issuer";
 import { type Browser, createClient, createIssuerHost, exchange, exchangeRefresh, getTokens, ISSUER, type IssuerHost, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+// Draft -06 §4.3.4.3 (D-059): a block or a policy refusal is access_denied, generic.
+const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const canManage = ({ user }: { user: Record<string, unknown> }) => user.role === "admin";
 const OTHER_AUDIENCE = "https://other-rs.example";
 const AUDIENCE_OF_OTHERS = "https://rs.example/api/auth";
@@ -65,7 +66,7 @@ describe("blocks: enforcement", () => {
     expect(created.body.block).toMatchObject({ userId: w.a.user.id, clientId: w.a.client.client_id, audience: "https://rs.example/api/auth", reason: "lost laptop", createdBy: w.admin.id, active: true, expiresAt: null });
     takeReasons(h);
     const r = await exchange(h, w.a.client, w.a.idToken);
-    expect([r.status, r.body]).toEqual([400, GENERIC_GRANT]);
+    expect([r.status, r.body]).toEqual([400, GENERIC_DENIED]);
     expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "blocked", detail: created.body.block.id, userId: w.a.user.id });
     expect(await w.status("a")).toEqual([400, 400]);
     expect(await w.status("a", OTHER_AUDIENCE)).toEqual([200, 200]);
@@ -178,7 +179,7 @@ describe("blocks: enforcement", () => {
       );
     takeReasons(h);
     const r = await exchange(h, w.a.client, w.a.idToken);
-    expect(r.body).toEqual(GENERIC_GRANT);
+    expect(r.body).toEqual(GENERIC_DENIED);
     expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: "too many blocks to evaluate" });
   });
 

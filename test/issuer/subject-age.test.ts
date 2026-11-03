@@ -10,8 +10,9 @@ import type { AuthorizeResult } from "../../src/issuer";
 import { createIssuerHost, exchange, exchangeRefresh, type IssuerHost, setup, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
-const EXPIRED = { error: "invalid_grant", error_description: publicDescription("subject_token_expired") };
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
+const EXPIRED = { error: "invalid_request", error_description: publicDescription("subject_token_expired") };
+const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 
 /** Moves `Date` (only) forward by `seconds`; timers stay real. */
 function travel(seconds: number) {
@@ -81,7 +82,7 @@ describe("ID token sid: the session must still exist", () => {
     await signOut(host, user.browser);
     takeReasons(host);
     const r = await exchange(host, client, idToken);
-    expect([r.status, r.body]).toEqual([400, GENERIC_GRANT]);
+    expect([r.status, r.body]).toEqual([400, GENERIC_REQUEST]);
     expect(host.recorded.refused.at(-1)).toMatchObject({ reason: "invalid_subject_token", detail: "session ended" });
   });
 
@@ -91,7 +92,7 @@ describe("ID token sid: the session must still exist", () => {
     const sid = decodeJwt(idToken).sid as string;
     await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { expiresAt: new Date(Date.now() - 1000) } });
     takeReasons(host);
-    expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_GRANT);
+    expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.at(-1)?.detail).toBe("session ended");
     await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { expiresAt: new Date(Date.now() + 3600_000) } });
     expect((await exchange(host, client, idToken)).status).toBe(200);
@@ -104,7 +105,7 @@ describe("ID token sid: the session must still exist", () => {
     const sid = decodeJwt(idToken).sid as string;
     await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { userId: other.id } });
     takeReasons(host);
-    expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_GRANT);
+    expect((await exchange(host, client, idToken)).body).toEqual(GENERIC_REQUEST);
     expect(host.recorded.refused.at(-1)?.detail).toBe("session ended");
     await host.ctx.adapter.update({ model: "session", where: [{ field: "id", value: sid }], update: { userId: user.id } });
     expect((await exchange(host, client, idToken)).status).toBe(200);

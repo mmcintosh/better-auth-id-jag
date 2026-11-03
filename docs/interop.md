@@ -59,7 +59,7 @@ The tests also check what should be refused:
 - an ID-JAG whose `client_id` is the agent's IdP client id (`client_mismatch`);
 - `aud` set to the MCP resource, the bare origin, or the issuer with a trailing slash (`wrong_audience`);
 - an ID-JAG signed by another instance at the same issuer URL (`bad_signature`);
-- an audience the IdP's policy doesn't know (`policy_denied`).
+- an audience the IdP's policy doesn't know (`unknown_audience`, `invalid_target`).
 
 One more test covers JIT provisioning: a verified email, sent because the policy opted in, creates and links a
 local user.

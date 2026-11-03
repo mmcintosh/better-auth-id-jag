@@ -82,17 +82,18 @@ describe("registry: policy evaluation", () => {
     expect((await exchange(h, client, idToken)).body.scope).toBe("read");
   });
 
-  it("no resource server for the audience: no_policy; one with no policy for this client: policy_denied (one body)", async () => {
+  it("no resource server for the audience: unknown_audience (invalid_target); one with no policy for this client: policy_denied (access_denied) (D-059)", async () => {
     const h = await host();
     const { client, idToken } = await setup(h);
     const a = await exchange(h, client, idToken);
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
     const other = await setup(h);
     await registered(h, other.client);
     const b = await exchange(h, client, idToken);
     expect(takeReasons(h)).toEqual(["policy_denied"]);
-    expect(a.body).toEqual(b.body);
-    expect(a.body).toEqual({ error: "invalid_grant", error_description: publicDescription("no_policy") });
+    // Draft -06 §4.3.4.3: the client can tell an audience we don't know from one it may not use.
+    expect(a.body).toEqual({ error: "invalid_target", error_description: publicDescription("unknown_audience") });
+    expect(b.body).toEqual({ error: "access_denied", error_description: publicDescription("policy_denied") });
   });
 
   it("subject kinds: users, role, organization", async () => {
@@ -161,7 +162,7 @@ describe("registry: policy evaluation", () => {
     await api(admin.browser, "/policies/update", { id: policyId, enabled: true });
     await api(admin.browser, "/resource-servers/update", { id: rsId, enabled: false });
     await exchange(h, client, idToken);
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
   });
 
   it("lifetime: the shortest of the matching policies; email when a policy opts in", async () => {
@@ -194,8 +195,8 @@ describe("registry: policy evaluation", () => {
     const { client, idToken } = await setup(h);
     // Nothing registered for this audience: the registry refuses before the hook runs.
     const before = await exchange(h, client, idToken);
-    expect(before.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(before.body).toEqual({ error: "invalid_target", error_description: "The requested resource or audience is invalid." });
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
     await registered(h, client);
     const after = await exchange(h, client, idToken);
     expect(after.body).toMatchObject({ error: "insufficient_user_authentication", max_age: 60 });
@@ -223,7 +224,7 @@ describe("registry: policy evaluation", () => {
     const { client, idToken } = await setup(h);
     const { admin, rsId, policyId } = await registered(h, client);
     const original = await h.ctx.adapter.findOne<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }] });
-    // While the policy is invalid, a resource server that is still used answers policy_denied; one that isn't, no_policy.
+    // While the policy is invalid, a resource server that is still used answers policy_denied; one that isn't, unknown_audience.
     await h.ctx.adapter.update({ model: POLICY_MODEL, where: [{ field: "id", value: policyId }], update: { scopes: "not json" } });
     await exchange(h, client, idToken);
     expect(takeReasons(h)).toEqual(["policy_denied"]);
@@ -237,10 +238,10 @@ describe("registry: policy evaluation", () => {
     // A lookup key changed by hand (it decides uniqueness): the row is not used.
     await h.ctx.adapter.update({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }], update: { audience: AUDIENCE, lookupKey: "edited" } });
     await exchange(h, client, idToken);
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
     await h.ctx.adapter.update({ model: RESOURCE_SERVER_MODEL, where: [{ field: "id", value: rsId }], update: { lookupKey: original?.lookupKey, scopes: JSON.stringify(["bad scope"]) } });
     await exchange(h, client, idToken);
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
   });
 
   it("cache: another instance on the same database sees a change after cacheSeconds (0: at once; 60: keeps a miss)", async () => {
@@ -287,7 +288,7 @@ describe("registry: policy evaluation", () => {
     }) as typeof h.ctx.adapter.findMany;
     await exchange(h, client, idToken);
     h.ctx.adapter.findMany = findMany;
-    expect(takeReasons(h)).toEqual(["no_policy"]);
+    expect(takeReasons(h)).toEqual(["unknown_audience"]);
   });
 
   it("S8: an unregistered resource without an allowing policy is the generic refusal, not unknown_resource", async () => {
@@ -297,7 +298,7 @@ describe("registry: policy evaluation", () => {
     await registered(h, other.client);
     const r = await exchange(h, client, idToken, { resource: "https://other.example/mcp" });
     expect(takeReasons(h)).toEqual(["policy_denied"]);
-    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
   });
 });
 
@@ -383,9 +384,9 @@ describe("registry API: records", () => {
     const cb = decodeJwt(b.body.access_token as string);
     for (const k of ["sub", "aud", "client_id", "scope", "resource", "auth_time"]) expect(cb[k], k).toEqual(ca[k]);
     expect(cb.client_id).toBe("agent-at-rs");
-    // No policy for another audience: the same generic refusal for both.
+    // No resource server for another audience: the same refusal for both subject types.
     const c = await exchange(h, client, refreshToken, { audience: `${AUDIENCE}/x`, subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token" });
-    expect(c.body).toEqual({ error: "invalid_grant", error_description: publicDescription("no_policy") });
+    expect(c.body).toEqual({ error: "invalid_target", error_description: publicDescription("unknown_audience") });
   });
 
   it("the audit log: issued, refused and admin events, newest first (with auditLog)", async () => {

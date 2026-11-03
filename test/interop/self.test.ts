@@ -29,9 +29,11 @@ async function world(o: { jit?: boolean; email?: boolean; anyAudience?: boolean;
     issuer: {
       // The IdP's policy: this audience and resource only, scope read, the agent's id at the MCP AS.
       authorize: (input) =>
-        (o.anyAudience || input.audience === MCP_ISSUER) && input.resource === MCP_RESOURCE
-          ? { decision: "allow", scopes: ["read"], ...(mapping.atResource ? { clientIdAtResource: mapping.atResource } : {}), ...(o.email || o.act ? { claims: { ...(o.email ? { email: true } : {}), ...(o.act ? { act: { sub_profile: "ai_agent" } } : {}) } } : {}) }
-          : { decision: "deny" },
+        !o.anyAudience && input.audience !== MCP_ISSUER
+          ? { decision: "unknown_audience" }
+          : input.resource === MCP_RESOURCE
+            ? { decision: "allow", scopes: ["read"], ...(mapping.atResource ? { clientIdAtResource: mapping.atResource } : {}), ...(o.email || o.act ? { claims: { ...(o.email ? { email: true } : {}), ...(o.act ? { act: { sub_profile: "ai_agent" } } : {}) } } : {}) }
+            : { decision: "deny" },
     },
   });
   const net = routedFetch(idp);
@@ -159,11 +161,15 @@ describe("interop: our issuer → our receiver", () => {
     expect(mcp2.refused.at(-1)?.reason).toBe("client_mismatch");
   });
 
-  it("audience: the IdP's policy refuses an audience it doesn't know; the MCP AS refuses an ID-JAG minted for another AS", async () => {
+  it("audience: the IdP's policy refuses an audience it doesn't know (invalid_target, D-059); the MCP AS refuses an ID-JAG minted for another AS", async () => {
     const strict = await world();
     const denied = await exchangeAt(strict.idp, strict.atIdp, strict.idToken, { audience: "https://elsewhere.example/api/auth", resource: MCP_RESOURCE });
     expect(denied.status).toBe(400);
-    expect(denied.body.error).toBe("invalid_grant");
+    expect(denied.body).toEqual({ error: "invalid_target", error_description: "The requested resource or audience is invalid." });
+    expect(strict.idp.recorded.refused.at(-1)?.reason).toBe("unknown_audience");
+    // A known audience, another resource: the hook denies, access_denied.
+    const other = await exchangeAt(strict.idp, strict.atIdp, strict.idToken, { audience: MCP_ISSUER, resource: "https://elsewhere.example/mcp" });
+    expect(other.body.error).toBe("access_denied");
     expect(strict.idp.recorded.refused.at(-1)?.reason).toBe("policy_denied");
 
     const w = await world({ anyAudience: true });

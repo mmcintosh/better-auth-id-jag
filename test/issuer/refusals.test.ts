@@ -9,7 +9,8 @@ import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
 import { AUDIENCE, createClient, createIssuerHost, exchange, getIdToken, ISSUER, type IssuerHost, RESOURCE, setup, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
-const GENERIC_GRANT = { error: "invalid_grant", error_description: "The grant is invalid." };
+const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
+const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 
 /** The exchange is refused for `reason`, with that reason's public body. */
 async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode, error: string) {
@@ -58,10 +59,13 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
       await refused(host, await exchange(host, client, idToken, { subject_token_type: t }), "unsupported_subject_token_type", "invalid_request");
   });
 
-  it("an audience that isn't an https issuer identifier, several audiences, or our own issuer: invalid_audience", async () => {
+  it("an audience that isn't an https issuer identifier, or our own issuer: invalid_audience; several: repeated_audience (D-059)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
-    for (const audience of ["http://rs.example", "https://rs.example/#x", "https://rs.example/?a=1", "rs.example", "https://user@rs.example", "https://rs.example/ a", "", ISSUER, [AUDIENCE, "https://other.example"]]) {
+    // Draft -06 §4.3.3: more than one audience MUST be invalid_request.
+    await refused(host, await exchange(host, client, idToken, { audience: [AUDIENCE, "https://other.example"] }), "repeated_audience", "invalid_request");
+    await refused(host, await exchange(host, client, idToken, { audience: [AUDIENCE, AUDIENCE] }), "repeated_audience", "invalid_request");
+    for (const audience of ["http://rs.example", "https://rs.example/#x", "https://rs.example/?a=1", "rs.example", "https://user@rs.example", "https://rs.example/ a", "", ISSUER]) {
       const r = await exchange(host, client, idToken, { audience });
       // An empty audience is a missing one.
       await refused(host, r, audience === "" ? "missing_parameter" : "invalid_audience", audience === "" ? "invalid_request" : "invalid_target");
@@ -184,10 +188,10 @@ describe("refusals: the subject token (S6)", () => {
     const { client } = await setup(host);
     const o = await setup(other, { grantTypes: ["authorization_code"] });
     expect(decodeJwt(o.idToken).iss).toBe("http://other.localhost:3000/api/auth");
-    await refused(host, await exchange(host, client, o.idToken), "invalid_subject_token", "invalid_grant");
+    await refused(host, await exchange(host, client, o.idToken), "invalid_subject_token", "invalid_request");
     // Forged with our client as audience but another iss: refused at iss, before any key.
     const f = await forged({ iss: "https://trusted-elsewhere.example", aud: client.client_id });
-    await refused(host, await exchange(host, client, f.token), "invalid_subject_token", "invalid_grant");
+    await refused(host, await exchange(host, client, f.token), "invalid_subject_token", "invalid_request");
   });
 
   it("refuses, by step: another client's ID token, a forged key, a tampered payload, wrong typ (an ID-JAG), alg none/HS256, no kid, not a JWT", async () => {
@@ -196,7 +200,7 @@ describe("refusals: the subject token (S6)", () => {
     const { client, idToken, user, owner } = await setup(host);
     const second = await createClient(host, owner.browser);
     const step = async (token: string, c = client) => {
-      await refused(host, await exchange(host, c, token), "invalid_subject_token", "invalid_grant");
+      await refused(host, await exchange(host, c, token), "invalid_subject_token", "invalid_request");
     };
     await step(idToken, second); // aud is the first client
     await step((await forged({ aud: client.client_id, sub: user.id })).token); // unknown kid
@@ -236,7 +240,7 @@ describe("refusals: the subject token (S6)", () => {
     const host = await createIssuerHost({ provider: { idTokenExpiresIn: 1 }, issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
     await new Promise((r) => setTimeout(r, 2100));
-    await refused(host, await exchange(host, client, idToken), "subject_token_expired", "invalid_grant");
+    await refused(host, await exchange(host, client, idToken), "subject_token_expired", "invalid_request");
   });
 
   it("a pairwise client's ID token is refused explicitly (its sub isn't the user id)", async () => {
@@ -245,7 +249,7 @@ describe("refusals: the subject token (S6)", () => {
     const pairwise = await createClient(host, owner.browser, { extra: { subject_type: "pairwise" } });
     const idToken = await getIdToken(host, owner.browser, pairwise);
     expect(decodeJwt(idToken).sub).not.toBe(owner.id);
-    await refused(host, await exchange(host, pairwise, idToken), "invalid_subject_token", "invalid_grant");
+    await refused(host, await exchange(host, pairwise, idToken), "pairwise_client", "access_denied");
     expect(host.recorded.refused.length).toBe(0);
   });
 
@@ -253,14 +257,14 @@ describe("refusals: the subject token (S6)", () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const a = await setup(host);
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: a.user.id }], update: { banned: true } });
-    await refused(host, await exchange(host, a.client, a.idToken), "banned_user", "invalid_grant");
+    await refused(host, await exchange(host, a.client, a.idToken), "banned_user", "access_denied");
     // A ban that has expired doesn't count.
     await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: a.user.id }], update: { banExpires: new Date(Date.now() - 1000) } });
     expect((await exchange(host, a.client, a.idToken)).status).toBe(200);
     const b = await setup(host);
     await host.ctx.adapter.deleteMany({ model: "session", where: [{ field: "userId", value: b.user.id }] });
     await host.ctx.adapter.delete({ model: "user", where: [{ field: "id", value: b.user.id }] });
-    await refused(host, await exchange(host, b.client, b.idToken), "unknown_subject", "invalid_grant");
+    await refused(host, await exchange(host, b.client, b.idToken), "unknown_subject", "access_denied");
   });
 });
 
@@ -270,14 +274,14 @@ describe("refusals: policy (S1, S7)", () => {
     const host = await createIssuerHost({ auth: { logger: { level: "warn", log: (_l: string, m: string) => void warnings.push(m) } } });
     expect(warnings.some((w) => w.includes("no policy source"))).toBe(true);
     const { client, idToken } = await setup(host);
-    await refused(host, await exchange(host, client, idToken), "no_policy", "invalid_grant");
+    await refused(host, await exchange(host, client, idToken), "no_policy", "access_denied");
   });
 
   it("the hook denies, throws, or answers something malformed: policy_denied (a reason goes to the audit only)", async () => {
     let verdict: () => unknown = () => ({ decision: "deny", reason: "not on a weekend\n" });
     const host = await createIssuerHost({ issuer: { authorize: (() => verdict()) as never } });
     const { client, idToken } = await setup(host);
-    await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+    await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
     for (const v of [
       () => {
         throw new Error("boom");
@@ -289,7 +293,7 @@ describe("refusals: policy (S1, S7)", () => {
       () => undefined,
     ]) {
       verdict = v;
-      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
     }
   });
 
@@ -299,7 +303,7 @@ describe("refusals: policy (S1, S7)", () => {
     const { client, idToken } = await setup(host);
     for (const a of ["yes", 1, null, { sub: "someone-else" }, { sub_profile: "" }, { sub_profile: "ai\nagent" }, { sub_profile: "x".repeat(257) }, { sub_profile: 7 }]) {
       act = a;
-      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
     }
   });
 
@@ -313,7 +317,7 @@ describe("refusals: policy (S1, S7)", () => {
       // one after the space), private use, unassigned (U+2065, which the audit would strip), a noncharacter, a lone surrogate.
       "ai_agent\u3164web_app", "\u115fai", "ai\uffa0", "ai\u2800agent", "ai\ufe0f", "ai\u{e0100}", "ai\u034fagent", "ai_agent \u0301web_app", "ai\ue000", "ai\u2065agent", "ai\uffff", "ai\ud800agent"]) {
       sub_profile = p;
-      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
     }
     // Space-separated names (Okta's form), non-ASCII letters, symbols, 256 code points (zod counts code points) are fine.
     for (const p of ["ai_agent", "ai_agent web_app", "agent-é", "x".repeat(256), "🤖".repeat(256), "urn:example:agent/v1"]) {
@@ -376,7 +380,7 @@ describe("refusals: policy (S1, S7)", () => {
       { uri: `https://idp.example/${"x".repeat(2048)}` },
     ]) {
       stepUp = s;
-      await refused(host, await exchange(host, client, idToken), "policy_denied", "invalid_grant");
+      await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
     }
     // At the edges: every allowed punctuation mark, 300 characters, a bare max_age of 0.
     for (const s of [{ description: "Confirm it's you: https://idp.example/x?a=1&b=[2] {ok} ~!@$%^*()_+-=|;,./<>?`" }, { description: "x".repeat(300) }, { maxAge: 0 }]) {
@@ -394,12 +398,30 @@ describe("refusals: policy (S1, S7)", () => {
   it("the hook names another resource than the one asked for: policy_denied", async () => {
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read"], resource: "https://elsewhere.example/mcp" }) } });
     const { client, idToken } = await setup(host);
-    await refused(host, await exchange(host, client, idToken, { resource: RESOURCE }), "policy_denied", "invalid_grant");
+    await refused(host, await exchange(host, client, idToken, { resource: RESOURCE }), "policy_denied", "access_denied");
+  });
+
+  it("the hook says the audience is unknown: unknown_audience, invalid_target (draft -06 §4.3.3, D-059); its reason goes to the audit only", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: ({ audience }) => (audience === AUDIENCE ? allow() : { decision: "unknown_audience", reason: "SECRET-REASON" }) } });
+    const { client, idToken } = await setup(host);
+    const r = await exchange(host, client, idToken, { audience: "https://elsewhere.example" });
+    expect(host.recorded.refused.at(-1)?.detail).toBe("authorize: SECRET-REASON");
+    await refused(host, r, "unknown_audience", "invalid_target");
+    expect(JSON.stringify(r.body)).not.toContain("SECRET-REASON");
+    expect((await exchange(host, client, idToken)).status).toBe(200);
+  });
+
+  it("an administrator's block wins over an unknown audience: access_denied, as any block", async () => {
+    // Blocks run before every policy source, so a blocked user learns nothing about which audiences exist.
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "unknown_audience" }), blocks: { canManage: () => true } } });
+    const { client, idToken, user, owner } = await setup(host);
+    await host.ctx.adapter.create({ model: "idJagBlock", data: { userId: user.id, clientId: null, audience: null, reason: "r", createdBy: owner.id, createdAt: new Date(), expiresAt: null } });
+    await refused(host, await exchange(host, client, idToken), "blocked", "access_denied");
   });
 });
 
-describe("S8: unknown user, banned user, no policy, policy denied and a foreign ID token look the same", () => {
-  it("one status and body for all of them", async () => {
+describe("S8: unknown user, banned user, no policy and policy denied look the same; a foreign ID token is a bad subject token", () => {
+  it("one status and body for the authorization failures (access_denied, D-059); invalid_request for the token", async () => {
     let decision: "allow" | "deny" = "allow";
     const policyHost = await createIssuerHost({ issuer: { authorize: () => (decision === "allow" ? allow() : { decision: "deny" }) } });
     const bare = await createIssuerHost({});
@@ -418,10 +440,13 @@ describe("S8: unknown user, banned user, no policy, policy denied and a foreign 
     record(await exchange(policyHost, b.client, b.idToken)); // unknown_subject
     const c = await setup(bare);
     record(await exchange(bare, c.client, c.idToken)); // no_policy
-    record(await exchange(policyHost, a.client, c.idToken)); // invalid_subject_token
-    expect([...takeReasons(policyHost), ...takeReasons(bare)].sort()).toEqual(["banned_user", "invalid_subject_token", "no_policy", "policy_denied", "unknown_subject"]);
+    expect([...takeReasons(policyHost), ...takeReasons(bare)].sort()).toEqual(["banned_user", "no_policy", "policy_denied", "unknown_subject"]);
     expect(new Set(answers).size).toBe(1);
-    expect(JSON.parse(answers[0]!)).toEqual([400, GENERIC_GRANT]);
+    expect(JSON.parse(answers[0]!)).toEqual([400, GENERIC_DENIED]);
+    // Draft -06 §4.3.4.3: an ID token issued to another client failed validation: invalid_request, generic.
+    const foreign = await exchange(policyHost, a.client, c.idToken);
+    expect([foreign.status, foreign.body]).toEqual([400, GENERIC_REQUEST]);
+    expect(takeReasons(policyHost)).toEqual(["invalid_subject_token"]);
   });
 });
 

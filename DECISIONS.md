@@ -1252,3 +1252,37 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   OSV list and to Dependabot's ignore list for that folder. Not added to `allow-ghsas` (as D-054's later entries).
 - **Evidence:** typecheck, lint, `docs:check`, `pack:check`, `pnpm audit --prod` clean; the suite 981 passed,
   125 skipped (unchanged from D-057); the SAML end-to-end project on 1.7.15, 19 passed.
+
+## D-059: error codes as draft -06 profiles them (2026-11-03)
+
+ID-JAG draft -05 (2026-10-30) profiles error codes on both sides, and -06 (2026-10-31) changes one of them. Until now
+every refusal that depends on trust, users or policy was one generic `invalid_grant` (S8). Mark chose, 2026-11-03, to
+follow the draft (decisions D1 and D2 in the private draft -06 plan).
+
+- **Issuer** (§4.3.3, §4.3.4.3). A subject token that fails validation → `invalid_request` (RFC 8693 §2.2.2: "a new
+  subject token may help"): `invalid_subject_token`, `subject_token_expired`, and for SAML Assertions two new reasons,
+  `subject_token_replay` and `subject_token_not_yet_valid` (the receiver's `replay` and `not_yet_valid` stay
+  `invalid_grant`, so one reason keeps one code). More than one `audience` → `invalid_request` (`repeated_audience`).
+  An audience with no resource server → `invalid_target` (`unknown_audience`): from the registry when it has no row
+  for the audience, and from the `authorize` hook when it returns the new `{ decision: "unknown_audience" }` (a hook
+  can't otherwise tell "unknown" from "not allowed"). A valid subject token whose user or client isn't allowed →
+  `access_denied`: `policy_denied`, `blocked`, `no_policy`, `unknown_subject`, `banned_user`, and a pairwise client
+  (`pairwise_client`, was `invalid_subject_token`: a new subject token would not help).
+- **Receiver** (§4.4.3). A valid ID-JAG whose subject isn't allowed here → `access_denied`: `unknown_subject`,
+  `subject_rejected`, `banned_user`. These run after every trust check, so trust failures still look alike.
+  Failures a retry may fix are not authorization answers: a lost first-use race, a database error, a
+  `resolveSubject` that throws and a SCIM conflict that outlasts its retries are `subject_unavailable`
+  (`invalid_grant`), not `subject_rejected`. Found because the concurrency tests' losers turned `access_denied`. A
+  malformed `sub_id` is the ID-JAG failing a check: `invalid_claim` (public, `invalid_grant`).
+- **What S8 still holds.** Descriptions stay generic for every non-public reason. Within `invalid_grant` (trust)
+  and within `access_denied` (authorization) the caller can't tell reasons apart. What it now learns: whether its
+  token was bad or the answer was no, and, at the issuer, whether an audience has a resource server. The caller there
+  is an authenticated client of ours, so the second tells it only which audiences we serve. Blocks still run first: a
+  blocked user gets `access_denied` for any audience.
+- **Not in this change** (the rest of draft -06): the receiver checking every identifier in the `resource` claim,
+  `allowPublicClients` (kept, marked as outside the draft), RS256 documentation and metadata, section numbers,
+  `SUPPORTED_DRAFT`.
+- **Evidence:** `test/core/errors.test.ts` pins the code of every changed reason and the two shared bodies;
+  `test/issuer/refusals.test.ts`, `registry.test.ts`, the SAML and refresh-token subject tests, and the receiver tests
+  assert each body; `test/interop/self.test.ts` runs the hook's `unknown_audience` end to end. 9 new mutants and
+  the 9 changed ones caught (one documented survivor, unchanged).

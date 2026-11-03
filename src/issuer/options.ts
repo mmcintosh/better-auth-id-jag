@@ -92,7 +92,18 @@ export interface AuthorizeDeny {
   stepUp?: { maxAge?: number | undefined; acrValues?: string[] | undefined; description?: string | undefined; uri?: string | undefined } | undefined;
 }
 
-export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny;
+/**
+ * The audience names no resource server this host serves (draft -06 §4.3.3): the caller gets `invalid_target`, not
+ * `access_denied`, so it knows to change the request. Return it only for an audience you don't know at all, not for
+ * one this user or client may not use (that is a deny).
+ */
+export interface AuthorizeUnknownAudience {
+  decision: "unknown_audience";
+  /** For the audit log only (log-safe there); never sent to the caller. */
+  reason?: string | undefined;
+}
+
+export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny | AuthorizeUnknownAudience;
 
 /** Who may use an admin API: the acting user as the database has it now, and the session. */
 export type CanManage = (input: { user: User & Record<string, unknown>; session: Record<string, unknown> }) => Awaitable<boolean>;
