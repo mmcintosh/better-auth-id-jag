@@ -2,7 +2,7 @@
 // the hosts of a workerd test file share one D1 and its jwks table). Refusals: refusals.test.ts.
 import { decodeJwt, decodeProtectedHeader } from "jose";
 import { describe, expect, it } from "vitest";
-import { ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, JTI_MODEL, hasJti, TOKEN_EXCHANGE_GRANT } from "../../src/core";
+import { ID_JAG_TOKEN_TYPE, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, JTI_MODEL, hasJti, TOKEN_EXCHANGE_GRANT } from "../../src/core";
 import type { AuthorizeInput } from "../../src/issuer";
 import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
 import { AUDIENCE, BASE, createIssuerHost, exchange, ISSUER, RESOURCE, setup, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
@@ -263,7 +263,7 @@ describe.skipIf(!BETTER_AUTH_1_8)("on Better Auth 1.8, how the person signed in 
 });
 
 describe("discovery metadata", () => {
-  it("advertises identity_chaining_requested_token_types_supported and the grant", async () => {
+  it("advertises identity_chaining_requested_token_types_supported and the grant; no id_jag_signing_alg_values_supported for an ES256 issuer (draft -06 §7.1: it MUST include RS256)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allowRead } });
     for (const path of ["/.well-known/oauth-authorization-server/api/auth", "/api/auth/.well-known/openid-configuration"]) {
       const res = await host.auth.handler(new Request(`${BASE}${path}`));
@@ -271,6 +271,7 @@ describe("discovery metadata", () => {
       const doc = (await res.json()) as Record<string, unknown>;
       expect(doc[ISSUER_METADATA_FIELD], path).toEqual([ID_JAG_TOKEN_TYPE]);
       expect(doc.grant_types_supported, path).toContain(TOKEN_EXCHANGE_GRANT);
+      expect(doc, path).not.toHaveProperty(ISSUER_SIGNING_ALG_METADATA_FIELD);
     }
   });
 });

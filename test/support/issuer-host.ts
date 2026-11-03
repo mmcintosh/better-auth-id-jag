@@ -295,6 +295,17 @@ export async function setup(host: IssuerHost, o: { clientExtra?: Record<string, 
   return { user, owner, client, idToken };
 }
 
+/** The host's two discovery documents (RFC 8414, path-inserted, and OpenID Discovery), by path. */
+export async function discoveryDocs(host: IssuerHost): Promise<[string, Record<string, unknown>][]> {
+  const out: [string, Record<string, unknown>][] = [];
+  for (const path of ["/.well-known/oauth-authorization-server/api/auth", "/api/auth/.well-known/openid-configuration"]) {
+    const res = await host.auth.handler(new Request(`${BASE}${path}`));
+    if (res.status !== 200) throw new Error(`${path}: ${res.status}`);
+    out.push([path, (await res.json()) as Record<string, unknown>]);
+  }
+  return out;
+}
+
 /** The exit criterion's check: the core's verifyIdJag against the host's JWKS, fetched over its own /jwks route. */
 export async function verifyWithHostJwks(host: IssuerHost, token: string, o: { audience?: string; issuer?: string } = {}) {
   const { createLocalJWKSet } = await import("jose");

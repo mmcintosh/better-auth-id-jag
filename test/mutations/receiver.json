@@ -1857,5 +1857,23 @@
    "test/core/errors.test.ts",
    "test/receiver/hosts.test.ts"
   ]
+ },
+ {
+  "name": "D-061 receiver public-client warning dropped",
+  "file": "src/receiver/plugin.ts",
+  "a": "if (resolved.allowPublicClients) ctx.logger.warn(\"[id-jag] allowPublicClients",
+  "b": "if (resolved.allowPublicClients) void (\"[id-jag] allowPublicClients",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-061 receiver public-client warning loses the draft section",
+  "file": "src/receiver/plugin.ts",
+  "a": "This is outside draft -06 §4.4, which",
+  "b": "The draft says",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
  }
 ]

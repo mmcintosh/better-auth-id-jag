@@ -1309,3 +1309,26 @@ the ID-JAG was not issued for resources it governs."
   `test/receiver/hosts.test.ts` (two registered resources, both claimed), `test/issuer/refusals.test.ts` (the token
   types, the pass-through). 5 new mutants caught; the `at+jwt` one first survived (the access token is also refused
   later, by `aud`), so the test now pins the `typ` step.
+
+## D-061: public clients outside the draft; RS256 documented and advertised (2026-11-03)
+
+Draft -06 makes client authentication a MUST on both sides (§4.3.3: "The IdP MUST authenticate the Client"; §4.4: a
+request with "neither client authentication nor a sender-constrained ID-JAG" MUST be refused), RS256 mandatory to
+implement (§3), and adds an OPTIONAL issuer metadata field, `id_jag_signing_alg_values_supported`, which "if present,
+... MUST include RS256" (§7.1). Mark's decisions D3 and D4, 2026-11-03.
+
+- **`allowPublicClients` stays** on both sides, off by default, with the same behaviour. Removing it would break a
+  host that relies on it for no gain to a host that doesn't; deprecating it would promise a removal we haven't
+  decided. The startup warning now names the draft section it is outside of, and the README's conformance rows are ⚠️
+  with that wording. The receiver's wording says sender-constrained ID-JAGs aren't supported here (DPoP, refused),
+  so the exception in §4.4 doesn't apply.
+- **No change to the signing default.** It stays the `jwt()` plugin's key (EdDSA through Better Auth 1.7): making
+  RS256 the default would add a key to an existing host's JWKS and change the algorithm under its receivers. The
+  README and `docs/security.md` say to set `signingAlgorithm: "RS256"` for a receiver that accepts only RS256.
+- **Metadata.** `checkIssuerHost` keeps the algorithm it resolved (`state.signingAlgorithm`); the metadata
+  extension publishes `["RS256"]` only when that is RS256. We sign with one algorithm, so the list is that one; any
+  other algorithm can't be published (the list would have to include RS256, which we wouldn't use).
+- **Evidence:** `test/issuer/rs256.test.ts` (RS256 host: published in both discovery documents, and the ID-JAG is
+  RS256), `test/issuer/signing-default.test.ts` (no `keyPairConfig`: published only if Better Auth's default is RS256;
+  RS256 from `keyPairConfigs`: published), `test/issuer/exchange.test.ts` (ES256: absent), the two warning tests.
+  7 new mutants caught.

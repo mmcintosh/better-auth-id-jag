@@ -3,8 +3,8 @@
 // one jwks table.
 import { decodeProtectedHeader } from "jose";
 import { describe, expect, it } from "vitest";
-import { ALLOWED_ALGORITHMS } from "../../src/core";
-import { createIssuerHost, exchange, setup, verifyWithHostJwks } from "../support/issuer-host";
+import { ALLOWED_ALGORITHMS, ISSUER_SIGNING_ALG_METADATA_FIELD } from "../../src/core";
+import { createIssuerHost, discoveryDocs, exchange, setup, verifyWithHostJwks } from "../support/issuer-host";
 
 const allow = () => ({ decision: "allow" as const, scopes: ["read"] });
 
@@ -17,6 +17,8 @@ describe("no keyPairConfig: Better Auth's default algorithm (#19)", () => {
     const { header } = await verifyWithHostJwks(host, r.body.access_token as string);
     expect(header.alg).toBe(decodeProtectedHeader(idToken).alg);
     expect(ALLOWED_ALGORITHMS as readonly string[]).toContain(header.alg);
+    // The signing-algorithm metadata appears only when that default is RS256 (D-061).
+    for (const [path, doc] of await discoveryDocs(host)) expect(doc[ISSUER_SIGNING_ALG_METADATA_FIELD], path).toEqual(header.alg === "RS256" ? ["RS256"] : undefined);
   });
 
   it("signingAlgorithm RS256 from keyPairConfigs, with no keyPairConfig: the ID-JAG is RS256", async () => {
@@ -25,5 +27,6 @@ describe("no keyPairConfig: Better Auth's default algorithm (#19)", () => {
     const r = await exchange(host, client, idToken);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect((await verifyWithHostJwks(host, r.body.access_token as string)).header.alg).toBe("RS256");
+    for (const [path, doc] of await discoveryDocs(host)) expect(doc[ISSUER_SIGNING_ALG_METADATA_FIELD], path).toEqual(["RS256"]);
   });
 });
