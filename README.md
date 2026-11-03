@@ -5,8 +5,8 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 [![npm](https://img.shields.io/npm/v/better-auth-id-jag)](https://www.npmjs.com/package/better-auth-id-jag)
 [![CI](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml)
 [![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.10%20%3C1.8-black)](https://www.better-auth.com)
-[![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#-runtimes-and-databases)
-[![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--04-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
+[![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#runtimes-and-databases)
+[![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--06-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mmcintosh/better-auth-id-jag/badge)](https://scorecard.dev/viewer/?uri=github.com/mmcintosh/better-auth-id-jag)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15294/badge)](https://www.bestpractices.dev/projects/15294)
@@ -19,33 +19,31 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 ```
 
 > [!WARNING]
-> **Experimental: this implements a draft, not a finished standard.** ID-JAG is an IETF Internet-Draft, [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/), still being worked on in the OAuth working group, and MCP's Enterprise-Managed Authorization builds on it. Its claims, URNs and rules can still change, and while they do, a 0.x minor release follows them, even when that breaks your setup. 1.0 waits until the draft settles. The **issuer** (`idJagIssuer()`) is newer than the receiver, and experimental in its own right. Review it for your own threat model before you rely on it in production.
+> **Experimental: this implements a draft, not a finished standard.** ID-JAG is an IETF Internet-Draft, [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/), still being worked on in the OAuth working group, and MCP's Enterprise-Managed Authorization builds on it. Its claims, URNs and rules can still change, and while they do, a 0.x minor release follows them, even when that breaks your setup. 1.0 waits until the draft settles. The **issuer** (`idJagIssuer()`) is newer than the receiver, and experimental in its own right. Review it for your own threat model before you rely on it in production.
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#-conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#-interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
-If it's useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
+## Features
 
-## ✨ Features
+- **Both roles in one package**: `idJagIssuer()` turns a Better Auth IdP (on `@better-auth/oauth-provider`) into an ID-JAG issuer over RFC 8693 token exchange; `idJagGrant()` lets an MCP server's authorization server (on `mcp()` or `oauthProvider()`) redeem them over the RFC 7523 jwt-bearer grant. Use either alone with any other implementation of the draft.
+- **Policy you control**: a code hook (`authorize`), a database registry of resource servers and policies with an admin API, or both, where **both must allow** and the narrower outcome wins: fewer scopes, shorter lifetime.
+- **Three kinds of subject token**: an ID token this IdP issued, a refresh token it issued (the draft's MAY, which Okta's conformance tooling and long-running agents use), or, experimentally, a SAML assertion from [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp), directly or through a refresh token as the draft's §4.5 and MCP describe.
+- **Blocks**: stop a user, a client, an audience or any combination from getting ID-JAGs, now or until a date, through the API; or block from a `jti` seen in the audit log.
+- **Strict at the receiver**: `typ` must be `oauth-id-jag+jwt`; RS256, ES256 and EdDSA (`EdDSA` or `Ed25519`) only, no `HS*`, no `none`; `aud` compared exactly with the issuer identifier; the ID-JAG's `client_id` must be the authenticated client; lifetime capped at 900 s; **single use** enforced by a database unique key.
+- **Generic refusals**: the error code tells the caller whether a new token can help (draft -06), and nothing more: one untrusted issuer looks like another, or like a bad signature (`invalid_grant`); an unknown user looks like a denied policy (`access_denied`). Only defects in what they sent themselves (a missing claim, a malformed JWT) are named; the real reason goes to the audit log.
+- **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
+- **Subject resolution in a fixed order**: users your IdP provisioned over SCIM (when you link the issuer to a SCIM connection), else linked accounts, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
+- **SCIM-provisioned users**: with `@better-auth/scim` at your app, ID-JAGs resolve to the users the IdP provisioned, and deprovisioning at the IdP stops the agent there too.
+- **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token, and the issuer can send one for the clients your policy says are agents.
+- **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
+- **Testing**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
+- **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
 
-- 🔁 **Both roles in one package**: `idJagIssuer()` turns a Better Auth IdP (on `@better-auth/oauth-provider`) into an ID-JAG issuer over RFC 8693 token exchange; `idJagGrant()` lets an MCP server's authorization server (on `mcp()` or `oauthProvider()`) redeem them over the RFC 7523 jwt-bearer grant. Use either alone with any other implementation of the draft.
-- 🚦 **Policy you control**: a code hook (`authorize`), a database registry of resource servers and policies with an admin API, or both, where **both must allow** and the narrower outcome wins: fewer scopes, shorter lifetime.
-- 🎫 **Three kinds of subject token**: an ID token this IdP issued, a refresh token it issued (the draft's MAY, which Okta's conformance tooling and long-running agents use), or, experimentally, a SAML assertion from [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp), directly or through a refresh token as the draft's §4.5 and MCP describe.
-- 🛑 **Blocks**: stop a user, a client, an audience or any combination from getting ID-JAGs, now or until a date, through the API; or block from a `jti` seen in the audit log.
-- 🔐 **Strict at the receiver**: `typ` must be `oauth-id-jag+jwt`; RS256, ES256 and EdDSA (`EdDSA` or `Ed25519`) only, no `HS*`, no `none`; `aud` compared exactly with the issuer identifier; the ID-JAG's `client_id` must be the authenticated client; lifetime capped at 900 s; **single use** enforced by a database unique key.
-- 🤐 **Refusals that don't leak**: the caller can't tell an unknown user from a denied policy from an untrusted issuer. Only defects in what they sent themselves (a missing claim, a malformed JWT) are named; the real reason goes to the audit log.
-- 🏛️ **Trusted issuers from three places**: in code, from the OIDC providers you already have in `@better-auth/sso` (opt-in), or from a table, each with optional client allow-lists and `tenant` pinning.
-- 👤 **Subject resolution you can reason about**: users your IdP provisioned over SCIM (when you link the issuer to a SCIM connection), else linked accounts, then (only if you allow it) email fallback for listed domains, then (only if you allow it) JIT provisioning from a verified email, with organization membership. A `resolveSubject` hook runs before all of it.
-- 👥 **SCIM-provisioned users**: with `@better-auth/scim` at your app, ID-JAGs resolve to the users the IdP provisioned, and deprovisioning at the IdP stops the agent there too.
-- 🤖 **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token, and the issuer can send one for the clients your policy says are agents.
-- 📈 **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
-- 🧪 **Tested as if it matters**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
-- ☁️ **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
+## Contents
 
-## 📚 Contents
+[Install](#install) · [Quick start](#quick-start) · [Issuer](#issuer-idjagissuer) · [Receiver](#receiver-idjaggrant) · [Database tables](#database-tables) · [Audit events](#audit-events) · [Errors](#errors) · [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#conformance) · [Interoperability](#interoperability) · [Example](#example-two-workers) · [Runtimes and databases](#runtimes-and-databases) · [Not yet](#not-yet) · [Security](#security) · [Development](#development)
 
-[Install](#-install) · [Quick start](#-quick-start) · [Issuer](#-issuer-idjagissuer) · [Receiver](#-receiver-idjaggrant) · [Database tables](#-database-tables) · [Audit events](#-audit-events) · [Errors](#-errors) · [What ID-JAG controls](#-what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#-conformance) · [Interoperability](#-interoperability) · [Example](#-example-two-workers) · [Runtimes and databases](#-runtimes-and-databases) · [Not yet](#-not-yet) · [Security](#-security) · [Development](#-development)
-
-## 📦 Install
+## Install
 
 ```sh
 npm install better-auth-id-jag
@@ -53,7 +51,7 @@ npm install better-auth-id-jag
 
 Requires Better Auth `>=1.7.10 <1.8.0` (1.7.7 fixed account-takeover advisories; see the [CHANGELOG](CHANGELOG.md)), `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
 
-## ⚡ Quick start
+## Quick start
 
 **At the identity provider**, where people sign in:
 
@@ -113,9 +111,9 @@ Then create the tables with your usual migration (`npx auth migrate`, or `npx au
 > [!IMPORTANT]
 > **The audience is the authorization server's issuer, exactly as its metadata publishes it**, path included: the `issuer` field of `/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. Not the MCP resource, not the bare origin, not with a trailing slash. The receiver compares it exactly. In Okta, that is the value for the resource app's **Machine Assignments** tab, **Resource server access**, **Issuer URL** ([docs/okta.md](docs/okta.md) has the whole Okta setup).
 
-## 🏢 Issuer: `idJagIssuer()`
+## Issuer: `idJagIssuer()`
 
-> **Experimental.** The issuer works and is tested, including against Keycloak and node-oauth2-server, but no production client has used it yet. Its options and admin API may change in a 0.x minor release. Better Auth may also add a general RFC 8693 token-exchange plugin (better-auth/better-auth#8023). Two extensions can't register the same grant type, so this plugin may then have to sit on top of that one. The handler is also exported as a plain function (`handleTokenExchange`) for that reason. The receiver isn't affected.
+> **Experimental.** The issuer works and is tested, including against Keycloak and node-oauth2-server, but no production client has used it yet. Its options and admin API may change in a 0.x minor release. Better Auth 1.8 adds its own token exchange on the same grant type: see [Another token exchange](#another-token-exchange) to run both. The handler is also exported as a plain function (`handleTokenExchange`). The receiver isn't affected.
 
 Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint, advertises `identity_chaining_requested_token_types_supported` in its metadata (and `id_jag_signing_alg_values_supported` when it signs RS256), and signs ID-JAGs with the `jwt()` plugin's keys.
 
@@ -134,7 +132,7 @@ Adds the token-exchange grant to `@better-auth/oauth-provider`'s token endpoint,
 | `sweepIntervalSeconds` | `3600` | Seconds between opportunistic sweeps of expired rows, per isolate. `0` never sweeps. |
 | `saml` | | Experimental: `{ subjectTokens?, refreshTokens? }`. See [SAML subject tokens](#saml-subject-tokens). |
 | `otherTokenExchange` | | A token-exchange handler for the requests this plugin doesn't serve, such as Better Auth 1.8's own. See [Another token exchange](#another-token-exchange). |
-| `events` | | `{ onIssued?, onRefreshIssued?, onAccepted?, onRefused?, onAdminChanged? }`. See [Audit events](#-audit-events). |
+| `events` | | `{ onIssued?, onRefreshIssued?, onAccepted?, onRefused?, onAdminChanged? }`. See [Audit events](#audit-events). |
 | `auditLog` | | `{ retentionDays }` (1 to 3650): also write events to the `idJagAudit` table. |
 
 Options are checked when the plugin starts: an unknown key, a misspelling or an out-of-range number stops it with a message naming each problem, rather than silently switching a check off.
@@ -153,7 +151,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 
 A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `access_denied`. For an audience you don't serve at all, return `{ decision: "unknown_audience" }` instead: the caller gets `invalid_target`, which tells it to change the request rather than ask for access (draft -06 §4.3.3). Use it only for an audience you don't know, never for one this user or client may not use. With the registry, an audience with no resource server is `invalid_target` already.
 
-**Step-up** (draft -04 §9.2). To tell the client the person must sign in again, for example because their second factor is older than the resource allows, deny with `stepUp`:
+**Step-up** (draft -06 §9.3). To tell the client the person must sign in again, for example because their second factor is older than the resource allows, deny with `stepUp`:
 
 ```ts
 authorize: ({ subjectToken }) =>
@@ -164,7 +162,7 @@ authorize: ({ subjectToken }) =>
 
 The client gets HTTP 400 `{ "error": "insufficient_user_authentication", "error_description": "Confirm it's you, then try again.", "error_uri": "https://idp.example.com/confirm", "max_age": 300 }`, RFC 9470's parameters (`acrValues` becomes `acr_values`). All four fields are optional; the description defaults to "The subject does not meet the authentication requirements." `description` is printable ASCII without `"` or `\` (at most 300 characters), `uri` an absolute https URL without credentials or a fragment; anything else is a malformed verdict (`policy_denied`). A step-up tells the client that this user got past identity and policy lookup, so return it only for that. An administrator's block, or a registry that refuses, still answers with the generic body: the hook runs after them. Whether the client shows the description or opens the link to the person is up to the client.
 
-**The client has two ids.** The MCP server registers the agent and gives it its own client id; the ID-JAG's `client_id` must be that one, because the receiver checks it against the client that presents the ID-JAG. Keep the mapping somewhere the policy can read it, for example in the IdP client's metadata, as [the example](#-example-two-workers) does.
+**The client has two ids.** The MCP server registers the agent and gives it its own client id; the ID-JAG's `client_id` must be that one, because the receiver checks it against the client that presents the ID-JAG. Keep the mapping somewhere the policy can read it, for example in the IdP client's metadata, as [the example](#example-two-workers) does.
 
 ### Registry and admin API
 
@@ -220,7 +218,7 @@ betterAuth({
 });
 ```
 
-- **(b) is what Okta and MCP's Enterprise-Managed Authorization use** (draft -04 §4.5). The client sends `requested_token_type=urn:ietf:params:oauth:token-type:refresh_token`, `scope=openid offline_access …` and no `audience` or `resource`. It gets back `{ issued_token_type: …:refresh_token, access_token: <the refresh token>, token_type: "N_A", scope, expires_in }`, then exchanges that refresh token for ID-JAGs as usual. Only confidential clients that list `refresh_token` in their grant types can do this. The scopes must include `openid` and `offline_access` and stay within your list, the client's and the provider's. Bans and (user), (user, client) and (client) blocks apply. The ID-JAG policy runs later, when the refresh token is exchanged. Each refresh token issued emits `onRefreshIssued`.
+- **(b) is what Okta and MCP's Enterprise-Managed Authorization use** (draft -06 §4.5). The client sends `requested_token_type=urn:ietf:params:oauth:token-type:refresh_token`, `scope=openid offline_access …` and no `audience` or `resource`. It gets back `{ issued_token_type: …:refresh_token, access_token: <the refresh token>, token_type: "N_A", scope, expires_in }`, then exchanges that refresh token for ID-JAGs as usual. Only confidential clients that list `refresh_token` in their grant types can do this. The scopes must include `openid` and `offline_access` and stay within your list, the client's and the provider's. Bans and (user), (user, client) and (client) blocks apply. The ID-JAG policy runs later, when the refresh token is exchanged. Each refresh token issued emits `onRefreshIssued`.
 
   **It is an ordinary refresh token from your provider**, the same as one from a sign-in, and that is what the draft and Okta specify. At `grant_type=refresh_token` it yields your IdP's own access tokens and ID tokens (for the scopes it was issued with), until it expires or is revoked. No consent row is created: the SP's `tokenExchange` mapping in better-auth-saml-idp is the authorization. So keep `refreshTokens.scopes` to what the agent needs. The example above, which is also the default, allows `profile` and `email`, so that refresh token can read the user's profile and email at `/oauth2/userinfo`. A block stops its exchange for ID-JAGs, not its use at `grant_type=refresh_token`; revoke it at `/oauth2/revoke` to stop both.
 - **(a)** exchanges the Assertion directly for an ID-JAG, through the same policy as an ID token. `auth_time` is its AuthnInstant and `acr` its AuthnContextClassRef.
@@ -245,7 +243,7 @@ plugins: [
 - **`tokenExchangeFrom(plugin)`** runs the plugin's `init` once against a stand-in and keeps the handler it registers. It throws if the plugin does anything that would be lost that way (endpoints, schema, hooks, other grants, metadata), so an upgrade of the other plugin can't silently drop part of it.
 - Listing both plugins anyway stops startup with a message that says this. Any handler of the same shape works as `otherTokenExchange`, not only Better Auth's.
 
-## 🔑 Receiver: `idJagGrant()`
+## Receiver: `idJagGrant()`
 
 Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvider()`) and advertises `authorization_grant_profiles_supported`. For each request it checks, in order:
 1. the client authenticated, and is confidential;
@@ -258,7 +256,7 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 8. single use of `jti`;
 9. the subject.
 
-**Single use, deliberately.** Draft §4.4.3 lets a client re-present an unexpired ID-JAG for a new access token, and whether a resource authorization server should refuse that is an open question ([oauth-wg issue #130](https://github.com/oauth-wg/oauth-identity-assertion-authz-grant/issues/130)). This receiver accepts each ID-JAG **once**. Keycloak, node-oauth2-server and Authelia's library do the same. A client that needs another access token gets a fresh ID-JAG from the IdP, which keeps revocation at the IdP. An ID-JAG is burnt at step 8 even when step 9 then refuses it, so a captured token can't be used to probe for users. The access token it issues is audience-restricted to the resource.
+**Single use, deliberately.** Draft -06 §4.4.4 lets a client re-present an unexpired ID-JAG for a new access token, and lets a resource authorization server instead "accept each ID-JAG only once by tracking its jti". This receiver accepts each ID-JAG **once**; a re-presented one is `invalid_grant`, which the draft tells the client to answer with a fresh ID-JAG. Keycloak, node-oauth2-server and Authelia's library do the same. A client that needs another access token gets a fresh ID-JAG from the IdP, which keeps revocation at the IdP. An ID-JAG is burnt at step 8 even when step 9 then refuses it, so a captured token can't be used to probe for users. The access token it issues is audience-restricted to the resource.
 
 ### Options
 
@@ -335,7 +333,7 @@ plugins: [
 - **Needs a database with transactions.** The lookup runs in the adapter's transaction. It bumps the SCIM subject's revision, so a concurrent deprovisioning is detected, and so two lookups of the same user conflict with each other too: an agent redeeming several ID-JAGs for one user at once. Concurrent redemptions for the same user in one server process share a single lookup (a request that joins a lookup already running gets its answer, so a deprovisioning committed in that moment is seen by the next lookup, as with any request that arrived a moment earlier), and a conflict is retried from fresh state with a short random backoff, for up to 5 seconds, then refused. **Lookups of one user still commit one at a time** across processes (a limit of `@better-auth/scim`), so keep the auth server close to its database: about 2 lookups a second for one user with the database 45 ms away, hundreds next to it. `@better-auth/scim` refuses adapters without native transactions: it works on Postgres, MySQL and SQLite, and on Drizzle and Prisma with `transaction: true`, **not on Cloudflare D1**.
 - **Provisioning is asynchronous, and the step fails closed.** A user whose SCIM create hasn't reached your app yet (just signed up, an email not yet verified, the SCIM target down and retrying) is refused, and a retry succeeds once it's delivered. Only users the IdP provisions to that target resolve: better-auth-scim-provisioning sends only users with a verified email by default (`requireVerifiedEmail`), and a target can be scoped to an organization or a list. Everyone else is refused, which is the point.
 - **Your `resolveSubject` hook runs first.** A hook that returns `link` decides before the SCIM step, so it can bring back a user SCIM would refuse: that overrides `scim.required`. Its `trustedIssuer` says which entries have SCIM (`scimConnectionId`).
-- **Access tokens already issued** live until they expire, as with every cutoff: see [What ID-JAG controls](#-what-id-jag-controls-and-what-your-mcp-server-still-must). `@better-auth/scim` ends the user's sessions at your app when they're deprovisioned.
+- **Access tokens already issued** live until they expire, as with every cutoff: see [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must). `@better-auth/scim` ends the user's sessions at your app when they're deprovisioned.
 - **In the `idJagTrustedIssuer` table**, set the `scimConnectionId` column to the connection id; the `scimRequired` column is `required` (null means true). A row with `scimConnectionId` on a host that didn't pass `acquireActiveSCIMUserLink` is refused, not resolved some other way.
 - **With `samlSubjects` on the same entry**, the `sub_id` rules come first: a missing `sub_id` with `requireSubId`, a malformed one or one from an unmapped SAML issuer is refused, even for a provisioned user. SCIM then resolves by `sub`.
 - **On Cloudflare Workers, use Postgres through Hyperdrive, not D1.** Verified locally under `wrangler dev` (workerd), not yet against Hyperdrive in the cloud. With a Better Auth instance per request, set `advanced: { database: { validateSchema: false } }` (its background schema check would otherwise run on every request), and **create the auth database's Hyperdrive config with caching disabled** (`wrangler hyperdrive create … --caching-disabled`): with Hyperdrive's default query cache, a revoked Better Auth session stayed valid for about a minute in that test. The SCIM lookup itself isn't affected, since it runs in a transaction, which Hyperdrive doesn't cache.
@@ -359,7 +357,7 @@ trustedIssuers: [{
 }],
 ```
 
-## 🗄️ Database tables
+## Database tables
 
 | Table | Side | When |
 |---|---|---|
@@ -371,7 +369,7 @@ trustedIssuers: [{
 
 Generate them with `npx auth generate` or `npx auth migrate`. Expired `jti` and audit rows are swept opportunistically.
 
-## 📈 Audit events
+## Audit events
 
 ```ts
 idJagIssuer({
@@ -394,16 +392,16 @@ import { waitUntil } from "cloudflare:workers";
 betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 ```
 
-## 🚫 Errors
+## Errors
 
 Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`), with the codes draft -06 profiles, so the client knows what to do next:
 
 - **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience` is `invalid_request`. An audience with no resource server is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user) is `access_denied`: a new token won't help.
-- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay) is `invalid_grant`: get a new one. A valid ID-JAG whose subject isn't allowed here (unknown, rejected, banned) is `access_denied`. A failure a retry may fix (a concurrent first use, a database error) stays `invalid_grant`.
+- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. A valid ID-JAG whose subject isn't allowed here (unknown, rejected, banned) is `access_denied`. A failure a retry may fix (a concurrent first use, a database error) stays `invalid_grant`.
 
 The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Every other refusal gets the generic description for its code, so an agent can't tell an unknown user from a denied policy, or one trust failure from another. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
 
-## 🛡️ What ID-JAG controls, and what your MCP server still must
+## What ID-JAG controls, and what your MCP server still must
 
 ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act for this user at this app, and with which scopes. The rest of an agent's permissions is layered on top, and most of it is your MCP server's job.
 
@@ -420,9 +418,9 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 
 [The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents read-only (any token with `act`: Okta's agents there, and the example IdP's own agent from D-037 on), and tokens of 2 and 5 minutes, measured.
 
-## ✅ Conformance
+## Conformance
 
-Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/04/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice · ❌ not implemented (refused by name, never silently ignored).
+Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice · ❌ not implemented (refused by name, never silently ignored).
 
 **Issuer** (`idJagIssuer()`, experimental)
 
@@ -430,6 +428,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 |---|---|---|
 | ✅ | §4.3 Token exchange, `requested_token_type` id-jag | Any other requested type is refused (`invalid_request`), so a future generic token exchange isn't shadowed. |
 | ✅ | §4.3.3 Subject token: an ID token | Only one this IdP issued, for the authenticated client (`aud`), unexpired and at most `maxIdTokenAgeSeconds` old. |
+| ✅ | §4.3.3 The subject token is of the type named | An access token, an ID-JAG or a refresh token sent as `subject_token_type=id_token` is refused (`invalid_request`). |
 | ✅ | §4.3.3 Subject token: a refresh token (MAY) | Only one this IdP issued to the authenticated client, unrevoked; the exchange doesn't consume or rotate it. |
 | ✅ | §4.3, §4.5 Subject token: a SAML 2.0 assertion | Experimental; with better-auth-saml-idp ≥ 1.2.0. Directly to an ID-JAG, or to a refresh token (§4.5, MCP's SAML path). |
 | ✅ | §4.3 `audience`, `resource`, `scope` | One audience and at most one resource per request; scopes only narrow. |
@@ -438,37 +437,40 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | ✅ | §3.1 `email` | Only when the policy opts in and the email is verified. |
 | ❌ | §3.1 `aud_sub`, `sub_id` (minting), `act` (minting), `authorization_details` | Not minted. (`sub_id` minting is deferred until a resource server needs it.) |
 | ✅ | §4.3.4 Response: `issued_token_type`, `token_type: N_A`, `expires_in`, `scope` | |
-| ✅ | §7 Metadata `identity_chaining_requested_token_types_supported` | |
-| ✅ | -06 §7.1 Metadata `id_jag_signing_alg_values_supported` (OPTIONAL) | Published, as `["RS256"]`, only when the issuer signs RS256: if present, the list MUST include RS256, and we sign with one algorithm. |
-| ⚠️ | -06 §3 RS256 mandatory to implement | Implemented (`signingAlgorithm: "RS256"`), but not the default: the default is the `jwt()` plugin's key (EdDSA through Better Auth 1.7), so an existing host's keys don't change. |
-| ⚠️ | -06 §4.3.3 Client authentication (MUST) | Required by default. `allowPublicClients` lets a public client exchange, which is outside the draft; a startup warning says so. |
+| ✅ | §4.3.3, §4.3.4.3 Error codes | A subject token that fails validation, or more than one `audience`: `invalid_request`. An audience with no resource server, or a resource it doesn't grant: `invalid_target`. A valid request the user or client isn't allowed: `access_denied`. See [Errors](#errors). |
+| ⚠️ | §5.2 `sub` for the resource authorization server | Always the user's id here. A pairwise client is refused as a requester; a resource authorization server registered here as a pairwise relying party would expect a different `sub` (not detected). |
+| ✅ | §7.1 Metadata `identity_chaining_requested_token_types_supported` | |
+| ✅ | §7.1 Metadata `id_jag_signing_alg_values_supported` (OPTIONAL) | Published, as `["RS256"]`, only when the issuer signs RS256: if present, the list MUST include RS256, and we sign with one algorithm. |
+| ⚠️ | §3 RS256 mandatory to implement | Implemented (`signingAlgorithm: "RS256"`), but not the default: the default is the `jwt()` plugin's key (EdDSA through Better Auth 1.7), so an existing host's keys don't change. |
+| ⚠️ | §4.3.3 Client authentication (MUST) | Required by default. `allowPublicClients` lets a public client exchange, which is outside the draft; a startup warning says so. |
 | ✅ | Short lifetimes (§3.1's examples use 5 minutes) | 300 s by default, 900 s at most. |
-| ✅ | §9.2 Step-up (`insufficient_user_authentication`) | When the `authorize` hook denies with `stepUp`: `max_age`, `acr_values`, `error_description`, `error_uri` (RFC 9470). See [Policy](#policy). |
-| ❌ | §9.8 DPoP / `cnf` sender-constrained ID-JAGs | Not minted. |
+| ✅ | §9.3 Step-up (`insufficient_user_authentication`) | When the `authorize` hook denies with `stepUp`: `max_age`, `acr_values`, `error_description`, `error_uri` (RFC 9470). See [Policy](#policy). |
+| ❌ | §9.11 DPoP and mTLS (`cnf`) sender-constrained ID-JAGs | Not minted. |
 
 **Receiver** (`idJagGrant()`)
 
 | | Draft | |
 |---|---|---|
 | ✅ | §4.4 jwt-bearer grant (RFC 7523) for `typ: oauth-id-jag+jwt` | Other assertions are refused; a future plain RFC 7523 grant isn't shadowed. |
-| ✅ | §4.4.1 `typ`, signature, `iss` trusted, `aud` = our issuer exactly (a single-element array allowed), `client_id` = the authenticated client, `exp`/`iat`/`nbf` | In the order shown under [Receiver](#-receiver-idjaggrant); refusals that depend on trust are indistinguishable to the caller. |
-| ⚠️ | §4.4.3 Re-presenting an ID-JAG | **Refused: single use** ([#130](https://github.com/oauth-wg/oauth-identity-assertion-authz-grant/issues/130)). Get a fresh ID-JAG from the IdP. |
-| ✅ | §4.4.3 No refresh token | Never issued (`offline_access` is stripped), and no ID token. |
+| ✅ | §4.4.1 `typ`, signature, `iss` trusted, `aud` = our issuer exactly (a single-element array allowed), `client_id` = the authenticated client, `exp`/`iat`/`nbf` | In the order shown under [Receiver](#receiver-idjaggrant); refusals that depend on trust are indistinguishable to the caller. |
+| ✅ | §4.4.4 Re-presenting an ID-JAG | **Refused: single use**, by tracking `jti`, which §4.4.4 allows (`invalid_grant`). Get a fresh ID-JAG from the IdP. |
+| ✅ | §4.4.4 No refresh token | Never issued (`offline_access` is stripped), and no ID token. |
 | ✅ | `resource`, `scope` | Every resource in the claim must be one of ours, compared exactly (`invalid_grant`); the one the request picks must be in the claim (`invalid_target`); one resource per access token. Scopes intersect the ID-JAG's, the client's and the resource's. |
 | ✅ | MCP: the access token is audience-restricted to the MCP server | `aud` = the resource. |
 | ✅ | §3.1 `act` | Accepted (shape-checked, at most 4 nested actors) and carried into the access token. |
-| ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.5). |
+| ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.8). |
 | ⚠️ | §3.1 `email` | Used only with `emailFallback` for listed domains (a verified local user) or JIT; never by default. |
-| ✅ | §3.1 `tenant` | A trust entry can pin it. Each tenant of one issuer resolves subjects in its own account namespace (`accountProviderId`). |
+| ✅ | §3.1, §4.4.1, §6.3 `tenant` | A trust entry can pin it. Each tenant of one issuer resolves subjects in its own account namespace (`accountProviderId`): two entries for one issuer and different tenants can't share one. |
+| ✅ | §4.4.3 Error codes | A failed check (trust, signature, `aud`, `client_id`, replay, a foreign resource): one generic `invalid_grant`. A valid ID-JAG whose subject isn't allowed here: `access_denied`. A resource the request picks outside the claim: `invalid_target`. |
 | ❌ | §3.1 `aud_tenant`, `aud_sub` | Ignored. |
 | ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
-| ❌ | §9.8 DPoP / `cnf`, `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`), as §9.8.1.2 requires without a DPoP proof. |
-| ✅ | §9.3 Not self-issued | An ID-JAG whose `iss` is this server is refused. |
-| ⚠️ | -06 §4.4 Client authentication (MUST, absent a sender-constrained ID-JAG) | Required by default; a CIMD client counts only with `private_key_jwt`. `allowPublicClients` turns it off, which is outside the draft; a startup warning says so. |
-| ✅ | -06 §3 RS256 (MUST), ES256 (SHOULD) | Both accepted, and EdDSA. |
-| ✅ | §7 Metadata `authorization_grant_profiles_supported`, jwt-bearer in `grant_types_supported` | |
+| ❌ | §9.11 DPoP and mTLS (`cnf`), `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`, `invalid_grant`), as §9.11 requires for a confirmation method the server doesn't support. |
+| ✅ | §9.4 Not self-issued | An ID-JAG whose `iss` is this server is refused. |
+| ⚠️ | §4.4 Client authentication (MUST, absent a sender-constrained ID-JAG) | Required by default; a CIMD client counts only with `private_key_jwt`. `allowPublicClients` turns it off, which is outside the draft; a startup warning says so. |
+| ✅ | §3 RS256 (MUST), ES256 (SHOULD) | Both accepted, and EdDSA. |
+| ✅ | §7.2 Metadata `authorization_grant_profiles_supported`, jwt-bearer in `grant_types_supported` | |
 
-## 🤝 Interoperability
+## Interoperability
 
 | Our side | Other side | Status |
 |---|---|---|
@@ -483,7 +485,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-04](https://datatracker
 | **Oracle OCI IAM** | Receiver | ❌ Refused, by design: Oracle's ID-JAG has no `aud`, which the draft requires |
 | **VS Code** 1.141.0 (MCP client) with Okta | Receiver on Workers + D1 | ✅ Verified live through to MCP `initialize` and `tools/list`. VS Code redeems with `client_secret_post` and asks for every advertised scope |
 | better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
-| better-auth-scim-provisioning 1.2.0 → `@better-auth/scim` 1.7.10 | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
+| better-auth-scim-provisioning → `@better-auth/scim` (the versions in the lockfile) | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG |
 | Receiver | Keycloak as issuer | ⏳ Not possible: Keycloak doesn't issue ID-JAGs |
 
@@ -491,22 +493,22 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way. Draft -06 makes RS256 the one algorithm every receiver must accept, so for a receiver you know nothing about, RS256 is the safe choice.
 
-## ☁️ Example: two Workers
+## Example: two Workers
 
 [examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with three tools (`whoami`, `list_notes`, `add_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server keeps agents read-only, so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
 
-## 🧩 Runtimes and databases
+## Runtimes and databases
 
 The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.10 and the latest 1.7.x, and on Node 22 with 1.7.10; a row on the newest Better Auth 1.8 (pre-releases included) shows what 1.8 breaks, without failing the build. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
 
-## 🧭 Not yet
+## Not yet
 
-- **A later draft:** -04 expires on 2026-11-22. When -05 appears, [src/core/urns.ts](src/core/urns.ts) and this README will say which draft is implemented.
-- The rows marked ❌ in [Conformance](#-conformance). Each one is refused by name, not silently ignored.
+- **A later draft:** -06 expires on 2027-05-04. When a later one appears, [src/core/urns.ts](src/core/urns.ts) and this README will say which draft is implemented; a weekly CI job notices it.
+- The rows marked ❌ in [Conformance](#conformance). Each one is refused by name, not silently ignored.
 - No admin API for trusted issuers yet: configure them in code, through `@better-auth/sso`, or in the table directly.
 - SCIM-provisioned users on Cloudflare D1: `@better-auth/scim` needs a database with native transactions.
 
-## 🔒 Security
+## Security
 
 - [docs/security.md](docs/security.md) has the threat model, what your app must configure, and the known limitations.
 - [DECISIONS.md](DECISIONS.md) records every security-relevant decision, with its tests and mutation proofs.
@@ -516,7 +518,7 @@ The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except t
 
 Please report vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, not in public issues. Versioning, the draft and Better Auth compatibility are in [docs/versioning.md](docs/versioning.md).
 
-## 🧪 Development
+## Development
 
 ```bash
 pnpm test            # Node + workerd (D1)
@@ -534,7 +536,7 @@ INTEROP_KEYCLOAK=1 pnpm vitest run test/interop/keycloak.test.ts   # needs Keycl
 
 ## Contributing
 
-Contributions are welcome: bug reports, [interop reports](https://github.com/mmcintosh/better-auth-id-jag/issues/new?template=interop.yml) (especially "it works with X"), fixes and features. For anything significant, please open an issue first. See [CONTRIBUTING.md](CONTRIBUTING.md): security checks come with tests that fail without them, and are on the mutation lists.
+Contributions are welcome: bug reports, [interop reports](https://github.com/mmcintosh/better-auth-id-jag/issues/new?template=interop.yml) (especially "it works with X"), fixes and features. For anything significant, please open an issue first. See [CONTRIBUTING.md](CONTRIBUTING.md): security checks come with tests that fail without them, and are on the mutation lists. If the package is useful to you, a ⭐ on [GitHub](https://github.com/mmcintosh/better-auth-id-jag) helps others find it.
 
 ## License
 
@@ -543,4 +545,4 @@ MIT © Mark McIntosh
 ## Related
 
 - [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp): your Better Auth server as a SAML 2.0 identity provider.
-- [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning): provision users to the apps they sign in to, over SCIM 2.0, Google Workspace and webhooks.
+- [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning): provision users to the apps they sign in to, over SCIM 2.0, Google Workspace, Microsoft Entra ID and webhooks.

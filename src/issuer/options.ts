@@ -82,7 +82,7 @@ export interface AuthorizeDeny {
   /** For the audit log only (log-safe there); never sent to the caller. */
   reason?: string | undefined;
   /**
-   * Ask for step-up (draft -04 §9.2, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
+   * Ask for step-up (draft -06 §9.3, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
    * style, instead of the generic `invalid_grant`, and is expected to send the person back to sign in again. Setting it
    * tells the caller this user got past identity and policy lookup (S8), so set it only for that. `maxAge` → `max_age`
    * (seconds); `acrValues` → `acr_values`; `description` → `error_description` (printable ASCII without `"` or `\`,
@@ -194,11 +194,11 @@ export interface IdJagIssuerOptions extends AuditOptions {
 export const DEFAULT_SAML_REFRESH_SCOPES = ["openid", "offline_access", "profile", "email"] as const;
 
 export interface SamlOptions {
-  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -04 §4.3.1). Default false. */
+  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -06 §4.3.1). Default false. */
   subjectTokens?: boolean | undefined;
   /**
    * Path (b): `subject_token_type=saml2` with `requested_token_type=refresh_token`, exchanged for
-   * a refresh token (draft -04 §4.5), which then yields ID-JAGs as a refresh-token subject.
+   * a refresh token (draft -06 §4.5), which then yields ID-JAGs as a refresh-token subject.
    * `scopes`: what such a refresh token may be granted (default openid, offline_access, profile,
    * email; must contain openid and offline_access). Default off.
    */

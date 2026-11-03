@@ -1,4 +1,4 @@
-// Subject token: a refresh token **this provider** issued to the authenticated client (draft -04
+// Subject token: a refresh token **this provider** issued to the authenticated client (draft -06
 // §4.3: "a Refresh Token previously issued by the IdP Authorization Server for that resource
 // owner"; the MCP extension's SAML path and conformance tools exchange one). D-B14.
 //

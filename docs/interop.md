@@ -10,6 +10,10 @@ This page lists which other ID-JAG implementations our issuer (`idJagIssuer()`) 
 Nothing here is claimed from reading docs alone. Where a row says "verified", the test is in
 `test/interop/`, and the commands to run it are below.
 
+The dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim, URN or
+metadata name, only some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant`
+was), so a row stays valid until a re-run says otherwise.
+
 ## The matrix
 
 | Our side | Other side | Status |
@@ -135,7 +139,7 @@ All 9 passed. What Keycloak did:
 - **Error descriptions name the failing check** (as in the table above). Our receiver doesn't, by design (S8).
 - **Our issuer's audiences are https only.** `allowLoopbackHttpAudiences: true` is what lets it mint for
   `http://localhost:18080/realms/…`. The test sets it.
-- **Keycloak's guide is written against draft -01.** We implement -04. The claims Keycloak checks (`iss`, `sub`,
+- **Keycloak's guide is written against draft -01.** We implement -06 (0.5.x implemented -04). The claims Keycloak checks (`iss`, `sub`,
   `aud`, `client_id`, `jti`, `exp`, `iat`) are the same in both.
 
 Keycloak's rules above are from its source at the 26.8.0 tag:

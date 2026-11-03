@@ -121,7 +121,7 @@ From the lifecycle checks against the live org ([docs/interop.md](interop.md#the
 Okta stops issuing ID-JAGs at once. An ID-JAG already issued lives 300 s and works once. **An access token already
 issued lives until it expires**: `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, an hour by default. Set it
 short for agents, and shorter for sensitive scopes with `scopeExpirations` (the example: 300 s, and 120 s for
-`write`). See [README, "What ID-JAG controls"](../README.md#-what-id-jag-controls-and-what-your-mcp-server-still-must).
+`write`). See [README, "What ID-JAG controls"](../README.md#what-id-jag-controls-and-what-your-mcp-server-still-must).
 
 ## 6. Troubleshooting
 
@@ -134,7 +134,7 @@ configuration. A valid ID-JAG whose subject your server won't accept (`unknown_s
 real reason is always in the receiver's audit trail: `events.onRefused` (`e.reason`), or the `idJagAudit` table with
 `auditLog: { retentionDays }`.
 
-The checks run in a fixed order ([README, "Receiver"](../README.md#-receiver-idjaggrant)): client, format and times,
+The checks run in a fixed order ([README, "Receiver"](../README.md#receiver-idjaggrant)): client, format and times,
 issuer, signature, `aud`, `client_id` and the `resource` claim, scopes, resource, single use, then the subject. So you see one problem at a
 time, and fixing it can reveal the next. An ID-JAG is spent at the single-use step, before the subject is resolved:
 after an `unknown_subject`, the agent needs a new ID-JAG.

@@ -1,4 +1,4 @@
-// Subject resolution by the SAML NameID `sub_id` (draft -04 §3.2, §9.5; Phase 3 R3-S1–R3-S8,
+// Subject resolution by the SAML NameID `sub_id` (draft -06 §3.2, §9.8; Phase 3 R3-S1–R3-S8,
 // D-A27–D-A31). A trust entry with `samlSubjects` resolves users by (mapping.accountProviderId,
 // nameid), what `@better-auth/sso` stores for a SAML sign-in, instead of by `sub`.
 import type { GenericEndpointContext } from "better-auth";
@@ -45,7 +45,7 @@ async function host(o: { trust?: Partial<StaticTrustedIssuer>; receiver?: Partia
   return { idp, net, h, rec, client, providerId, attempt, attemptWith, account };
 }
 
-describe("R3-S1: sub_id never establishes trust (§9.5)", () => {
+describe("R3-S1: sub_id never establishes trust (§9.8)", () => {
   it("a sub_id mapped only under another trust entry is refused; the same token's namespace is accepted only from that entry", async () => {
     const x = samlNamespace();
     const y = samlNamespace();

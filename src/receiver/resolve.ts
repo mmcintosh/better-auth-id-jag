@@ -2,7 +2,7 @@
 // 1. the host's `resolveSubject` hook: link / continue / reject (a throw is a reject: gates fail closed);
 // then the subject's key (subjectKey): (the trust entry's account provider id, `sub`), or, for an
 // entry with `samlSubjects`, (the matching mapping's accountProviderId, the SAML NameID of `sub_id`),
-// a malformed, transient or unmapped `sub_id` being refused (draft -04 §3.2.2, §9.5; D-A27–D-A30);
+// a malformed, transient or unmapped `sub_id` being refused (draft -06 §3.2.2, §9.8; D-A27–D-A30);
 // 1a. for an entry with `scim`, after the key so the sub_id rules hold (D-028): the user its SCIM
 //    connection provisioned with externalId = `sub`, while active (scim.ts, D-027); none found is
 //    refused unless `scim.required` is false, so a deprovisioned user can't come back through 2–4;
@@ -48,7 +48,7 @@ const sameNamespace = (m: SamlSubjectMapping, s: SamlNameIdSubId): boolean =>
   m.issuer === s.issuer && m.spNameQualifier === (s.sp_name_qualifier ?? null) && m.nameQualifier === (s.name_qualifier ?? null);
 
 /**
- * Draft -04 §3.2.2 and §9.5. With no `samlSubjects` on the trust entry, `sub_id` is ignored and the
+ * Draft -06 §3.2.2 and §9.8. With no `samlSubjects` on the trust entry, `sub_id` is ignored and the
  * key is (accountProviderId, sub). Otherwise a SAML NameID `sub_id` must be well formed, not
  * transient, and match one of this entry's mappings (issuer and both qualifiers, null-safe; the
  * format if the mapping lists formats): the key is then (mapping.accountProviderId, nameid). Any
@@ -294,6 +294,6 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
     return { user: assertNotBanned(winner, now), via: "jit" };
   }
 
-  // The NameID may be an email address or an enterprise id (§9.6): not in the audit detail.
+  // The NameID may be an email address or an enterprise id (draft -06 §9.9): not in the audit detail.
   refuse("unknown_subject", key.from === "sub" ? claims.sub : `sub_id at ${key.providerId}`);
 }

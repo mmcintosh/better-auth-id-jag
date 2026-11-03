@@ -36,8 +36,8 @@ export interface StaticTrustedIssuer {
   /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
   jitRole?: string | undefined;
   /**
-   * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -04 §3.2) instead of `sub`, for these
-   * SAML namespaces only (§9.5: the association is this trust entry's local configuration;
+   * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -06 §3.2) instead of `sub`, for these
+   * SAML namespaces only (draft -06 §9.8: the association is this trust entry's local configuration;
    * `sub_id.issuer` never establishes trust). Accounts are linked as { providerId: accountProviderId,
    * accountId: nameid }, which is what `@better-auth/sso` creates at SAML sign-in. Unset: `sub_id` is ignored.
    */

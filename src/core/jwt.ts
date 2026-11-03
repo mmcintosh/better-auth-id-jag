@@ -1,4 +1,4 @@
-// Building, parsing and verifying ID-JAGs (draft -04 §3, §4.4). Parsing comes before the signature
+// Building, parsing and verifying ID-JAGs (draft -06 §3, §4.4). Parsing comes before the signature
 // so a failure names its step, and the receiver can pick the trusted issuer from the (unverified)
 // `iss` before fetching any key, as Okta's resource-app guide asks. Verification is the signature
 // only (jose's compactVerify) followed by our own claim checks, so every failure has our reason code.
@@ -25,7 +25,7 @@ const seconds = z.number().int().nonnegative().max(2 ** 40);
  * Claims this package cannot honour yet, refused rather than ignored:
  * - `authorization_details` (RFC 9396): the draft says a receiver MUST process it; ignoring it
  *   could grant more than the IdP authorised.
- * - `cnf`: a key-bound ID-JAG (§9.8.1.2). Without a matching DPoP proof the receiver MUST reject
+ * - `cnf`: a key-bound ID-JAG (draft -06 §9.11.1.2). Without a matching DPoP proof the receiver MUST reject
  *   it, and DPoP isn't supported yet, so it's always refused (D-012). Issuing a bearer token for
  *   it would strip the binding the IdP asked for.
  * `act` is supported: see actSchema (D-010).
@@ -51,10 +51,10 @@ function actDepth(act: ActClaim | undefined): number {
 }
 
 /**
- * `sub_id` in the SAML NameID format (draft -04 §3.2.1): `format`, `issuer` and `nameid` required;
+ * `sub_id` in the SAML NameID format (draft -06 §3.2.1): `format`, `issuer` and `nameid` required;
  * `nameid_format`, `name_qualifier`, `sp_name_qualifier`, `sp_provided_id` optional; nothing else.
  * Strict, for when a receiver resolves users by it. At parse time `sub_id` stays loosely typed
- * (it's informational until then, and never a source of trust: §8, §9.5).
+ * (it's informational until then, and never a source of trust: draft -06 §9.8).
  */
 export const samlNameIdSubIdSchema = z.strictObject({
   format: z.literal("saml-nameid"),
@@ -257,7 +257,7 @@ export async function verifyIdJag(token: string, key: IdJagKey, expected: Verify
   checkTimes(parsed.claims, now, skew);
   // Before the signature: no key is fetched for an issuer the caller didn't resolve.
   if (parsed.claims.iss !== expected.issuer) refuse("untrusted_issuer", parsed.claims.iss);
-  // Draft §9.3: an IdP must not accept an ID-JAG it issued to itself.
+  // Draft -06 §9.4: an IdP must not accept an ID-JAG it issued to itself.
   if (expected.issuer === expected.audience || parsed.claims.iss === parsed.audience) refuse("self_issued", parsed.claims.iss);
   const algorithms = [...(expected.algorithms ?? ALLOWED_ALGORITHMS)];
   // Narrowed to what this trusted issuer publishes: not public, or it would reveal the trust (S8).

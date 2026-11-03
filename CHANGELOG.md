@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **Implements ID-JAG draft -06** (D-062): `SUPPORTED_DRAFT` is
+  `draft-ietf-oauth-identity-assertion-authz-grant-06`, was -04. No claim, token type URN, grant type or metadata name
+  changed, so an -04 ID-JAG is a valid -06 one. What changed is below: error codes, the `resource` claim, client
+  authentication wording, a new optional metadata field. The README's conformance table cites -06's sections (several
+  moved: step-up §9.2 → §9.3, self-issued §9.3 → §9.4, subject trust §9.5 → §9.8, DPoP §9.8 → §9.11, refresh token
+  §4.4.3 → §4.4.4) and has rows for -06's new requirements. Single use of each ID-JAG is now ✅: -06 §4.4.4 allows a
+  receiver to accept each ID-JAG once by tracking `jti`.
+- **README**: plain headings (anchors lost their emoji prefix, so `#-conformance` is now `#conformance`), and the
+  feature list says what the error codes tell a caller.
 - **Error codes follow ID-JAG draft -06** (D-059). Draft -05/-06 profile which OAuth error code each refusal uses, so a
   client knows whether a new token will help. A client that switches on `error` needs updating; audit reason codes
   are unchanged except where noted.
