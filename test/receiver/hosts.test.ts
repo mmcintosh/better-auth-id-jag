@@ -113,6 +113,12 @@ describe("on oauthProvider() instead of mcp()", () => {
     const both = await redeem(h, client, await mint({ resource: [MCP_RESOURCE, OTHER_RESOURCE] }), { resource: OTHER_RESOURCE });
     expect(both.status, both.text).toBe(200);
     expect(decodePayload(both.body.access_token as string).aud).toBe(OTHER_RESOURCE);
+    // Both in the claim and the request picks none: refused rather than guessed (one resource per token), even though
+    // a defaultResource is set; the request's fault, so invalid_target.
+    const unpicked = await redeem(h, client, await mint({ resource: [MCP_RESOURCE, OTHER_RESOURCE] }));
+    expect(unpicked.body.error, unpicked.text).toBe("invalid_target");
+    await rec.settle();
+    expect(rec.refused.at(-1)).toMatchObject({ reason: "unknown_resource", detail: "the ID-JAG names several resources; request one" });
     const doc = (await (await h.auth.handler(new Request("http://localhost:3000/.well-known/oauth-authorization-server/api/auth"))).json()) as Record<string, unknown>;
     expect(doc.authorization_grant_profiles_supported).toEqual(["urn:ietf:params:oauth:grant-profile:id-jag"]);
     expect(doc.grant_types_supported).toContain(JWT_BEARER_GRANT);
