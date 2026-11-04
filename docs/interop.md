@@ -379,7 +379,7 @@ server advertises the jwt-bearer grant and the ID-JAG profile. Each of its attac
 | `missing_claims` | `missing_claim` |
 | `invalid_type_header` | `wrong_typ` |
 | `wrong_issuer` | `untrusted_issuer` |
-| `resource_mismatch` | `unknown_resource` |
+| `resource_mismatch` | `foreign_resource` (was `unknown_resource` before 0.6.0, D-060) |
 | `client_id_mismatch` | `client_mismatch` |
 | `unknown_kid` | `bad_signature` (no key in the issuer's JWKS) |
 | `scope_denial` | `no_scope` |
