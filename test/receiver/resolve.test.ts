@@ -159,6 +159,45 @@ describe("subject resolution: the email fallback needs a verified local email (D
   });
 });
 
+describe("subject resolution: the email fallback links only the address asked for (D-064)", () => {
+  // A database whose collation ignores accents (MySQL's default) answers a lookup for josé@ with jose@. Better Auth's
+  // findUserByEmail refuses such a row since 1.7.16 (GHSA-2f9c-7xj7-gh55); before, it returned it. The lookup is
+  // made to answer as it did then, so this proves our own check (test/adapters runs it on real databases).
+  const lookAlike = (s: Awaited<ReturnType<typeof host>>, answer: (email: string) => string) => {
+    const internal = s.h.ctx.internalAdapter;
+    const original = internal.findUserByEmail.bind(internal);
+    internal.findUserByEmail = ((email: string, options?: { includeAccounts: boolean }) => original(answer(email), options)) as typeof internal.findUserByEmail;
+  };
+
+  it("a look-alike the database matched is refused, and not linked", async () => {
+    const s = await host({ trust: { emailFallback: { domains: ["corp.example"] } } });
+    const local = `jose-${crypto.randomUUID().slice(0, 8)}@corp.example`;
+    const u = await s.h.ctx.internalAdapter.createUser({ email: local, name: "Jose", emailVerified: true }, { method: "admin" });
+    lookAlike(s, (email) => email.replace("josé", "jose"));
+    const sub = crypto.randomUUID();
+    const r = await s.attempt({ sub, email: local.replace("jose", "josé") });
+    expect(r.reason).toBe("unknown_subject");
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
+    expect(s.rec.refused.at(-1)?.detail).toBe("email fallback: the database matched a different address");
+    expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toBeNull();
+    expect((await s.h.ctx.internalAdapter.findUserByEmail(local, { includeAccounts: true }))?.accounts).toEqual([]);
+    // The real jose@ still links.
+    expect(await s.attempt({ sub: crypto.randomUUID(), email: local })).toMatchObject({ reason: "accepted", userId: u.id });
+  });
+
+  it("the same address in another Unicode form or case is linked", async () => {
+    const s = await host({ trust: { emailFallback: { domains: ["corp.example"] } } });
+    const tag = crypto.randomUUID().slice(0, 8);
+    const composed = `jos\u00e9-${tag}@corp.example`; // é as one code point (NFC)
+    const decomposed = `jose\u0301-${tag}@corp.example`; // e + combining acute (NFD)
+    const u = await s.h.ctx.internalAdapter.createUser({ email: composed, name: "José", emailVerified: true }, { method: "admin" });
+    lookAlike(s, (email) => email.normalize("NFC"));
+    const sub = crypto.randomUUID();
+    expect(await s.attempt({ sub, email: decomposed.toUpperCase() })).toMatchObject({ reason: "accepted", userId: u.id });
+    expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: s.providerId, accountId: sub })).toMatchObject({ userId: u.id });
+  });
+});
+
 describe("subject resolution: the host's account-linking settings (D-A32)", () => {
   for (const [name, account] of [["linking disabled", { accountLinking: { enabled: false } }], ["implicit linking disabled", { accountLinking: { disableImplicitLinking: true } }]] as const) {
     it(`${name}: no email fallback, even to a verified local user`, async () => {

@@ -126,8 +126,9 @@ const a1 = await sso();
 check("SSO: an Assertion from the SAML IdP", a1.includes("Assertion") && a1.includes(SP.entityId));
 const rt = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a1), scope: "openid offline_access" });
 check("path (b): assertion → refresh token", rt.status === 200 && rt.body.issued_token_type === "urn:ietf:params:oauth:token-type:refresh_token" && rt.body.token_type === "N_A" && typeof rt.body.access_token === "string", `${rt.status} ${JSON.stringify(rt.body).slice(0, 200)}`);
+// Draft -06 (D-059): a subject token the issuer refuses (replayed, tampered, another client's) is invalid_request.
 const replayB = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a1), scope: "openid offline_access" });
-check("path (b): the same assertion again is refused", replayB.status === 400 && replayB.body.error === "invalid_grant", `${replayB.status} ${JSON.stringify(replayB.body)}`);
+check("path (b): the same assertion again is refused", replayB.status === 400 && replayB.body.error === "invalid_request", `${replayB.status} ${JSON.stringify(replayB.body)}`);
 if (rt.status === 200) {
   const jag = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token: rt.body.access_token, audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
   check("refresh token → ID-JAG", jag.status === 200 && jag.body.issued_token_type === "urn:ietf:params:oauth:token-type:id-jag", `${jag.status} ${JSON.stringify(jag.body).slice(0, 200)}`);
@@ -154,13 +155,13 @@ if (direct.status === 200) {
   check("receiver: path (a) ID-JAG → access token", at.status === 200, `${at.status} ${JSON.stringify(at.body).slice(0, 160)}`);
 }
 const replayA = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a2), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
-check("path (a): the same assertion again is refused", replayA.status === 400 && replayA.body.error === "invalid_grant", `${replayA.status} ${JSON.stringify(replayA.body)}`);
+check("path (a): the same assertion again is refused", replayA.status === 400 && replayA.body.error === "invalid_request", `${replayA.status} ${JSON.stringify(replayA.body)}`);
 
 // ---- Attacks that cross the repos.
 const a3 = await sso();
 const tampered = a3.replace(email, "eve@corp.example");
 const t = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(tampered), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
-check("a tampered assertion is refused", t.status === 400 && t.body.error === "invalid_grant", `${t.status} ${JSON.stringify(t.body)}`);
+check("a tampered assertion is refused", t.status === 400 && t.body.error === "invalid_request", `${t.status} ${JSON.stringify(t.body)}`);
 const afterTamper = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a3), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
 check("…and didn't burn the real one (consumed only after the signature)", afterTamper.status === 200, `${afterTamper.status} ${JSON.stringify(afterTamper.body).slice(0, 160)}`);
 const other = await ctx1.internalAdapter; void other;
@@ -172,9 +173,9 @@ const wrongClient = await idpAuth.api.adminCreateOAuthClient({
 // Basic as the other client, with the agent's client_id forged in the body: the verifier must get the
 // authenticated client, never the body's.
 const wc = await exchange({ client: wrongClient, client_id: agent.client_id, requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
-check("another client presenting the agent's assertion (agent's client_id forged in the body) is refused: path (a)", wc.status === 400 && wc.body.error === "invalid_grant", `${wc.status} ${JSON.stringify(wc.body)}`);
+check("another client presenting the agent's assertion (agent's client_id forged in the body) is refused: path (a)", wc.status === 400 && wc.body.error === "invalid_request", `${wc.status} ${JSON.stringify(wc.body)}`);
 const wcb = await exchange({ client: wrongClient, client_id: agent.client_id, requested_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), scope: "openid offline_access" });
-check("…and path (b)", wcb.status === 400 && wcb.body.error === "invalid_grant", `${wcb.status} ${JSON.stringify(wcb.body)}`);
+check("…and path (b)", wcb.status === 400 && wcb.body.error === "invalid_request", `${wcb.status} ${JSON.stringify(wcb.body)}`);
 const own = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:id-jag", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a4), audience: MCP_ISSUER, resource: RESOURCE, scope: "read" });
 check("…and the right client can still use it (a wrong client doesn't consume)", own.status === 200, `${own.status}`);
 

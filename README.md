@@ -4,7 +4,7 @@ Let AI agents reach your users' tools **with the enterprise's say-so, not a fres
 
 [![npm](https://img.shields.io/npm/v/better-auth-id-jag)](https://www.npmjs.com/package/better-auth-id-jag)
 [![CI](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml/badge.svg)](https://github.com/mmcintosh/better-auth-id-jag/actions/workflows/ci.yml)
-[![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.10%20%3C1.8-black)](https://www.better-auth.com)
+[![Better Auth](https://img.shields.io/badge/better--auth-%E2%89%A51.7.16%20%3C1.8-black)](https://www.better-auth.com)
 [![Runs on](https://img.shields.io/badge/runs%20on-Workers%20%7C%20Node%2022%2B-f38020)](#runtimes-and-databases)
 [![ID-JAG](https://img.shields.io/badge/ID--JAG-draft--06-informational)](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -49,7 +49,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 npm install better-auth-id-jag
 ```
 
-Requires Better Auth `>=1.7.10 <1.8.0` (1.7.7 fixed account-takeover advisories; see the [CHANGELOG](CHANGELOG.md)), `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
+Requires Better Auth `>=1.7.16 <1.8.0` (1.7.16 fixed a set of security advisories; see the [CHANGELOG](CHANGELOG.md)), `@better-auth/core` and `@better-auth/oauth-provider` in the same range (peer dependencies), and Node.js 22 or later or Cloudflare Workers. Both sides need Better Auth's `jwt()` plugin. Optional peers, used only when you install them: `@better-auth/mcp`, `@better-auth/sso` and `@better-auth/scim` (same range) for the receiver, and `better-auth-saml-idp` `>=1.2.0` for SAML subject tokens.
 
 ## Quick start
 
@@ -304,7 +304,7 @@ idJagGrant({
 1. `resolveSubject`, if set, can link, reject, or continue.
 2. With `scim` on the trust entry (after the `sub_id` rules, when the entry has `samlSubjects`): the user that SCIM connection provisioned with `externalId` = `sub`, while active. If there's none, the grant is refused, and steps 3–5 don't run, unless `scim.required` is `false`. See [SCIM-provisioned users](#scim-provisioned-users).
 3. A linked account: `providerId` = `accountProviderId` (default `id-jag:<issuer>`), `accountId` = the ID-JAG's `sub`.
-4. Only if `emailFallback` lists the domain: a local user with that verified email, which is then linked.
+4. Only if `emailFallback` lists the domain: a local user with that verified email, which is then linked. Only that exact address (Unicode-normalized, case ignored), even on a database whose collation ignores accents.
 5. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`.
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
@@ -501,7 +501,7 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## Runtimes and databases
 
-The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.10 and the latest 1.7.x, and on Node 22 with 1.7.10; a row on the newest Better Auth 1.8 (pre-releases included) shows what 1.8 breaks, without failing the build. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
+The whole suite runs on Node.js (`node:sqlite`) and in workerd with D1, except the SCIM tests, which need a database with transactions (`@better-auth/scim` doesn't run on D1). CI runs it on Node 24 with Better Auth 1.7.16 and the latest 1.7.x, and on Node 22 with 1.7.16; a row on the newest Better Auth 1.8 (pre-releases included) shows what 1.8 breaks, without failing the build. CI also runs the database-sensitive behaviour on **PostgreSQL, MySQL, MongoDB, Drizzle (PostgreSQL and MySQL) and Prisma**: single use under concurrency, the sweeps, concurrent first use, and SCIM resolution (not MongoDB, which the matrix runs without transactions). The built package is checked as a strict TypeScript host would use it, under TypeScript 7 and 5.9, with publint and Are the Types Wrong. The receiver's single-use check relies on a UNIQUE constraint, so use a database adapter that enforces one (not Better Auth's memory adapter, which the plugin warns about at startup).
 
 ## Not yet
 

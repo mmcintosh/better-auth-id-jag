@@ -171,6 +171,31 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
     });
   }
 
+  it("the email fallback never links a look-alike: an ID-JAG for josé@ doesn't take the verified jose@ (D-064)", async () => {
+    const idp = await testIdp();
+    const providerId = `id-jag:${idp.issuer}`;
+    const rec = recorder();
+    const make = await prepare((database, migrate) => receiverHost("mcp", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri, emailFallback: { domains: ["corp.example"] } }], fetch: network(idp).fetch }, database, migrate, recorder: rec as never }));
+    const h = await make();
+    const client = await createClient(h);
+    const local = `jose-${crypto.randomUUID().slice(0, 8)}@corp.example`;
+    const u = await h.ctx.internalAdapter.createUser({ email: local, name: "Jose", emailVerified: true }, { method: "admin" });
+    const lookAlike = local.replace("jose", "josé");
+    // The hazard is real here: MySQL's default collation ignores accents, so the database itself matches the two.
+    const matched = await h.ctx.adapter.findOne<{ id: string }>({ model: "user", where: [{ field: "email", value: lookAlike }] });
+    if (KIND?.endsWith("mysql")) expect(matched?.id).toBe(u.id);
+    const sub = crypto.randomUUID();
+    const r = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub, email: lookAlike })));
+    await rec.settle();
+    expect(r.status, r.text).toBe(400);
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
+    expect(await h.ctx.adapter.findMany({ model: "account", where: [{ field: "providerId", value: providerId }] })).toEqual([]);
+    // The real address still links.
+    const ok = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: crypto.randomUUID(), email: local })));
+    expect(ok.status, ok.text).toBe(200);
+    expect(await h.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: providerId }] })).toMatchObject([{ userId: u.id }]);
+  });
+
   // @better-auth/scim needs native transactions; the MongoDB rows run without them (D-019).
   it.skipIf(KIND === "mongodb")("SCIM (D-027): a provisioned user resolves by sub, inside the adapter's transaction; deactivated, refused", async () => {
     const idp = await testIdp();
