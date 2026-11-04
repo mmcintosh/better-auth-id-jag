@@ -45,7 +45,7 @@ export function createAuth(env: Env, origin: string) {
       idJagIssuer({
         authorize: ({ audience, resource, client, user }) => {
           if (audience !== env.MCP_AS_ISSUER) return { decision: "unknown_audience", reason: "not the MCP server" };
-          if (resource !== undefined && resource !== env.MCP_RESOURCE) return { decision: "deny", reason: "unknown resource" };
+          if (resource !== undefined && resource !== env.MCP_RESOURCE) return { decision: "unknown_resource", reason: "not the MCP server's resource" };
           const atResource = client.metadata?.clientIdAtResource;
           if (typeof atResource !== "string") return { decision: "deny", reason: "client not registered at the MCP server" };
           // Who may do what is the IdP's decision: read for everyone, write only for the listed users.

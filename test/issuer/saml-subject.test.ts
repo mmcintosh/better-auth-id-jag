@@ -144,9 +144,11 @@ describe("path (a): saml2 → ID-JAG", () => {
       const r = await exchangeSaml(host, client, samlToken(assertion().xml));
       expect(r.status, code).toBe(400);
       expect(takeReasons(host), code).toEqual([reason]);
-      if (reason !== "subject_token_expired" && reason !== "subject_token_not_yet_valid") bodies.add(JSON.stringify(r.body));
+      if (reason === "banned_user") expect(r.body, code).toEqual(GENERIC_DENIED);
+      else if (reason !== "subject_token_expired" && reason !== "subject_token_not_yet_valid") bodies.add(JSON.stringify(r.body));
       else expect(r.body, code).toEqual({ error: "invalid_request", error_description: publicDescription(reason) });
     }
+    // ACCOUNT_INACTIVE (a banned or deleted user) is an authorization answer, as for an ID token: access_denied.
     // ALREADY_EXCHANGED and WRONG_CLIENT can't be told from NOT_OURS (or any other failure).
     expect([...bodies]).toEqual([JSON.stringify(GENERIC_REQUEST)]);
     expect(publicDescription("subject_token_expired")).toBe("The subject token has expired.");
@@ -164,7 +166,9 @@ describe("path (a): saml2 → ID-JAG", () => {
       host.idp.failWith = new FakeAssertionExchangeError("SOMETHING_NEW");
       await exchangeSaml(host, client, samlToken(assertion().xml));
       host.idp.failWith = new TypeError("boom");
-      await exchangeSaml(host, client, samlToken(assertion().xml));
+      const crashed = await exchangeSaml(host, client, samlToken(assertion().xml));
+      expect(crashed.status).toBe(500);
+      expect(crashed.body).toEqual({ error: "server_error", error_description: "The server could not process the request. Try again later." });
       host.idp.failWith = undefined;
       const good = host.idp.verified({ id: "_x", userId: "u" });
       const malformed: unknown[] = [undefined, null, "yes", {}, { ...good, userId: "" }, { ...good, userId: 7 }, { ...good, authnInstant: "2026-01-01T00:00:00Z" }, { ...good, authnInstant: new Date(Number.NaN) }, { ...good, serviceProvider: { id: "s" } }, { ...good, assertionId: undefined }, { ...good, notOnOrAfter: undefined }, { ...good, authnContextClassRef: 1 }];
@@ -177,10 +181,11 @@ describe("path (a): saml2 → ID-JAG", () => {
       host.ctx.logger.error = original;
     }
     const details = host.recorded.refused.map((e) => [e.reason, e.detail]);
+    // A refusal with a code we don't know is still a refused token; any other throw is the verifier failing: server_error.
     expect(details.slice(0, 3)).toEqual([
       ["invalid_subject_token", "saml2: WRONG_CLIENT: forced WRONG_CLIENT"],
-      ["invalid_subject_token", "saml2: the verifier failed"],
-      ["invalid_subject_token", "saml2: the verifier failed"],
+      ["invalid_subject_token", "saml2: the verifier refused with an unknown code"],
+      ["internal_error", "saml2: the verifier failed"],
     ]);
     for (const d of details.slice(3)) expect(d).toEqual(["invalid_subject_token", "saml2: the verifier returned a malformed result"]);
     expect(details).toHaveLength(15);

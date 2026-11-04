@@ -189,10 +189,10 @@ describe.skipIf(workerd)("SCIM provisioning resolves the subject (D-027)", () =>
     const local = await w.localUserOf(email);
     const subId = (over: Record<string, unknown>) => ({ format: "saml-nameid", issuer: SAML_IDP, nameid: `nameid-${sub}`, nameid_format: PERSISTENT, ...over });
     // requireSubId: none at all is refused.
-    expect(await w.attempt(sub)).toMatchObject({ reason: "subject_rejected" });
+    expect(await w.attempt(sub)).toMatchObject({ reason: "sub_id_rejected" });
     // Malformed (no nameid), and from a SAML issuer this entry doesn't map: refused, never resolved by SCIM.
     expect(await w.attempt(sub, { sub_id: { format: "saml-nameid", issuer: SAML_IDP } })).toMatchObject({ reason: "invalid_claim" });
-    expect(await w.attempt(sub, { sub_id: subId({ issuer: "https://other-saml.example/idp" }) })).toMatchObject({ reason: "subject_rejected" });
+    expect(await w.attempt(sub, { sub_id: subId({ issuer: "https://other-saml.example/idp" }) })).toMatchObject({ reason: "sub_id_rejected" });
     // A valid, mapped sub_id: the SCIM step resolves by sub.
     expect(await w.attempt(sub, { sub_id: subId({}) })).toMatchObject({ reason: "accepted", userId: local?.id, resolvedBy: "scim" });
   });

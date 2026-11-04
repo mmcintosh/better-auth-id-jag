@@ -341,7 +341,7 @@ export const CODE_MAP: [string, ReasonCode][] = [
   ["BAD_SIGNATURE", "invalid_subject_token"],
   ["NOT_EXCHANGEABLE", "invalid_subject_token"],
   ["WRONG_CLIENT", "invalid_subject_token"],
-  ["ACCOUNT_INACTIVE", "invalid_subject_token"],
+  ["ACCOUNT_INACTIVE", "banned_user"],
   ["ALREADY_EXCHANGED", "subject_token_replay"],
   ["EXPIRED", "subject_token_expired"],
   ["NOT_YET_VALID", "subject_token_not_yet_valid"],

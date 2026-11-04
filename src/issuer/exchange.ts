@@ -187,6 +187,9 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     const wantsRefreshToken = requestedTokenType === REFRESH_TOKEN_TOKEN_TYPE && options.samlRefreshScopes !== undefined;
     if (requestedTokenType !== ID_JAG_TOKEN_TYPE && !wantsRefreshToken) refuse("unsupported_requested_token_type", requestedTokenType ?? "absent");
     if (one("actor_token") !== undefined || one("actor_token_type") !== undefined) refuse("actor_token_unsupported");
+    // Draft -06 §4.3.3: the IdP MUST process authorization_details. We don't, so it is refused, not ignored (an ID-JAG
+    // carrying only the policy's scopes would be wider than what the client asked for).
+    if (form.has("authorization_details")) refuse("authorization_details_unsupported");
     const subjectToken = one("subject_token");
     if (!subjectToken) refuse("missing_parameter", "subject_token");
     const subjectTokenType = one("subject_token_type");

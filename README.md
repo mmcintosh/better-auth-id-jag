@@ -71,7 +71,7 @@ export const auth = betterAuth({
       authorize: ({ audience, client }) =>
         audience === "https://mcp.example.com/api/auth"
           ? { decision: "allow", scopes: ["read"], clientIdAtResource: client.metadata?.clientIdAtResource as string }
-          : { decision: "deny", reason: "unknown audience" },
+          : { decision: "unknown_audience" }, // not ours: invalid_target (draft -06)
     }),
   ],
 });
@@ -149,7 +149,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
 | `claims` | `{ email?: boolean, tenant?: string, act?: boolean \| { sub_profile?: string } }`: opt in to sending the user's email (only when verified), a tenant, and `act`. `act` names the requesting client as the actor (RFC 8693: `{ sub: <its client id here> }`, plus `sub_profile` if you give one: space-separated names of letters, digits, punctuation and symbols, e.g. Okta's `"ai_agent web_app"`), for clients that act for the user, such as AI agents. The receiver carries it into the access token, so the MCP server can treat agents differently from people. Only the `authorize` hook can set it. Tell agents apart by something only an administrator sets, not by metadata a client registers for itself (dynamic registration, a client ID metadata document): a client could otherwise drop the mark and lose the agent rules. |
 
-A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `access_denied`. For an audience you don't serve at all, return `{ decision: "unknown_audience" }` instead: the caller gets `invalid_target`, which tells it to change the request rather than ask for access (draft -06 §4.3.3). Use it only for an audience you don't know, never for one this user or client may not use. With the registry, an audience with no resource server is `invalid_target` already.
+A deny's `reason` goes to the audit log only, never to the caller, who gets the generic `access_denied`. For an audience you don't serve at all, return `{ decision: "unknown_audience" }` instead: the caller gets `invalid_target`, which tells it to change the request rather than ask for access (draft -06 §4.3.3). Use it only for an audience you don't know, never for one this user or client may not use. In the same way, for a `resource` the audience doesn't govern, return `{ decision: "unknown_resource" }` (also `invalid_target`, which draft -06 §4.3.3 requires). With the registry, both are `invalid_target` already. If the hook throws (its database is down, say), the caller gets HTTP 500 `server_error`, not a refusal: the failure is yours, and a new token wouldn't change the answer.
 
 **Step-up** (draft -06 §9.3). To tell the client the person must sign in again, for example because their second factor is older than the resource allows, deny with `stepUp`:
 
@@ -394,10 +394,10 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 
 ## Errors
 
-Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`), with the codes draft -06 profiles, so the client knows what to do next:
+Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`, and `server_error` with HTTP 500), with the codes draft -06 profiles, so the client knows what to do next:
 
-- **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience` is `invalid_request`. An audience with no resource server is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user) is `access_denied`: a new token won't help.
-- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. A valid ID-JAG whose subject isn't allowed here (unknown, rejected, banned) is `access_denied`. A failure a retry may fix (a concurrent first use, a database error) stays `invalid_grant`.
+- **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience`, or an `authorization_details` parameter, is `invalid_request`. An audience with no resource server, or a resource it doesn't govern, is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user, including behind a SAML Assertion) is `access_denied`: a new token won't help. Your `authorize` hook throwing, or the SAML verifier failing, is HTTP 500 `server_error`: try again later.
+- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. So is a SAML `sub_id` the trust entry can't use (draft -06 §3.2.2), and a client outside a trust entry's `allowedClientIds` (deliberately: `access_denied` there would tell the caller the issuer is trusted). A valid ID-JAG whose subject isn't allowed here (unknown, rejected by your `resolveSubject`, banned) is `access_denied`. A failure on our side (a concurrent first use, a database error, your `resolveSubject` throwing, a JIT organization membership that can't be added) stays `invalid_grant`, since a retry may help.
 
 The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Every other refusal gets the generic description for its code, so an agent can't tell an unknown user from a denied policy, or one trust failure from another. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
 
@@ -420,7 +420,7 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 
 ## Conformance
 
-Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice · ❌ not implemented (refused by name, never silently ignored).
+Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) and MCP's [Enterprise-Managed Authorization](https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx). ✅ implemented and tested · ⚠️ implemented, with a deliberate choice or limit · ❌ not implemented (refused by name, never silently ignored).
 
 **Issuer** (`idJagIssuer()`, experimental)
 
@@ -429,15 +429,17 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | ✅ | §4.3 Token exchange, `requested_token_type` id-jag | Any other requested type is refused (`invalid_request`), so a future generic token exchange isn't shadowed. |
 | ✅ | §4.3.3 Subject token: an ID token | Only one this IdP issued, for the authenticated client (`aud`), unexpired and at most `maxIdTokenAgeSeconds` old. |
 | ✅ | §4.3.3 The subject token is of the type named | An access token, an ID-JAG or a refresh token sent as `subject_token_type=id_token` is refused (`invalid_request`). |
-| ✅ | §4.3.3 Subject token: a refresh token (MAY) | Only one this IdP issued to the authenticated client, unrevoked; the exchange doesn't consume or rotate it. |
+| ⚠️ | §4.3.3, §9.2 Subject token: a refresh token (MAY) | Only one this IdP issued to the authenticated client, unrevoked. The exchange doesn't consume, rotate or sender-constrain it, which §9.2 says it SHOULD: it is oauth-provider's refresh token, which the client also uses for its own refreshes. Revoke it, or the user's sessions, to contain a leak. |
 | ✅ | §4.3, §4.5 Subject token: a SAML 2.0 assertion | Experimental; with better-auth-saml-idp ≥ 1.2.0. Directly to an ID-JAG, or to a refresh token (§4.5, MCP's SAML path). |
-| ✅ | §4.3 `audience`, `resource`, `scope` | One audience and at most one resource per request; scopes only narrow. |
+| ⚠️ | §4.3 `audience`, `resource`, `scope` | One audience and **at most one resource per request**: a second `resource` is `invalid_request` (the draft allows several, granting some or answering `invalid_target`). Scopes only narrow. |
+| ❌ | §4.3.3 `authorization_details` (RFC 9396) in the request | Refused (`invalid_request`): the draft says the IdP MUST process it, so it is never ignored. |
 | ❌ | §4.3 `actor_token` | Refused (`invalid_request`). |
 | ✅ | §3.1 Claims: `iss`, `sub`, `aud`, `client_id`, `jti`, `exp`, `iat`, `resource`, `scope`, `auth_time`, `acr`, `amr`, `tenant` | `iss` is exactly the metadata's `issuer`; `client_id` is the client's id **at the resource** (policy-mapped). |
 | ✅ | §3.1 `email` | Only when the policy opts in and the email is verified. |
-| ❌ | §3.1 `aud_sub`, `sub_id` (minting), `act` (minting), `authorization_details` | Not minted. (`sub_id` minting is deferred until a resource server needs it.) |
+| ✅ | §3.1 `act` (minting) | When the `authorize` hook asks for it (`claims.act`): `{ sub: <the client's id here>, sub_profile? }`. See [Policy](#policy). |
+| ❌ | §3.1 `aud_sub`, `sub_id` (minting), `authorization_details` | Not minted. (`sub_id` minting is deferred until a resource server needs it.) |
 | ✅ | §4.3.4 Response: `issued_token_type`, `token_type: N_A`, `expires_in`, `scope` | |
-| ✅ | §4.3.3, §4.3.4.3 Error codes | A subject token that fails validation, or more than one `audience`: `invalid_request`. An audience with no resource server, or a resource it doesn't grant: `invalid_target`. A valid request the user or client isn't allowed: `access_denied`. See [Errors](#errors). |
+| ✅ | §4.3.3, §4.3.4.3 Error codes | A subject token that fails validation, or more than one `audience`: `invalid_request`. An audience with no resource server, or a resource it doesn't govern (the registry, or the hook's `unknown_audience` / `unknown_resource`): `invalid_target`. The hook throwing: HTTP 500 `server_error`. A valid request the user or client isn't allowed: `access_denied`. See [Errors](#errors). |
 | ⚠️ | §5.2 `sub` for the resource authorization server | Always the user's id here. A pairwise client is refused as a requester; a resource authorization server registered here as a pairwise relying party would expect a different `sub` (not detected). |
 | ✅ | §7.1 Metadata `identity_chaining_requested_token_types_supported` | |
 | ✅ | §7.1 Metadata `id_jag_signing_alg_values_supported` (OPTIONAL) | Published, as `["RS256"]`, only when the issuer signs RS256: if present, the list MUST include RS256, and we sign with one algorithm. |
@@ -458,11 +460,11 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | ✅ | `resource`, `scope` | Every resource in the claim must be one of ours, compared exactly (`invalid_grant`); the one the request picks must be in the claim (`invalid_target`); one resource per access token. Scopes intersect the ID-JAG's, the client's and the resource's. |
 | ✅ | MCP: the access token is audience-restricted to the MCP server | `aud` = the resource. |
 | ✅ | §3.1 `act` | Accepted (shape-checked, at most 4 nested actors) and carried into the access token. |
-| ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.8). |
+| ✅ | §3.2 `sub_id` (`saml-nameid`) | Resolves users by SAML NameID when the trust entry maps it; never a source of trust (§9.8). One it can't use (absent when required, another format, transient, unmapped) is `invalid_grant`, as §3.2.2 requires. |
 | ⚠️ | §3.1 `email` | Used only with `emailFallback` for listed domains (a verified local user) or JIT; never by default. |
-| ✅ | §3.1, §4.4.1, §6.3 `tenant` | A trust entry can pin it. Each tenant of one issuer resolves subjects in its own account namespace (`accountProviderId`): two entries for one issuer and different tenants can't share one. |
+| ⚠️ | §3.1, §4.4.1, §6.3 `tenant` | Enforced **when a trust entry pins it**: an entry without `tenant` accepts every tenant of that issuer, so pin it for a multi-tenant IdP (the draft's MUST). Each tenant of one issuer resolves subjects in its own account namespace (`accountProviderId`): two entries for one issuer and different tenants can't share one. |
 | ✅ | §4.4.3 Error codes | A failed check (trust, signature, `aud`, `client_id`, replay, a foreign resource): one generic `invalid_grant`. A valid ID-JAG whose subject isn't allowed here: `access_denied`. A resource the request picks outside the claim: `invalid_target`. |
-| ❌ | §3.1 `aud_tenant`, `aud_sub` | Ignored. |
+| ⚠️ | §3.1 `aud_tenant`, `aud_sub` | Ignored, which is safe: they are hints for subject resolution, and ignoring them never accepts more. |
 | ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
 | ❌ | §9.11 DPoP and mTLS (`cnf`), `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`, `invalid_grant`), as §9.11 requires for a confirmation method the server doesn't support. |
 | ✅ | §9.4 Not self-issued | An ID-JAG whose `iss` is this server is refused. |

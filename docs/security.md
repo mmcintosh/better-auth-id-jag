@@ -15,6 +15,8 @@ Things the plugins can't enforce on their own. Each startup warning below is wor
 - **Configure trusted issuers.** With none, every ID-JAG is refused, and the plugin warns at startup. With `sso: true` but no sso plugin, no sso provider is trusted (also a warning).
 - **Restrict `canManage`.** The registry API (`registry.canManage`) decides who gets ID-JAGs for what, and the blocks API (`blocks.canManage`) who is cut off; either also reads the audit log. Each must return exactly `true`; give them to administrators only.
 - **On Workers, give Better Auth `waitUntil`** (`advanced.backgroundTasks`). Without it, audit rows and event handlers are cut off when the response is sent.
+- **Pin `tenant` for a multi-tenant IdP.** A trust entry without `tenant` accepts ID-JAGs from every tenant of that issuer (draft -06 §4.4.1 says a receiver MUST check it). With `emailFallback` or JIT on such an entry, another tenant's administrators could set any email address, and draft -06 §9.8 says to rely on email only from a tenant you trust as authoritative for it: pin the tenant whose domains you listed.
+- **One `accountProviderId` per issuer.** Two trust entries for different issuers may share one on purpose (an IdP that changed its issuer URL), but then a `sub` from either links to the same local user. The receiver logs a warning at startup when static entries do; table rows aren't checked, so give each row its own unless you mean it.
 - **Keep the audience exact.** Configure the receiver's issuer identifier, and enter it at the IdP (Okta's resource app: Machine Assignments, Resource server access, Issuer URL; your registry; your policy), exactly as `/.well-known/oauth-authorization-server` publishes it, path included.
 - **Don't take "how they signed in" on faith.** See the next section.
 
@@ -46,7 +48,7 @@ idJagGrant({
 |---|---|
 | A misconfiguration silently switching a check off | Options are validated at startup; an unknown key or an out-of-range value stops the plugin, naming each problem. |
 | Failing open | No policy, no trusted issuer, no matching resource server, an empty key set, a fetch error: each is a refusal, never "allow" (S1). |
-| A token of another kind accepted as an ID-JAG | `typ` must be exactly `oauth-id-jag+jwt` (S2); the issuer also refuses a `typ`'d token offered as an ID token. |
+| A token of another kind accepted as an ID-JAG | `typ` must be `oauth-id-jag+jwt` (S2), compared as a media type: case-insensitively, with `application/` optional (RFC 7515 §4.1.9); the issuer also refuses a `typ`'d token offered as an ID token. |
 | Algorithm confusion | RS256, ES256 and EdDSA only. No `HS*`, no `none` (S4). |
 | Oversized or hostile input | Tokens longer than any real ID-JAG are refused before decoding (S9); JWKS and discovery bodies are capped in size and time, and fuzzed. |
 | Long-lived credentials | ID-JAG lifetime: 300 s by default, never more than 900 s, at both ends (S7). |
@@ -70,7 +72,7 @@ idJagGrant({
 
 | Threat | Control |
 |---|---|
-| Forged ID-JAGs | Only trusted issuers, matched by exact `iss` (and `tenant`; two tenants of one issuer never share an account namespace, so one tenant's `sub` can't reach another's users); signature checked against that issuer's JWKS. The header names the key by `kid`, or else by an `x5t` / `x5t#S256` certificate thumbprint matched only against that issuer's own keys; a key or certificate carried in the token (`jwk`, `jku`, `x5c`, `x5u`) is never used, and a published key whose `key_ops` lacks `verify` is skipped. An ID-JAG naming this server as its issuer is refused (`self_issued`, draft §9.3). |
+| Forged ID-JAGs | Only trusted issuers, matched by exact `iss` (and `tenant`; two tenants of one issuer never share an account namespace, so one tenant's `sub` can't reach another's users); signature checked against that issuer's JWKS. The header names the key by `kid`, or else by an `x5t` / `x5t#S256` certificate thumbprint matched only against that issuer's own keys; a key or certificate carried in the token (`jwk`, `jku`, `x5c`, `x5u`) is never used, and a published key whose `key_ops` lacks `verify` is skipped. An ID-JAG naming this server as its issuer is refused (`self_issued`, draft -06 §9.4). |
 | An ID-JAG meant for another server | `aud` must equal this server's issuer identifier exactly: not the resource, the bare origin, or with a trailing slash. |
 | A stolen ID-JAG redeemed by another client | The ID-JAG's `client_id` must be the client that authenticated; per-issuer `allowedClientIds` narrow it further. |
 | Replay | Each `jti` is redeemed once per issuer, enforced by a unique key (S3), tested under concurrency. |

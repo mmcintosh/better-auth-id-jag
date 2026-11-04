@@ -15,7 +15,7 @@ const GENERIC_REQUEST = { error: "invalid_request", error_description: "The requ
 /** The exchange is refused for `reason`, with that reason's public body. */
 async function refused(host: IssuerHost, r: Awaited<ReturnType<typeof exchange>>, reason: ReasonCode, error: string) {
   expect(r.body, JSON.stringify(r.body)).toEqual({ error, error_description: publicDescription(reason) });
-  expect(r.status).toBe(error === "invalid_client" ? 401 : 400);
+  expect(r.status).toBe(error === "invalid_client" ? 401 : error === "server_error" ? 500 : 400);
   expect(takeReasons(host)).toEqual([reason]);
 }
 
@@ -41,6 +41,15 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     const { client, idToken } = await setup(host);
     await refused(host, await exchange(host, client, idToken, { actor_token: idToken, actor_token_type: ID_TOKEN_TOKEN_TYPE }), "actor_token_unsupported", "invalid_request");
     await refused(host, await exchange(host, client, idToken, { actor_token_type: ID_TOKEN_TOKEN_TYPE }), "actor_token_unsupported", "invalid_request");
+  });
+
+  it("authorization_details: refused, never ignored (draft -06 §4.3.3: the IdP MUST process it)", async () => {
+    // Ignoring it would issue the policy's scopes to a client that asked for something narrower.
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read", "write"] }) } });
+    const { client, idToken } = await setup(host);
+    for (const value of ['[{"type":"chat_read","actions":["read"]}]', "", "not json"])
+      await refused(host, await exchange(host, client, idToken, { authorization_details: value, scope: undefined }), "authorization_details_unsupported", "invalid_request");
+    expect((await exchange(host, client, idToken, { scope: undefined })).status).toBe(200);
   });
 
   it("subject_token, subject_token_type or audience missing: missing_parameter", async () => {
@@ -277,15 +286,17 @@ describe("refusals: policy (S1, S7)", () => {
     await refused(host, await exchange(host, client, idToken), "no_policy", "access_denied");
   });
 
-  it("the hook denies, throws, or answers something malformed: policy_denied (a reason goes to the audit only)", async () => {
+  it("the hook denies or answers something malformed: policy_denied; it throws: a 500 server_error, not access_denied (a reason goes to the audit only)", async () => {
     let verdict: () => unknown = () => ({ decision: "deny", reason: "not on a weekend\n" });
     const host = await createIssuerHost({ issuer: { authorize: (() => verdict()) as never } });
     const { client, idToken } = await setup(host);
     await refused(host, await exchange(host, client, idToken), "policy_denied", "access_denied");
+    // Its database is down, say: our failure, so the client mustn't be told a new token won't help.
+    verdict = () => {
+      throw new Error("boom");
+    };
+    await refused(host, await exchange(host, client, idToken), "internal_error", "server_error");
     for (const v of [
-      () => {
-        throw new Error("boom");
-      },
       () => true,
       () => ({ decision: "allow" }),
       () => ({ decision: "allow", scopes: "read" }),
@@ -407,6 +418,16 @@ describe("refusals: policy (S1, S7)", () => {
     const r = await exchange(host, client, idToken, { audience: "https://elsewhere.example" });
     expect(host.recorded.refused.at(-1)?.detail).toBe("authorize: SECRET-REASON");
     await refused(host, r, "unknown_audience", "invalid_target");
+    expect(JSON.stringify(r.body)).not.toContain("SECRET-REASON");
+    expect((await exchange(host, client, idToken)).status).toBe(200);
+  });
+
+  it("the hook says the resource is unknown: unknown_resource, invalid_target (draft -06 §4.3.3); its reason goes to the audit only", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: ({ resource }) => (resource === undefined || resource === "https://mcp.example.com/" ? allow() : { decision: "unknown_resource", reason: "SECRET-REASON" }) } });
+    const { client, idToken } = await setup(host);
+    const r = await exchange(host, client, idToken, { resource: "https://elsewhere.example/api" });
+    expect(host.recorded.refused.at(-1)?.detail).toBe("authorize: SECRET-REASON");
+    await refused(host, r, "unknown_resource", "invalid_target");
     expect(JSON.stringify(r.body)).not.toContain("SECRET-REASON");
     expect((await exchange(host, client, idToken)).status).toBe(200);
   });

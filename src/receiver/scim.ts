@@ -9,7 +9,7 @@
 // lookup, and a 409 SCIM conflict is retried from fresh state with jittered exponential backoff
 // within SCIM_RETRY_BUDGET_MS, then refused. A retry after a deprovisioning sees it and returns null. (@better-auth/scim itself refuses to start on an adapter without
 // native transactions, such as D1.) A database-level transaction error isn't a SCIM conflict: it
-// goes to resolveSubject's catch, an audited subject_rejected.
+// goes to resolveSubject's catch, an audited subject_unavailable.
 import type { GenericEndpointContext } from "better-auth";
 import { isAPIError } from "better-auth/api";
 import { refuse } from "../core";

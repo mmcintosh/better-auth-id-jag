@@ -10,9 +10,11 @@
 //
 // Its refusals map onto ours (S8: one generic body for all but the time window, which the caller
 // can read from its own Assertion):
-//   ALREADY_EXCHANGED → replay; EXPIRED → subject_token_expired; NOT_YET_VALID → not_yet_valid;
-//   MALFORMED, NOT_OURS, BAD_SIGNATURE, NOT_EXCHANGEABLE, WRONG_CLIENT, ACCOUNT_INACTIVE, an
-//   unknown code, any other throw, and a malformed result → invalid_subject_token (detail: why).
+//   ALREADY_EXCHANGED → subject_token_replay; EXPIRED → subject_token_expired; NOT_YET_VALID →
+//   subject_token_not_yet_valid; ACCOUNT_INACTIVE (the user is banned or gone) → banned_user
+//   (access_denied, as for an ID token); MALFORMED, NOT_OURS, BAD_SIGNATURE, NOT_EXCHANGEABLE,
+//   WRONG_CLIENT, an unknown code and a malformed result → invalid_subject_token (detail: why); any
+//   other throw (the verifier failed) → internal_error (server_error, HTTP 500).
 import type { GenericEndpointContext } from "better-auth";
 import { z } from "zod";
 import { refuse } from "../../core";
@@ -99,8 +101,8 @@ export interface SamlAssertionExpectations {
 
 /**
  * Verifies (and consumes: single use) a SAML Assertion this IdP issued to the SP mapped to
- * `clientId`, through better-auth-saml-idp. Throws IdJagRefusal: `invalid_subject_token`, `replay`,
- * `subject_token_expired` or `not_yet_valid`.
+ * `clientId`, through better-auth-saml-idp. Throws IdJagRefusal: `invalid_subject_token`, `subject_token_replay`,
+ * `subject_token_expired`, `subject_token_not_yet_valid`, `banned_user` or `internal_error`.
  */
 export async function verifyOwnSamlAssertion(ctx: GenericEndpointContext, token: string, expected: SamlAssertionExpectations): Promise<VerifiedAssertion> {
   const xml = decodeSaml2SubjectToken(token);
@@ -120,10 +122,15 @@ export async function verifyOwnSamlAssertion(ctx: GenericEndpointContext, token:
         return refuse("subject_token_expired", `saml2: EXPIRED${message}`);
       case "NOT_YET_VALID":
         return refuse("subject_token_not_yet_valid", `saml2: NOT_YET_VALID${message}`);
+      case "ACCOUNT_INACTIVE":
+        // A valid Assertion whose user can't have one: an authorization answer (draft -06 §4.3.4.3), not a bad token.
+        return refuse("banned_user", `saml2: ACCOUNT_INACTIVE${message}`);
       case undefined:
-        // Not one of its refusals: fail closed, and tell the operator.
+        // Not one of the refusals we know: fail closed, and tell the operator. A refusal with a code from a newer
+        // better-auth-saml-idp is still a refusal of the token; any other throw is the verifier failing (ours).
         ctx.context.logger.error("[id-jag] better-auth-saml-idp's verifyIssuedAssertion threw", e);
-        return bad("the verifier failed");
+        if ((e as { name?: unknown } | null)?.name === "AssertionExchangeError") return bad("the verifier refused with an unknown code");
+        return refuse("internal_error", "saml2: the verifier failed");
       default:
         return bad(`${code}${message}`);
     }

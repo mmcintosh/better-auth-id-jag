@@ -446,3 +446,20 @@ describe("receiver: signUp helper sanity", () => {
     expect((await createClient(s.h, { headers })).client_id).toBeTypeOf("string");
   });
 });
+
+describe("receiver: trust entries for different issuers sharing an accountProviderId", () => {
+  it("is allowed (an IdP that changed its issuer URL), but warns at startup; the defaults never share one", async () => {
+    const [a, b] = [await testIdp(), await testIdp()];
+    const logs: string[] = [];
+    await receiverHost("mcp", {
+      receiver: { trustedIssuers: [a, b].map((i) => ({ issuer: i.issuer, jwksUri: i.jwksUri, accountProviderId: "id-jag:moved-idp" })), fetch: network(a).fetch },
+      logs,
+    });
+    const warning = logs.find((l) => l.startsWith("warn") && l.includes("share accountProviderId id-jag:moved-idp"));
+    expect(warning).toContain(a.issuer);
+    expect(warning).toContain(b.issuer);
+    const quiet: string[] = [];
+    await receiverHost("mcp", { receiver: { trustedIssuers: [a, b].map((i) => ({ issuer: i.issuer, jwksUri: i.jwksUri })), fetch: network(a).fetch }, logs: quiet });
+    expect(quiet.some((l) => l.includes("share accountProviderId"))).toBe(false);
+  });
+});

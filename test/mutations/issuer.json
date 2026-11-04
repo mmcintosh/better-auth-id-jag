@@ -74,7 +74,7 @@
  {
   "name": "S1 hook throw allows",
   "file": "src/issuer/policy.ts",
-  "a": "    return refuse(\"policy_denied\", \"authorize threw\");",
+  "a": "    return refuse(\"internal_error\", \"authorize threw\");",
   "b": "    return { scopes: [\"read\"], email: false };",
   "paths": [
    "test/issuer/refusals.test.ts"
@@ -2374,6 +2374,80 @@
   "b": "The draft says",
   "paths": [
    "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 authorization_details ignored",
+  "file": "src/issuer/exchange.ts",
+  "a": "if (form.has(\"authorization_details\")) refuse(",
+  "b": "if (false) refuse(",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 hook throw answers access_denied",
+  "file": "src/issuer/policy.ts",
+  "a": "    return refuse(\"internal_error\", \"authorize threw\");",
+  "b": "    return refuse(\"policy_denied\", \"authorize threw\");",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 hook unknown_resource answers access_denied",
+  "file": "src/issuer/policy.ts",
+  "a": "if (v.decision === \"unknown_resource\") return refuse(\"unknown_resource\",",
+  "b": "if (v.decision === \"unknown_resource\") return refuse(\"policy_denied\",",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 hook unknown_resource verdict not accepted",
+  "file": "src/issuer/policy.ts",
+  "a": "  z.object({ decision: z.literal(\"unknown_resource\"), reason: z.string().optional() }),\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 server_error sent as 400",
+  "file": "src/core/errors.ts",
+  "a": "  if (refusal.error === \"server_error\") return new APIError(\"INTERNAL_SERVER_ERROR\", body);\n",
+  "b": "",
+  "paths": [
+   "test/core/errors.test.ts",
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 SAML ACCOUNT_INACTIVE a bad token",
+  "file": "src/issuer/subject/saml2.ts",
+  "a": "        return refuse(\"banned_user\", `saml2: ACCOUNT_INACTIVE${message}`);",
+  "b": "        return bad(`ACCOUNT_INACTIVE${message}`);",
+  "paths": [
+   "test/issuer/saml-subject.test.ts",
+   "test/issuer/saml-refresh.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 SAML verifier crash a bad token",
+  "file": "src/issuer/subject/saml2.ts",
+  "a": "        return refuse(\"internal_error\", \"saml2: the verifier failed\");",
+  "b": "        return bad(\"the verifier failed\");",
+  "paths": [
+   "test/issuer/saml-subject.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 SAML unknown refusal code a server error",
+  "file": "src/issuer/subject/saml2.ts",
+  "a": "if ((e as { name?: unknown } | null)?.name === \"AssertionExchangeError\") return bad(",
+  "b": "if (false) return bad(",
+  "paths": [
+   "test/issuer/saml-subject.test.ts"
   ]
  }
 ]

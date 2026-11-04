@@ -9,7 +9,8 @@ import { createClient, linkedUser, network, receiverHost, recorder, redeem, type
 
 const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
 const EMAIL_FORMAT = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress";
-// Draft -06 §4.4.3 (D-059): a valid ID-JAG whose subject isn't allowed here is access_denied, generic.
+// Draft -06 §4.4.3 (D-059): a valid ID-JAG whose subject isn't allowed here is access_denied, generic. A sub_id this
+// entry can't use (absent when required, another format, transient, unmapped) is invalid_grant: draft -06 §3.2.2's MUST.
 const DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 // A trust failure stays invalid_grant, generic.
 const GENERIC = { error: "invalid_grant", error_description: "The grant is invalid." };
@@ -75,7 +76,7 @@ describe("R3-S1: sub_id never establishes trust (§9.8)", () => {
       return { status: r.status, body: r.body, reason: r.status === 200 ? "accepted" : rec.refused.at(-1)?.reason, detail: rec.refused.at(-1)?.detail, userId: r.status === 200 ? rec.accepted.at(-1)?.userId : undefined };
     };
     const fromA = await go(a);
-    expect(fromA).toMatchObject({ status: 400, body: DENIED, reason: "subject_rejected" });
+    expect(fromA).toMatchObject({ status: 400, body: GENERIC, reason: "sub_id_rejected" });
     expect(fromA.detail).toMatch(/^sub_id not authorized for this issuer/);
     // The log-safe members are in the detail (to configure from), the NameID is not.
     expect(fromA.detail).toContain(x.issuer);
@@ -121,7 +122,7 @@ describe("R3-S2: every configured member compared, null-safe (§3.2.2)", () => {
       subId({ issuer: x.issuer.toUpperCase(), nameid, sp_name_qualifier: x.sp }),
     ]) {
       const r = await s.attempt({ sub_id: bad });
-      expect(r, JSON.stringify(bad)).toMatchObject({ reason: "subject_rejected", body: DENIED });
+      expect(r, JSON.stringify(bad)).toMatchObject({ reason: "sub_id_rejected", body: GENERIC });
       expect(r.detail).toMatch(/^sub_id not authorized for this issuer/);
     }
     expect(await s.attempt({ sub_id: subId({ issuer: z.issuer, nameid }) })).toMatchObject({ reason: "accepted", userId: uz.id });
@@ -134,7 +135,7 @@ describe("R3-S2: every configured member compared, null-safe (§3.2.2)", () => {
     const u = await linkedUser(s.h, x.providerId, nameid);
     expect(await s.attempt({ sub_id: subId({ issuer: x.issuer, nameid, name_qualifier: "https://nq.example" }) })).toMatchObject({ reason: "accepted", userId: u.id });
     for (const bad of [subId({ issuer: x.issuer, nameid }), subId({ issuer: x.issuer, nameid, name_qualifier: "https://other.example" }), subId({ issuer: x.issuer, nameid, name_qualifier: "https://nq.example", sp_name_qualifier: x.sp })])
-      expect((await s.attempt({ sub_id: bad })).reason, JSON.stringify(bad)).toBe("subject_rejected");
+      expect((await s.attempt({ sub_id: bad })).reason, JSON.stringify(bad)).toBe("sub_id_rejected");
   });
 
   it("nameIdFormats: a listed format is accepted; an unlisted or absent one is refused; no list accepts any non-transient format", async () => {
@@ -154,7 +155,7 @@ describe("R3-S2: every configured member compared, null-safe (§3.2.2)", () => {
     expect(await s.attempt({ sub_id: subId({ issuer: x.issuer, nameid, nameid_format: PERSISTENT }) })).toMatchObject({ reason: "accepted", userId: u.id });
     for (const bad of [subId({ issuer: x.issuer, nameid, nameid_format: EMAIL_FORMAT }), subId({ issuer: x.issuer, nameid })]) {
       const r = await s.attempt({ sub_id: bad });
-      expect(r.reason).toBe("subject_rejected");
+      expect(r.reason).toBe("sub_id_rejected");
       expect(r.detail).toMatch(/^sub_id nameid_format not allowed/);
     }
     expect(await s.attempt({ sub_id: subId({ issuer: z.issuer, nameid, nameid_format: EMAIL_FORMAT }) })).toMatchObject({ reason: "accepted", userId: uz.id });
@@ -196,9 +197,9 @@ describe("R3-S4: requireSubId", () => {
     const sub = crypto.randomUUID();
     await linkedUser(s.h, s.providerId, sub);
     const absent = await s.attempt({ sub });
-    expect(absent).toMatchObject({ reason: "subject_rejected", body: DENIED, detail: "sub_id required: absent" });
+    expect(absent).toMatchObject({ reason: "sub_id_rejected", body: GENERIC, detail: "sub_id required: absent" });
     const other = await s.attempt({ sub, sub_id: { format: "email", email: "a@corp.example" } });
-    expect(other).toMatchObject({ reason: "subject_rejected", detail: "sub_id required: format email not supported" });
+    expect(other).toMatchObject({ reason: "sub_id_rejected", detail: "sub_id required: format email not supported" });
     const nameid = `alice-${crypto.randomUUID()}`;
     const u = await linkedUser(s.h, x.providerId, nameid);
     expect(await s.attempt({ sub, sub_id: subId({ issuer: x.issuer, nameid }) })).toMatchObject({ reason: "accepted", userId: u.id });
@@ -240,7 +241,7 @@ describe("R3-S6: a transient NameID is refused", () => {
     const nameid = `_t${crypto.randomUUID()}`;
     await linkedUser(s.h, x.providerId, nameid);
     const r = await s.attempt({ sub_id: subId({ issuer: x.issuer, nameid, nameid_format: TRANSIENT_NAMEID_FORMAT }) });
-    expect(r).toMatchObject({ reason: "subject_rejected", body: DENIED, detail: "sub_id: a transient NameID can't identify a user" });
+    expect(r).toMatchObject({ reason: "sub_id_rejected", body: GENERIC, detail: "sub_id: a transient NameID can't identify a user" });
     expect(() => resolveReceiverOptions({ trustedIssuers: [{ issuer: s.idp.issuer, jwksUri: s.idp.jwksUri, samlSubjects: [{ issuer: x.issuer, nameIdFormats: [TRANSIENT_NAMEID_FORMAT], accountProviderId: x.providerId }] }] })).toThrow(/transient/);
   });
 
@@ -386,7 +387,7 @@ describe("sub_id and the host hook", () => {
     });
     const u = await s.h.ctx.internalAdapter.createUser({ email: uniqueEmail(), name: "H" }, { method: "admin" });
     const bad = subId({ issuer: "https://unmapped.example", nameid: "n" });
-    expect((await s.attempt({ sub_id: bad })).reason).toBe("subject_rejected");
+    expect((await s.attempt({ sub_id: bad })).reason).toBe("sub_id_rejected");
     expect(seen.at(-1)).toEqual(bad);
     target = u.id;
     expect(await s.attempt({ sub_id: bad })).toMatchObject({ reason: "accepted", userId: u.id });
@@ -417,10 +418,10 @@ describe("samlSubjects in the idJagTrustedIssuer table", () => {
     const nameid = `alice-${crypto.randomUUID()}`;
     const u = await linkedUser(t.h, x.providerId, nameid);
     expect(await t.attempt({ sub_id: subId({ issuer: x.issuer, nameid, sp_name_qualifier: x.sp }) })).toMatchObject({ reason: "accepted", userId: u.id });
-    expect((await t.attempt({ sub_id: subId({ issuer: x.issuer, nameid }) })).reason).toBe("subject_rejected");
+    expect((await t.attempt({ sub_id: subId({ issuer: x.issuer, nameid }) })).reason).toBe("sub_id_rejected");
     const sub = crypto.randomUUID();
     await linkedUser(t.h, `id-jag:${t.idp.issuer}`, sub);
-    expect((await t.attempt({ sub })).reason).toBe("subject_rejected");
+    expect((await t.attempt({ sub })).reason).toBe("sub_id_rejected");
   });
 
   it("null columns: sub_id ignored, as before", async () => {

@@ -83,7 +83,7 @@ export interface AuthorizeDeny {
   reason?: string | undefined;
   /**
    * Ask for step-up (draft -06 §9.3, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
-   * style, instead of the generic `invalid_grant`, and is expected to send the person back to sign in again. Setting it
+   * style, instead of the generic `access_denied`, and is expected to send the person back to sign in again. Setting it
    * tells the caller this user got past identity and policy lookup (S8), so set it only for that. `maxAge` → `max_age`
    * (seconds); `acrValues` → `acr_values`; `description` → `error_description` (printable ASCII without `"` or `\`,
    * at most 300); `uri` → `error_uri` (an absolute https URL, such as a "confirm it's you" page). Anything else is
@@ -103,7 +103,18 @@ export interface AuthorizeUnknownAudience {
   reason?: string | undefined;
 }
 
-export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny | AuthorizeUnknownAudience;
+/**
+ * The audience is one you serve, but the requested `resource` isn't one it governs (draft -06 §4.3.3): the caller gets
+ * `invalid_target`, not `access_denied`. As with `unknown_audience`, return it only for a resource you don't know, not
+ * for one this user or client may not use (that is a deny).
+ */
+export interface AuthorizeUnknownResource {
+  decision: "unknown_resource";
+  /** For the audit log only (log-safe there); never sent to the caller. */
+  reason?: string | undefined;
+}
+
+export type AuthorizeResult = AuthorizeAllow | AuthorizeDeny | AuthorizeUnknownAudience | AuthorizeUnknownResource;
 
 /** Who may use an admin API: the acting user as the database has it now, and the session. */
 export type CanManage = (input: { user: User & Record<string, unknown>; session: Record<string, unknown> }) => Awaitable<boolean>;

@@ -1357,3 +1357,43 @@ after D-057 and D-059 to D-061 closed the gaps a paragraph-level comparison of -
 - **Interop.** The dated rows in `docs/interop.md` were run against -04 releases; it says so. The weekly suite
   (Keycloak, node-oauth2-server, identity-provider.net) re-runs them; the live Okta and xaa.dev checks are #23.
 
+## D-063: what the pre-release review found (2026-11-03)
+
+Before publishing 0.6.0, Mark asked for a review by a fresh agent that hadn't built D-059 to D-062 and wasn't told
+their conclusions. It found the remaining error-code gaps below, each confirmed against the draft text and the
+code, and Mark chose (2026-11-03) `server_error` for a hook that throws and a new `unknown_resource` verdict.
+
+- **`sub_id` refusals are `invalid_grant`.** Draft -06 §3.2.2: a receiver that requires a SAML NameID `sub_id` MUST
+  reject a missing, malformed, unsupported or unauthorized one with `invalid_grant`. D-059 moved `subject_rejected`
+  to `access_denied` wholesale, and these four refusals used it. New reason `sub_id_rejected` (`invalid_grant`,
+  generic); `subject_rejected` stays for the host's `resolveSubject` "reject", an authorization answer.
+- **Our failures are not authorization answers.** Issuer: an `authorize` hook that throws, and a SAML verifier that
+  throws something other than one of its refusals, are `internal_error` → HTTP 500 `server_error` with a generic
+  description (the client mustn't be told a new token won't help; it is our fault). A verdict that fails validation
+  stays `policy_denied`: it is a host bug, but a deterministic one. A refusal with a code a newer
+  better-auth-saml-idp may add stays `invalid_subject_token`. Receiver: a JIT membership that can't be added (a
+  database error, an organization that doesn't exist, an unknown role) is `subject_unavailable` (`invalid_grant`),
+  as D-059 did for the receiver's other failures; the receiver keeps `invalid_grant` rather than a 500 for these, so
+  its answers stay as D-059 set them.
+- **`authorization_details` at the issuer** is refused (`authorization_details_unsupported`, `invalid_request`,
+  public). Draft -06 §4.3.3 says the IdP MUST process it; we ignored it, so a client that asked for less got the
+  policy's scopes.
+- **The hook can say `unknown_resource`** → `invalid_target` (draft -06 §4.3.3: a resource the IdP doesn't grant
+  MUST be `invalid_target`). Before, only the registry could; a hook could only deny (`access_denied`). The example
+  IdP uses it.
+- **SAML `ACCOUNT_INACTIVE`** (the Assertion's user is banned or gone) is `banned_user` (`access_denied`), as an ID
+  token's banned user is, instead of a bad subject token.
+- **Trust entries for different issuers sharing an `accountProviderId`.** Kept (an IdP that changed its issuer URL
+  needs it, and it takes explicit configuration), with a startup warning for static entries and a note in
+  `docs/security.md`. Table rows aren't checked.
+- **Docs.** README quick start (it denied an unknown audience), the conformance table (`act` minting is ✅; ⚠️ for
+  one resource per request, refresh tokens not rotated per §9.2, `tenant` only when pinned, `aud_tenant`/`aud_sub`
+  ignored; a row for `authorization_details` at the issuer), the Errors section (`server_error`, `sub_id`,
+  `allowedClientIds` staying `invalid_grant` on purpose), `docs/security.md` (§9.4, `typ` compared as a media type,
+  pinning `tenant`, one `accountProviderId` per issuer), `SECURITY.md` and `CONTRIBUTING.md` (-06), stale comments,
+  and a Breaking section at the top of the CHANGELOG, as `docs/versioning.md` promises.
+- **Evidence:** `test/core/errors.test.ts` (the codes, the 500), `test/issuer/refusals.test.ts` (hook throws,
+  `unknown_resource`, `authorization_details`), the SAML subject and refresh tests (`ACCOUNT_INACTIVE`, a crash, an
+  unknown code), `test/receiver/sub-id.test.ts`, `membership.test.ts`, `grant.test.ts` (the warning). 13 new
+  mutants and 4 updated ones, all caught.
+

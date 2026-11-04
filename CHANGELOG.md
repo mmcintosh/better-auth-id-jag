@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Breaking
+
+What to change when you upgrade from 0.5.x:
+
+- **A client that switches on the OAuth `error` code** sees draft -06's codes (D-059, D-063): `access_denied` for "a
+  new token won't help", `invalid_request` at the issuer for a bad subject token, `invalid_target` for an unknown
+  audience or resource, HTTP 500 `server_error` when the issuer's own code fails. The details are under Changed.
+- **An issuer `authorize` hook** that denies an audience or resource it doesn't serve should now return
+  `{ decision: "unknown_audience" }` or `{ decision: "unknown_resource" }` (draft -06 requires `invalid_target`); a
+  plain deny still works, as `access_denied`. `AuthorizeResult` gained these two members, so an exhaustive `switch`
+  over `decision` in your own code needs the new cases.
+- **A request with `authorization_details`** is refused at the issuer (`invalid_request`); it used to be ignored.
+- **A receiver ID-JAG whose resource claim names a resource you don't serve** is refused, even beside one you do
+  (D-060).
+
 ### Changed
 
 - **Implements ID-JAG draft -06** (D-062): `SUPPORTED_DRAFT` is
@@ -34,6 +49,13 @@
   ID-JAG naming a resource this server doesn't govern, even beside one it does, is refused (`foreign_resource`,
   `invalid_grant`), whichever resource the request picks. It used to be accepted when the request picked ours, and
   refused as `unknown_resource` (`invalid_target`) otherwise. Identifiers are compared exactly.
+- **Codes the pre-release review corrected** (D-063). Receiver: a SAML `sub_id` the trust entry can't use (absent
+  under `requireSubId`, another format, transient, not mapped) stays `invalid_grant`, as draft -06 §3.2.2 requires
+  (new reason `sub_id_rejected`, split from `subject_rejected`, which is now `access_denied`). A
+  JIT user whose organization membership can't be added is `subject_unavailable` (`invalid_grant`), was
+  `subject_rejected`. Issuer: an `authorize` hook that throws is HTTP 500 `server_error` (new reason
+  `internal_error`), was `policy_denied`; so is a SAML verifier that crashes. A SAML Assertion whose user is banned or
+  gone (`ACCOUNT_INACTIVE`) is `banned_user` (`access_denied`), as for an ID token, was `invalid_subject_token`.
 - **`allowPublicClients`'s startup warning** (both sides) now says the option is outside draft -06 (§4.3.3 at the
   issuer, §4.4 at the receiver), which makes client authentication a MUST. The option, its default (off) and its
   behaviour are unchanged (D-061).
@@ -47,6 +69,17 @@
 - **Issuer: `authorize` can answer `{ decision: "unknown_audience" }`** (D-059): the caller gets `invalid_target`,
   as draft -06 §4.3.3 requires for an audience the IdP has no trust relationship with. A plain deny is
   `access_denied`.
+- **Issuer: `authorize` can answer `{ decision: "unknown_resource" }`** (D-063): `invalid_target`, for a `resource`
+  the audience doesn't govern (draft -06 §4.3.3). Type `AuthorizeUnknownResource`.
+- **Issuer: `authorization_details` is refused by name** (D-063, `authorization_details_unsupported`,
+  `invalid_request`): draft -06 §4.3.3 says the IdP MUST process it, and ignoring it issued the policy's scopes to a
+  client that asked for less.
+- **Receiver: a startup warning when trust entries for different issuers share an `accountProviderId`** (D-063): a
+  `sub` from any of them links to the same local user. Allowed, for an IdP that changed its issuer URL.
+- **Docs.** The conformance table marks as ⚠️ what is a deliberate limit: one resource per issuer request, refresh
+  tokens not rotated (§9.2), `tenant` enforced only when pinned, `aud_tenant`/`aud_sub` ignored; `act` minting is ✅
+  (it was listed as not minted). `docs/security.md`: pin `tenant` for a multi-tenant IdP with email fallback or JIT;
+  one `accountProviderId` per issuer. The README quick start answers `unknown_audience`.
 
 ## [0.5.4] - 2026-11-01
 

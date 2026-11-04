@@ -1,5 +1,5 @@
 // The ID-JAG's subject → a local user (plan §3.4 step 10), first hit wins:
-// 1. the host's `resolveSubject` hook: link / continue / reject (a throw is a reject: gates fail closed);
+// 1. the host's `resolveSubject` hook: link / continue / reject (a throw refuses as `subject_unavailable`: gates fail closed);
 // then the subject's key (subjectKey): (the trust entry's account provider id, `sub`), or, for an
 // entry with `samlSubjects`, (the matching mapping's accountProviderId, the SAML NameID of `sub_id`),
 // a malformed, transient or unmapped `sub_id` being refused (draft -06 §3.2.2, §9.8; D-A27–D-A30);
@@ -19,7 +19,7 @@
 // makes (providerId, accountId) unique, so concurrent first uses of one subject can each link an
 // account. Lookups therefore tolerate several matching rows (the oldest wins, by createdAt then id),
 // and after linking, a request that finds it lost removes what it created and continues with the
-// winner's user. Anything unexpected is an audited `subject_rejected`, never an empty 500.
+// winner's user. Anything unexpected is an audited `subject_unavailable`, never an empty 500.
 import type { GenericEndpointContext, User } from "better-auth";
 import { type IdJagClaims, IdJagRefusal, parseSamlNameIdSubId, refuse, type SamlNameIdSubId } from "../core";
 import { addJitMembership, type MembershipOutcome } from "./membership";
@@ -68,14 +68,14 @@ export function subjectKey(trust: TrustEntry, claims: IdJagClaims): SubjectKey {
     throw e;
   }
   if (!subId) {
-    if (trust.requireSubId === true) refuse("subject_rejected", claims.sub_id ? `sub_id required: format ${claims.sub_id.format} not supported` : "sub_id required: absent");
+    if (trust.requireSubId === true) refuse("sub_id_rejected", claims.sub_id ? `sub_id required: format ${claims.sub_id.format} not supported` : "sub_id required: absent");
     return bySub;
   }
-  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse("subject_rejected", "sub_id: a transient NameID can't identify a user");
+  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse("sub_id_rejected", "sub_id: a transient NameID can't identify a user");
   const mapping = mappings.find((m) => sameNamespace(m, subId));
-  if (!mapping) refuse("subject_rejected", `sub_id not authorized for this issuer: ${describeSubId(subId)}`);
+  if (!mapping) refuse("sub_id_rejected", `sub_id not authorized for this issuer: ${describeSubId(subId)}`);
   if (mapping.nameIdFormats !== null && (subId.nameid_format === undefined || !mapping.nameIdFormats.includes(subId.nameid_format)))
-    refuse("subject_rejected", `sub_id nameid_format not allowed: ${describeSubId(subId)}`);
+    refuse("sub_id_rejected", `sub_id nameid_format not allowed: ${describeSubId(subId)}`);
   return { providerId: mapping.accountProviderId, accountId: subId.nameid, from: "sub_id" };
 }
 
@@ -288,7 +288,7 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
         ctx.context.logger.error(`[id-jag] JIT: removing the half-provisioned user ${user.id} failed; it has no linked account and won't be accepted`, e2);
       }
     }
-    if (membershipFailed) refuse("subject_rejected", "JIT: organization membership failed");
+    if (membershipFailed) refuse("subject_unavailable", "JIT: organization membership failed");
     const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });
     const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId: membership === "added" ? trust.organizationId : undefined } });
     return { user: assertNotBanned(winner, now), via: "jit" };

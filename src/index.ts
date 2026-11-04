@@ -62,6 +62,7 @@ export type {
   AuthorizeInput,
   AuthorizeResult,
   AuthorizeUnknownAudience,
+  AuthorizeUnknownResource,
   BlocksOptions,
   CanManage,
   IdJagIssuerOptions,

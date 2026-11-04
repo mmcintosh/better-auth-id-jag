@@ -235,7 +235,7 @@ describe("path (b): saml2 → refresh token", () => {
       host.idp.failWith = code;
       const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));
       expect(takeReasons(host), code).toEqual([reason]);
-      expect(r.body, code).toEqual(reason === "subject_token_expired" || reason === "subject_token_not_yet_valid" ? { error: "invalid_request", error_description: publicDescription(reason) } : GENERIC_REQUEST);
+      expect(r.body, code).toEqual(reason === "subject_token_expired" || reason === "subject_token_not_yet_valid" ? { error: "invalid_request", error_description: publicDescription(reason) } : reason === "banned_user" ? GENERIC_DENIED : GENERIC_REQUEST);
     }
     host.idp.failWith = undefined;
     const a = assertion();

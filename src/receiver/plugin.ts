@@ -28,6 +28,13 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
       extendOAuthProvider(ctx, idJagGrantExtension(resolved));
       warnIfReplayUnsafe(ctx, "idJagGrant");
       if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs without client authentication. This is outside draft -06 §4.4, which says a request with neither client authentication nor a sender-constrained ID-JAG MUST be refused (sender-constrained ID-JAGs aren't supported here).");
+      // Entries for different issuers may share an accountProviderId on purpose (an IdP that changed its issuer URL), but
+      // then one issuer's `sub` reaches the other's users, so say so.
+      const issuersByProvider = new Map<string, Set<string>>();
+      for (const t of resolved.trustedIssuers) issuersByProvider.set(t.accountProviderId, (issuersByProvider.get(t.accountProviderId) ?? new Set()).add(t.issuer));
+      for (const [provider, issuers] of issuersByProvider)
+        if (issuers.size > 1)
+          ctx.logger.warn(`[id-jag] trusted issuers ${[...issuers].join(", ")} share accountProviderId ${provider}: a sub from any of them links to the same local user. Do this only when they give the same person the same sub (for example, one IdP that changed its issuer URL).`);
       if (resolved.trustedIssuers.length === 0 && !resolved.sso && !resolved.trustedIssuerTable) ctx.logger.warn("[id-jag] no trusted issuers configured: every ID-JAG will be refused.");
       const scimEntries = resolved.trustedIssuers.filter((t) => t.scim);
       if (scimEntries.length > 0 && !ctx.hasPlugin("scim"))
