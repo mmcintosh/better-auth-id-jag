@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-04
+
 ### Breaking
 
 What to change when you upgrade from 0.5.x:
