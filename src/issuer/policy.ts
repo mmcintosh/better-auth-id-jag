@@ -6,10 +6,12 @@
 // allowed. Before any source, an administrator's block (blocks.ts) refuses outright.
 //
 // S8 ordering: the refusals that would tell the caller something about our policies (no policy,
-// policy denied) are all `invalid_grant` with one generic body, like unknown or banned users. The
-// two specific refusals (`no_scope`, `unknown_resource`) come only **after** a policy allowed: by
-// then the caller could have learnt the allow anyway (by asking for no scope or no resource).
-// The one deny that says more is the hook's own step-up (D-043): the host chooses to tell the caller.
+// policy denied, a block) are all `access_denied` with one generic body, like unknown or banned users
+// (draft -06, D-059). The registry's specific refusals (`no_scope`, `unknown_resource`) come only
+// **after** a policy allowed: by then the caller could have learnt the allow anyway (by asking for no
+// scope or no resource). An audience with no resource server is `invalid_target` (draft -06 §4.3.3).
+// The hook says more only when the host chooses to: step-up (D-043), `unknown_audience`,
+// `unknown_resource`. A hook that throws is `server_error` (`internal_error`): our failure, not an answer.
 import type { GenericEndpointContext, User } from "better-auth";
 import { z } from "zod";
 import { IdJagRefusal, MAX_LIFETIME_SECONDS, refuse } from "../core";
@@ -92,6 +94,7 @@ const verdictSchema = z.discriminatedUnion("decision", [
   }),
   z.object({ decision: z.literal("deny"), reason: z.string().optional(), stepUp: stepUpSchema.optional() }),
   z.object({ decision: z.literal("unknown_audience"), reason: z.string().optional() }),
+  z.object({ decision: z.literal("unknown_resource"), reason: z.string().optional() }),
 ]);
 
 const truthy = (v: unknown) => v === true || v === 1 || v === "1" || v === "true";
@@ -161,13 +164,15 @@ async function fromHook(hook: (input: AuthorizeInput) => unknown, r: PolicyReque
   try {
     verdict = await hook({ ctx: r.ctx, user: r.user, client: r.client, audience: r.audience, resource: r.resource, requestedScopes: [...r.requestedScopes], subjectToken: r.subjectToken });
   } catch (e) {
-    r.ctx.context.logger.error("[id-jag] authorize threw; denied", e);
-    return refuse("policy_denied", "authorize threw");
+    r.ctx.context.logger.error("[id-jag] authorize threw; refused with server_error", e);
+    return refuse("internal_error", "authorize threw");
   }
   const parsed = verdictSchema.safeParse(verdict);
   if (!parsed.success) return refuse("policy_denied", "authorize returned a malformed verdict");
   const v = parsed.data as AuthorizeResult;
   if (v.decision === "unknown_audience") return refuse("unknown_audience", `authorize: ${v.reason ?? "unknown audience"}`);
+  // Draft -06 §4.3.3: a resource the IdP doesn't grant MUST be invalid_target.
+  if (v.decision === "unknown_resource") return refuse("unknown_resource", `authorize: ${v.reason ?? "unknown resource"}`);
   if (v.decision !== "allow") {
     if (v.stepUp) {
       const c = v.stepUp;

@@ -19,7 +19,7 @@ describe("refusals (S8)", () => {
     // Changing this list is a security decision (S8): make it here, on purpose. step_up_required is the exception:
     // only the host's authorize hook produces it, by choosing to tell the caller (D-043).
     expect(ALL.filter((r) => REASONS[r].public).sort()).toEqual(
-      ["actor_token_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "invalid_resource", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "repeated_audience", "scope_required", "step_up_required", "subject_token_expired", "subject_token_not_yet_valid", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
+      ["actor_token_unsupported", "authorization_details_unsupported", "disallowed_alg", "expired", "invalid_audience", "invalid_claim", "invalid_resource", "lifetime_too_long", "malformed_token", "missing_claim", "missing_kid", "missing_parameter", "not_yet_valid", "repeated_audience", "scope_required", "step_up_required", "subject_token_expired", "subject_token_not_yet_valid", "unsupported_claim", "unsupported_parameter", "unsupported_requested_token_type", "unsupported_subject_token_type", "wrong_typ"].sort(),
     );
   });
 
@@ -38,12 +38,19 @@ describe("refusals (S8)", () => {
     // separates the two groups on purpose (a new token may help with the first, never with the second).
     const body = (r: ReasonCode) => JSON.stringify(toApiError(new IdJagRefusal(r)).body);
     // subject_unavailable too: resolution failed in a way a retry may fix (a lost race, a database error).
-    const trust: ReasonCode[] = ["untrusted_issuer", "self_issued", "bad_signature", "jwks_unavailable", "wrong_audience", "client_mismatch", "replay", "subject_unavailable"];
+    const trust: ReasonCode[] = ["untrusted_issuer", "self_issued", "bad_signature", "jwks_unavailable", "wrong_audience", "client_mismatch", "replay", "subject_unavailable", "sub_id_rejected"];
     expect([...new Set(trust.map(body))]).toEqual([JSON.stringify({ error: "invalid_grant", error_description: "The grant is invalid." })]);
     const denied: ReasonCode[] = ["unknown_subject", "subject_rejected", "banned_user", "pairwise_client", "policy_denied", "blocked", "no_policy"];
     expect([...new Set(denied.map(body))]).toEqual([JSON.stringify({ error: "access_denied", error_description: "The subject or client is not authorized for this request." })]);
     for (const r of ["invalid_subject_token", "subject_token_replay"] as ReasonCode[]) expect(body(r), r).toBe(JSON.stringify({ error: "invalid_request", error_description: "The request is invalid." }));
     expect(body("unknown_audience")).toBe(JSON.stringify({ error: "invalid_target", error_description: "The requested resource or audience is invalid." }));
+  });
+
+  it("our own failure (internal_error) is a 500 server_error with a generic body, never access_denied", () => {
+    const e = toApiError(new IdJagRefusal("internal_error", "authorize threw: secret detail"));
+    expect(e.statusCode).toBe(500);
+    expect(e.body).toEqual({ error: "server_error", error_description: "The server could not process the request. Try again later." });
+    expect(ALL.filter((r) => REASONS[r].error === "server_error")).toEqual(["internal_error"]);
   });
 
   it("draft -06's profiled codes (D-059): the subject token, the audience, the authorization", () => {
@@ -53,6 +60,9 @@ describe("refusals (S8)", () => {
     expect(["unknown_audience", "invalid_audience", "invalid_resource", "unknown_resource"].map((r) => code(r as ReasonCode))).toEqual(["invalid_target", "invalid_target", "invalid_target", "invalid_target"]);
     // Draft -06 §4.4.1 (D-060): a resource claim we don't govern is the ID-JAG's defect, not the request's.
     expect(code("foreign_resource")).toBe("invalid_grant");
+    // Draft -06 §3.2.2: a sub_id the receiver can't use is invalid_grant (MUST), not an authorization answer.
+    expect(code("sub_id_rejected")).toBe("invalid_grant");
+    expect(code("authorization_details_unsupported")).toBe("invalid_request");
     expect(ALL.filter((r) => code(r) === "access_denied").sort()).toEqual(["banned_user", "blocked", "no_policy", "pairwise_client", "policy_denied", "subject_rejected", "unknown_subject"]);
   });
 

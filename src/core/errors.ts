@@ -16,7 +16,9 @@ import { APIError, isAPIError } from "better-auth/api";
 
 // insufficient_user_authentication: draft -06 §9.3 step-up (RFC 9470's code, at the token endpoint).
 // access_denied: draft -06 §4.3.4.3 / §4.4.3, a valid token whose user or client isn't authorized.
-export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "access_denied" | "insufficient_user_authentication";
+// server_error: something on our side failed (the host's hook threw), so neither a new token nor a different request is
+// the answer; sent with HTTP 500, as a JSON body.
+export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "access_denied" | "insufficient_user_authentication" | "server_error";
 
 /** What the caller sees when the reason isn't safe to name. */
 const GENERIC: Record<OAuthErrorCode, string> = {
@@ -28,6 +30,7 @@ const GENERIC: Record<OAuthErrorCode, string> = {
   invalid_target: "The requested resource or audience is invalid.",
   access_denied: "The subject or client is not authorized for this request.",
   insufficient_user_authentication: "The subject does not meet the authentication requirements.",
+  server_error: "The server could not process the request. Try again later.",
 };
 
 /**
@@ -68,6 +71,9 @@ export const REASONS = {
   // Both sides: the token is valid, but the user or client isn't allowed (draft -06 §4.3.4.3, §4.4.3).
   unknown_subject: { error: "access_denied", public: false },
   subject_rejected: { error: "access_denied", public: false },
+  // Receiver: a trust entry that resolves by SAML NameID got a sub_id it can't use (absent, another format, transient,
+  // not mapped for this issuer). Draft -06 §3.2.2: MUST be invalid_grant.
+  sub_id_rejected: { error: "invalid_grant", public: false },
   banned_user: { error: "access_denied", public: false },
   // Receiver: resolving the subject failed in a way a retry may fix (a concurrent first use, a database error, the
   // host's hook threw). Not an authorization answer, so not access_denied: invalid_grant, as any other failed check.
@@ -80,6 +86,8 @@ export const REASONS = {
   unsupported_requested_token_type: { error: "invalid_request", public: true, description: "Unsupported requested_token_type." },
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
+  // Draft -06 §4.3.3: the IdP MUST process authorization_details; we don't, so it is refused rather than ignored.
+  authorization_details_unsupported: { error: "invalid_request", public: true, description: "authorization_details is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },
   // Draft -06 §4.3.3: more than one audience is invalid_request.
   repeated_audience: { error: "invalid_request", public: true, description: "audience must appear once." },
@@ -99,6 +107,9 @@ export const REASONS = {
   no_policy: { error: "access_denied", public: false },
   // Draft -06 §4.3.3: an audience with no resource server we trust MUST be invalid_target.
   unknown_audience: { error: "invalid_target", public: false },
+  // Issuer: the host's code failed (the authorize hook threw, the SAML verifier threw): not the caller's doing, and
+  // not an answer about the user, so neither invalid_request nor access_denied. HTTP 500.
+  internal_error: { error: "server_error", public: false },
 } as const satisfies Record<string, { error: OAuthErrorCode; public: boolean; description?: string }>;
 
 export type ReasonCode = keyof typeof REASONS;
@@ -162,8 +173,9 @@ export function toApiError(refusal: IdJagRefusal): APIError {
     ...(c?.maxAge !== undefined ? { max_age: c.maxAge } : {}),
     ...(c?.acrValues?.length ? { acr_values: c.acrValues.join(" ") } : {}),
   };
-  // 401 with a challenge for client authentication (RFC 6749 §5.2), 400 for the rest.
+  // 401 with a challenge for client authentication (RFC 6749 §5.2), 500 for server_error, 400 for the rest.
   if (refusal.error === "invalid_client") return new APIError("UNAUTHORIZED", body, { "WWW-Authenticate": 'Basic realm="token"' });
+  if (refusal.error === "server_error") return new APIError("INTERNAL_SERVER_ERROR", body);
   return new APIError("BAD_REQUEST", body);
 }
 

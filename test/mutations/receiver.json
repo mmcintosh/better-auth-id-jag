@@ -785,7 +785,7 @@
  {
   "name": "JIT membership: failure swallowed (half-provisioned user accepted)",
   "file": "src/receiver/resolve.ts",
-  "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n",
+  "a": "    if (membershipFailed) refuse(\"subject_unavailable\", \"JIT: organization membership failed\");\n",
   "b": "",
   "paths": [
    "test/receiver/membership.test.ts"
@@ -805,8 +805,8 @@
   "edits": [
    {
     "file": "src/receiver/resolve.ts",
-    "a": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n",
-    "b": "    if (membershipFailed) refuse(\"subject_rejected\", \"JIT: organization membership failed\");\n"
+    "a": "    if (membershipFailed) refuse(\"subject_unavailable\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n",
+    "b": "    if (membershipFailed) refuse(\"subject_unavailable\", \"JIT: organization membership failed\");\n"
    },
    {
     "file": "src/receiver/resolve.ts",
@@ -1271,7 +1271,7 @@
  {
   "name": "R3-S6 a transient NameID accepted",
   "file": "src/receiver/resolve.ts",
-  "a": "  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse(\"subject_rejected\", \"sub_id: a transient NameID can't identify a user\");\n",
+  "a": "  if (subId.nameid_format === TRANSIENT_NAMEID_FORMAT) refuse(\"sub_id_rejected\", \"sub_id: a transient NameID can't identify a user\");\n",
   "b": "",
   "paths": [
    "test/receiver/sub-id.test.ts"
@@ -1872,6 +1872,51 @@
   "file": "src/receiver/plugin.ts",
   "a": "This is outside draft -06 §4.4, which",
   "b": "The draft says",
+  "paths": [
+   "test/receiver/grant.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 sub_id refusals answer access_denied",
+  "file": "src/core/errors.ts",
+  "a": "  sub_id_rejected: { error: \"invalid_grant\", public: false },",
+  "b": "  sub_id_rejected: { error: \"access_denied\", public: false },",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 requireSubId refused as subject_rejected",
+  "file": "src/receiver/resolve.ts",
+  "a": "refuse(\"sub_id_rejected\", claims.sub_id ?",
+  "b": "refuse(\"subject_rejected\", claims.sub_id ?",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 unmapped sub_id refused as subject_rejected",
+  "file": "src/receiver/resolve.ts",
+  "a": "refuse(\"sub_id_rejected\", `sub_id not authorized",
+  "b": "refuse(\"subject_rejected\", `sub_id not authorized",
+  "paths": [
+   "test/receiver/sub-id.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 JIT membership failure answers access_denied",
+  "file": "src/receiver/resolve.ts",
+  "a": "refuse(\"subject_unavailable\", \"JIT: organization membership failed\")",
+  "b": "refuse(\"subject_rejected\", \"JIT: organization membership failed\")",
+  "paths": [
+   "test/receiver/membership.test.ts"
+  ]
+ },
+ {
+  "name": "D-063 shared accountProviderId warning dropped",
+  "file": "src/receiver/plugin.ts",
+  "a": "        if (issuers.size > 1)",
+  "b": "        if (issuers.size > 99)",
   "paths": [
    "test/receiver/grant.test.ts"
   ]

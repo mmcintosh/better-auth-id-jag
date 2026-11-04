@@ -203,19 +203,19 @@ describe("JIT membership: without the organization plugin, and when it fails", (
     expect(quiet.some((l) => l.includes("organization plugin is not installed"))).toBe(false);
   });
 
-  it("the organization doesn't exist: the new user is removed, the grant refused (subject_rejected), and a retry is refused too", async () => {
+  it("the organization doesn't exist: the new user is removed, the grant refused (subject_unavailable: our failure, not an authorization answer), and a retry is refused too", async () => {
     const logs: string[] = [];
     const s = await host({ trust: { organizationId: `missing-${crypto.randomUUID()}` }, logs });
     const sub = crypto.randomUUID();
     const email = uniqueEmail();
     const r = await s.attempt({ sub, email });
-    expect(r.reason).toBe("subject_rejected");
+    expect(r.reason).toBe("subject_unavailable");
     expect(s.rec.refused.at(-1)?.detail).toBe("JIT: organization membership failed");
-    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
+    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
     expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     expect(await s.h.ctx.internalAdapter.findAccountByKey({ providerId: `id-jag:${s.idp.issuer}`, accountId: sub })).toBeNull();
     expect(logs.some((l) => l.startsWith("error") && l.includes("removing the user and refusing"))).toBe(true);
-    expect((await s.attempt({ sub, email })).reason).toBe("subject_rejected");
+    expect((await s.attempt({ sub, email })).reason).toBe("subject_unavailable");
   });
 
   it("sso's getRole throwing (or returning no role) refuses the same way", async () => {
@@ -227,10 +227,10 @@ describe("JIT membership: without the organization plugin, and when it fails", (
     const org = await createOrganization(s.h);
     await ssoRow(s.h, s.idp, org);
     const email = uniqueEmail();
-    expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_rejected");
+    expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_unavailable");
     expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     answer = () => "";
-    expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_rejected");
+    expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_unavailable");
     expect(await membersOf(s.h, org)).toHaveLength(0);
   });
 
@@ -253,7 +253,7 @@ describe("JIT membership: without the organization plugin, and when it fails", (
       () => "accepted",
       (e: IdJagRefusal) => e.reason,
     );
-    expect(outcome).toBe("subject_rejected");
+    expect(outcome).toBe("subject_unavailable");
     expect(linked).toHaveLength(0);
     expect(errors.some((m) => m.includes("removing the half-provisioned user"))).toBe(true);
   });
@@ -307,7 +307,7 @@ describe("JIT roles are checked against the organization plugin's roles (D-A26)"
     await expect(host({ trust: { organizationId: newOrgId(), jitRole: "auditr" }, organizationOptions: orgOptions({ ac: defaultAc, roles: { auditor: memberAc } }) })).rejects.toThrow(/"auditr"/);
   });
 
-  it("a table row's unknown jitRole is refused at provisioning: subject_rejected, logged, the user removed", async () => {
+  it("a table row's unknown jitRole is refused at provisioning: subject_unavailable, logged, the user removed", async () => {
     const logs: string[] = [];
     const s = await host({ trust: null, receiver: { trustedIssuerTable: true }, logs });
     const org = await createOrganization(s.h);
@@ -317,8 +317,8 @@ describe("JIT roles are checked against the organization plugin's roles (D-A26)"
     });
     const email = uniqueEmail();
     const r = await s.attempt({ sub: crypto.randomUUID(), email });
-    expect(r.reason).toBe("subject_rejected");
-    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
+    expect(r.reason).toBe("subject_unavailable");
+    expect(r.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
     expect(logs.some((l) => l.startsWith("error") && l.includes("superuser"))).toBe(true);
     expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     expect(await membersOf(s.h, org)).toHaveLength(0);
@@ -331,7 +331,7 @@ describe("JIT roles are checked against the organization plugin's roles (D-A26)"
       const org = await createOrganization(s.h);
       await ssoRow(s.h, s.idp, org);
       const email = uniqueEmail();
-      expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_rejected");
+      expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("subject_unavailable");
       expect(logs.some((l) => l.startsWith("error") && /superuser|ghost/.test(l))).toBe(true);
       expect(await s.h.ctx.internalAdapter.findUserByEmail(email)).toBeNull();
     }
@@ -343,7 +343,7 @@ describe("JIT roles are checked against the organization plugin's roles (D-A26)"
     const s = await host({ trust: { organizationId: org, jitRole: "contractor" }, organizationOptions });
     await createOrganization(s.h, org);
     // Not one of the organization's roles yet: refused at provisioning.
-    expect((await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() })).reason).toBe("subject_rejected");
+    expect((await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() })).reason).toBe("subject_unavailable");
     await s.h.ctx.adapter.create({ model: "organizationRole", data: { organizationId: org, role: "contractor", permission: JSON.stringify({}), createdAt: new Date(), updatedAt: new Date() } });
     const r = await s.attempt({ sub: crypto.randomUUID(), email: uniqueEmail() });
     expect(r.reason).toBe("accepted");

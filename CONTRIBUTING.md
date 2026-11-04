@@ -8,7 +8,7 @@ For **security vulnerabilities**, don't open an issue: see [SECURITY.md](SECURIT
 
 - **Tell us another implementation works (or doesn't).** Open an [interop report](https://github.com/mmcintosh/better-auth-id-jag/issues/new?template=interop.yml): an IdP whose ID-JAGs you sent to our receiver, an authorization server you sent our ID-JAGs to, or an MCP client that ran the flow. A "works with X" report with the settings you used is as valuable as a bug report: it becomes a row in [docs/interop.md](docs/interop.md).
 - **Improve the docs.** If something in the [README](README.md) was unclear or wrong for you, it will be for others.
-- **Follow the draft.** ID-JAG is an IETF draft (-04 today). If a new draft or an implementation changes a claim, a URN or a rule, an issue pointing at it helps.
+- **Follow the draft.** ID-JAG is an IETF draft (-06 today). If a new draft or an implementation changes a claim, a URN or a rule, an issue pointing at it helps.
 
 ## Setup
 
