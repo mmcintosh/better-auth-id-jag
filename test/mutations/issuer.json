@@ -1517,7 +1517,7 @@
  {
   "name": "P3-S12 an unexpected throw escapes (500)",
   "file": "src/issuer/subject/saml2.ts",
-  "a": "        return bad(\"the verifier failed\");",
+  "a": "        return refuse(\"internal_error\", \"saml2: the verifier failed\");",
   "b": "        throw e;",
   "paths": [
    "test/issuer/saml-subject.test.ts"
