@@ -1920,5 +1920,23 @@
   "paths": [
    "test/receiver/grant.test.ts"
   ]
+ },
+ {
+  "name": "D-064 email fallback: a look-alike address the database matched is linked",
+  "file": "src/receiver/resolve.ts",
+  "a": "      if (!sameAddress(found.user.email, email)) refuse(",
+  "b": "      if (false && !sameAddress(found.user.email, email)) refuse(",
+  "paths": [
+   "test/receiver/resolve.test.ts"
+  ]
+ },
+ {
+  "name": "D-064 email fallback: the same address in another Unicode form or case refused",
+  "file": "src/receiver/resolve.ts",
+  "a": "stored.normalize(\"NFC\").toLowerCase() === wanted.normalize(\"NFC\").toLowerCase()",
+  "b": "stored === wanted",
+  "paths": [
+   "test/receiver/resolve.test.ts"
+  ]
  }
 ]

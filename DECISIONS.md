@@ -927,7 +927,7 @@ went to the audit only.
   `stepUp`s refused, the edges accepted), `test/core/errors.test.ts` (the body; a challenge on any other reason never
   sent), `test/issuer/registry.test.ts` (a registry refusal stays generic). Mutations: 18 added, all caught.
 
-## D-044: the Better Auth floor raised to 1.7.10 (2026-10-19)
+## D-044: the Better Auth floor raised to 1.7.10 (2026-10-19) (superseded by D-064: 1.7.16)
 
 The maintainer's decision (2026-10-18: move the floor "to 1.7.10 or 1.7.8 some point past the security issues").
 
@@ -1232,7 +1232,7 @@ with its tenant (`iss`+`tenant`+`sub`). -04 already implied it.
 - **Evidence:** `test/receiver/trust.test.ts`, two tests (static entries; table rows, including a row without a tenant
   and the fixed setup where each tenant resolves only its own subjects).
 
-## D-058: development pin 1.7.15, the floor stays 1.7.10; npm's bundled glob and minimatch (2026-11-02)
+## D-058: development pin 1.7.15, the floor stays 1.7.10; npm's bundled glob and minimatch (2026-11-02) (pin and floor superseded by D-064)
 
 D-048's rule: development pins follow the newest 1.7.x once it is a day old.
 
@@ -1397,3 +1397,48 @@ code, and Mark chose (2026-11-03) `server_error` for a hook that throws and a ne
   unknown code), `test/receiver/sub-id.test.ts`, `membership.test.ts`, `grant.test.ts` (the warning). 13 new
   mutants and 4 updated ones, all caught.
 
+## D-064: the Better Auth floor raised to 1.7.16; the email fallback checks the address itself (2026-11-04)
+
+The maintainer's decision (2026-11-04, for 0.6.0).
+
+- **Why:** Better Auth 1.7.16 (2026-11-03) fixed twelve advisories published the same day, every one covering 1.7.10
+  to 1.7.15: one critical (GHSA-4wq4-2ppv-q3hg, the Expo authorization proxy), two high (GHSA-q747-mqgr-4gh7, the
+  phone number plugin; GHSA-9p5w-h4pr-fcrc, the Electron plugin), the rest medium or low (OAuth sign-in, sessions with
+  secondary storage or the cookie cache, email OTP, email change, organization roles, admin, MySQL serial ids,
+  Stripe, passkey). Our floor 1.7.10 and our development pin 1.7.15 are affected; the demo Workers run 1.7.12.
+- **One reaches this package.** GHSA-2f9c-7xj7-gh55's fix makes `internalAdapter.findUserByEmail` return a user only
+  when its stored address equals the one asked for (NFC, case-insensitive). Before it, a database whose collation
+  ignores accents (MySQL 8's default `utf8mb4_0900_ai_ci`) could return `jose@corp.com` for `josé@corp.com`. The
+  receiver's email fallback (`resolve.ts`) links the ID-JAG's subject to the user that lookup returns, so on such a
+  database an ID-JAG naming `josé@corp.com` could be linked, permanently, to the verified local user
+  `jose@corp.com`. JIT's "email belongs to an existing user" check uses the same lookup (refusing too much, not too
+  little). Needs a trusted issuer that will assert the look-alike address in a domain listed in `emailDomains`.
+- **Our own check too** (the maintainer's yes, 2026-11-04). The email fallback refuses a user whose stored address
+  isn't the one asked for (NFC, case ignored, as Better Auth 1.7.16 compares), `unknown_subject` with detail "email
+  fallback: the database matched a different address", whatever Better Auth's lookup does: the receiver's own
+  safety shouldn't rest on a peer's fix. JIT's check is left as it is: a look-alike there refuses (too much, never
+  too little). Proved on MySQL 8.4 (default `utf8mb4_0900_ai_ci`) with Better Auth 1.7.15: without the check an
+  ID-JAG for `josé@` got a token for the verified `jose@`; with it, refused. So published 0.5.x is exposed on MySQL
+  or MariaDB with the email fallback and Better Auth before 1.7.16; upgrading Better Auth closes it.
+- **Change:** peer range `>=1.7.16 <1.8.0` for `better-auth` and every `@better-auth/*` peer; every `better-auth`
+  and `@better-auth/*` development pin 1.7.16 (supersedes D-058's 1.7.15); CI's floor rows 1.7.10 → 1.7.16 (Node 22
+  and 24); the SAML end-to-end project on 1.7.16. 1.7.16, not 1.7.17 (2026-11-04, bug fixes only): it is the
+  release with the fixes, and the newest a day old (D-024's wait).
+- **Release:** in 0.6.0, already a minor release with a Breaking section; the floor raise is its first entry, as
+  docs/versioning.md promises.
+- **1.7.16's changes we checked:** 160 files, all in #12198 (the advisories). Outside `findUserByEmail` (above),
+  nothing in `oauth-provider`, `mcp`, `sso`, `scim`, `cimd` or `jwt` source; the `oauth2` changes are social
+  sign-in (`link-account.ts`, `state.ts`, string `email_verified` parsing), which this package doesn't import.
+  `better-call` 1.4.4 → 1.4.5 comes with it (D-049); `@better-auth/utils` stays 0.5.1.
+- **The SAML end-to-end project was stale since D-059:** it expected `invalid_grant` for five refusals that draft -06
+  answers `invalid_request` (a replayed, tampered or other client's Assertion). It isn't in CI, so D-059 missed it;
+  the five expectations now say `invalid_request`.
+- **Evidence:** typecheck, lint, `docs:check`, `pack:check`, `pnpm audit --prod` clean; the suite 1005 passed,
+  127 skipped (D-063's 1001/125 plus the new tests); the lockfile has one `better-auth`, one `@better-auth/core`
+  and one `better-call`, nothing left on 1.7.15. The adapter matrix on MySQL 8.4 and Drizzle-MySQL (local
+  container): 6/6 on 1.7.15 and on 1.7.16; the look-alike test fails on 1.7.15 without our check (a 200 for
+  `jose@`'s user) and passes on 1.7.16 without it (Better Auth's fix alone), so each layer stops it. The new
+  resolve tests fail with the check removed or made exact (both mutants caught by `scripts/mutate.py`). The SAML
+  end-to-end project on 1.7.16, 19 passed. CI's latest-1.7 row ran 1.7.16 on 2026-11-04 (#88): 1001 passed.
+- **Also needed:** the ruleset's required checks `test (1.7.10, 22)` and `test (1.7.10, 24)` are renamed to
+  `test (1.7.16, 22)` and `test (1.7.16, 24)`. The demo Workers run 1.7.16 from their next deploy.

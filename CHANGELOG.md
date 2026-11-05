@@ -6,6 +6,9 @@
 
 What to change when you upgrade from 0.5.x:
 
+- **Better Auth 1.7.16 or later** (`>=1.7.16 <1.8.0`, was `>=1.7.10`), for `better-auth` and every
+  `@better-auth/*` peer (D-064): 1.7.16 fixed twelve security advisories. On an older 1.7.x, upgrade Better Auth and
+  its plugins together first; npm warns about the peer range until you do. The details are under Changed.
 - **A client that switches on the OAuth `error` code** sees draft -06's codes (D-059, D-063): `access_denied` for "a
   new token won't help", `invalid_request` at the issuer for a bad subject token, `invalid_target` for an unknown
   audience or resource, HTTP 500 `server_error` when the issuer's own code fails. The details are under Changed.
@@ -17,8 +20,29 @@ What to change when you upgrade from 0.5.x:
 - **A receiver ID-JAG whose resource claim names a resource you don't serve** is refused, even beside one you do
   (D-060).
 
+### Security
+
+- **Receiver: the email fallback could link a look-alike address** (D-064). On a database whose collation ignores
+  accents (MySQL's and MariaDB's defaults), Better Auth before 1.7.16 answered a lookup for `josé@corp.com`
+  with the user `jose@corp.com`
+  ([GHSA-2f9c-7xj7-gh55](https://github.com/better-auth/better-auth/security/advisories/GHSA-2f9c-7xj7-gh55)), and
+  the email fallback linked the ID-JAG's subject to that user: an ID-JAG for `josé@` was accepted as the verified
+  local `jose@`, from then on. It needs a trusted issuer that asserts the look-alike address, in a domain listed for
+  the fallback. Now the receiver checks the stored address itself (Unicode-normalized, case ignored) and refuses a
+  different one (`unknown_subject`), whatever Better Auth does, and Better Auth 1.7.16 is required. **On 0.5.x,
+  upgrading Better Auth to 1.7.16 or later closes it** (0.5.x accepts it). Hosts without the email fallback, or whose
+  database tells accents apart (PostgreSQL, SQLite, D1 and MongoDB by default), are not affected.
+
 ### Changed
 
+- **Requires Better Auth 1.7.16 or later** (D-064). Better Auth 1.7.16 (2026-11-03) fixed twelve advisories that
+  1.7.10 to 1.7.15 have, among them
+  [GHSA-4wq4-2ppv-q3hg](https://github.com/better-auth/better-auth/security/advisories/GHSA-4wq4-2ppv-q3hg)
+  (critical; the Expo authorization proxy),
+  [GHSA-q747-mqgr-4gh7](https://github.com/better-auth/better-auth/security/advisories/GHSA-q747-mqgr-4gh7) (high;
+  the phone number plugin) and
+  [GHSA-9p5w-h4pr-fcrc](https://github.com/better-auth/better-auth/security/advisories/GHSA-9p5w-h4pr-fcrc) (high;
+  the Electron plugin). One of them reaches this package (see Security). No schema change.
 - **Implements ID-JAG draft -06** (D-062): `SUPPORTED_DRAFT` is
   `draft-ietf-oauth-identity-assertion-authz-grant-06`, was -04. No claim, token type URN, grant type or metadata name
   changed, so an -04 ID-JAG is a valid -06 one. What changed is below: error codes, the `resource` claim, client

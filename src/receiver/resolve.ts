@@ -97,6 +97,13 @@ const emailDomain = (email: string): string | undefined => {
   return at > 0 ? email.slice(at + 1).toLowerCase() : undefined;
 };
 
+/**
+ * The same address: Unicode-normalized (NFC), case ignored, otherwise exact (D-064). A database whose collation ignores
+ * accents (MySQL's default) matches look-alikes, so a lookup for josé@ can return jose@; Better Auth's
+ * `findUserByEmail` checks this itself since 1.7.16 (GHSA-2f9c-7xj7-gh55), and we don't rely on it.
+ */
+const sameAddress = (stored: unknown, wanted: string): boolean => typeof stored === "string" && stored.normalize("NFC").toLowerCase() === wanted.normalize("NFC").toLowerCase();
+
 interface AccountRow {
   id: string;
   userId: string;
@@ -249,6 +256,8 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
   if (email && domain && trust.emailDomains?.includes(domain)) {
     const found = await internal.findUserByEmail(email, { includeAccounts: true });
     if (found) {
+      // A look-alike address the database matched (D-064): someone else's user, never linked.
+      if (!sameAddress(found.user.email, email)) refuse("unknown_subject", "email fallback: the database matched a different address");
       // The user already has an account at this issuer under another subject: not this person's to take.
       if (found.accounts.some((a) => a.providerId === key.providerId)) refuse("unknown_subject", "email matches a user linked to another subject");
       // Only a local user who proved the address (D-A23): anyone can register an unverified
