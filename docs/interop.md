@@ -10,9 +10,13 @@ This page lists which other ID-JAG implementations our issuer (`idJagIssuer()`) 
 Nothing here is claimed from reading docs alone. Where a row says "verified", the test is in
 `test/interop/`, and the commands to run it are below.
 
-The dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim, URN or
-metadata name, only some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant`
-was), so a row stays valid until a re-run says otherwise.
+Most dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim or URN.
+It changes some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant` was), adds
+the IdP metadata field `id_jag_signing_alg_values_supported`, and makes the receiver refuse an ID-JAG whose `resource`
+claim names anything that isn't ours (`foreign_resource`, D-060). So a row stays valid until a re-run says otherwise,
+and these have been re-run on 0.6.0: Okta and xaa.dev, by hand on 2026-11-06; MCPJam, identity-provider.net, Keycloak
+and node-oauth2-server, in the Interop workflow on 2026-11-07 against main at `8150f89` (0.6.0's code; run
+42342544915), and weekly after. The PingFederate, Oracle and VS Code rows predate 0.6.0.
 
 ## The matrix
 
@@ -357,7 +361,7 @@ All 5 passed:
 - **Every assertion failure gives the same `invalid_grant` text**, as ours does (S8).
 - **`aud` must equal `tokenEndpointUri` exactly.** The option's name notwithstanding, its comment says that value is
   the issuer identifier.
-- **The PR targets draft -03.** Its claim checks are the ones -04 requires.
+- **The PR targets draft -03.** Its claim checks are the ones -06 still requires.
 
 ## MCPJam → our receiver
 
