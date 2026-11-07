@@ -10,8 +10,8 @@
 // --client=app runs as the app (default: the agent). --as=reader signs in as the read-only user.
 // --scope is what the client asks for (default "read write").
 // The layers (README, "What ID-JAG controls"): the IdP decides who may have write; the MCP server decides
-// which tool each scope unlocks (add_note needs write: 403 insufficient_scope without it), and that an
-// agent (a token with act) may only read unless AGENTS_MAY_WRITE=true on the MCP server.
+// which tool each scope unlocks (add_note and delete_note need write: 403 insufficient_scope without it), and what an
+// agent (a token with act) may do: add_note on its own, delete_note only with a person's approval (a tool error here).
 // --cutoff then calls whoami every 10 s until the access token stops working, and reports how long that
 // took: how long an agent keeps access after the IdP stops issuing it ID-JAGs.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -29,6 +29,8 @@ const cutoff = process.argv.includes("--cutoff");
 const b64url = (bytes) => Buffer.from(bytes).toString("base64url");
 const decode = (jwt) => jwt.split(".").slice(0, 2).map((p) => JSON.parse(Buffer.from(p, "base64url").toString()));
 const basic = (c) => `Basic ${btoa(`${encodeURIComponent(c.client_id)}:${encodeURIComponent(c.client_secret)}`)}`;
+// The IdP's clients use client_secret_post (enterprise-idp/src/index.ts says why); the MCP server's use Basic.
+const secretPost = (c) => ({ client_id: c.client_id, client_secret: c.client_secret });
 const step = (n, what, value) => console.log(`\n${n}. ${what}\n${typeof value === "string" ? value : JSON.stringify(value, null, 2)}`);
 
 async function post(url, body, headers = {}) {
@@ -86,7 +88,7 @@ const authzBody = await authz.text();
 const location = authz.headers.get("location") ?? (() => { try { return JSON.parse(authzBody).url; } catch { return ""; } })() ?? "";
 const code = new URL(location, idp).searchParams.get("code");
 if (!code) throw new Error(`authorize: ${authz.status} ${location} ${authzBody}`);
-const tokens = await post(`${idp}/api/auth/oauth2/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier }, { authorization: basic(atIdp) });
+const tokens = await post(`${idp}/api/auth/oauth2/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier, ...secretPost(atIdp) });
 if (!tokens.json.id_token) throw new Error(`token: ${tokens.status} ${JSON.stringify(tokens.json)}`);
 step(2, "Signed in at the IdP: ID token (payload)", decode(tokens.json.id_token)[1]);
 
@@ -101,8 +103,8 @@ const exchanged = await post(
     scope,
     subject_token: tokens.json.id_token,
     subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+    ...secretPost(atIdp),
   },
-  { authorization: basic(atIdp) },
 );
 if (exchanged.status !== 200) throw new Error(`exchange: ${exchanged.status} ${JSON.stringify(exchanged.json)}`);
 const [jagHeader, jagClaims] = decode(exchanged.json.access_token);
@@ -115,7 +117,7 @@ step(4, "JWT bearer grant at the MCP server: access token (claims)", { response:
 
 if (process.env.DEBUG_TOKEN_FILE) writeFileSync(process.env.DEBUG_TOKEN_FILE, granted.json.access_token, { mode: 0o600 });
 
-// 5. Call the MCP server's tools: whoami and list_notes need read, add_note needs write.
+// 5. Call the MCP server's tools: whoami and list_notes need read, add_note and delete_note need write.
 const tool = async (name, args = {}) => {
   const r = await fetch(prm.resource, {
     method: "POST",
@@ -131,11 +133,11 @@ const notes = await tool("list_notes");
 step("5a", `MCP tools/call list_notes (read) → ${notes.status}`, notes.body);
 const write = await tool("add_note", { text: "from the agent" });
 step("5b", `MCP tools/call add_note (write) → ${write.status}`, { ...write.body, ...(write.challenge ? { "WWW-Authenticate": write.challenge } : {}) });
+const del = await tool("delete_note", { id: "1" });
+step("5c", `MCP tools/call delete_note (write; an agent needs approval) → ${del.status}`, { ...del.body, ...(del.challenge ? { "WWW-Authenticate": del.challenge } : {}) });
 const hasWrite = String(granted.json.scope ?? "").split(" ").includes("write");
 // The IdP names the agent in act, and not the app (D-037): checked against the role this run plays.
 const hasAct = decode(granted.json.access_token)[1].act !== undefined;
-// An agent may only read, unless the MCP server sets AGENTS_MAY_WRITE=true (set it in this script's environment too).
-const mayWrite = hasWrite && (which === "app" || process.env.AGENTS_MAY_WRITE === "true");
 
 // And the same ID-JAG once more: single use.
 const replay = await post(`${asMeta.token_endpoint}`, { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: exchanged.json.access_token }, { authorization: basic(atMcp) });
@@ -157,15 +159,19 @@ if (cutoff) {
     await new Promise((resolve) => setTimeout(resolve, 10_000));
   }
 }
-// Expected: whoami and list_notes 200; act for the agent only; add_note 200 only with write and not as an
-// agent, else 403; the replay refused.
+// Expected: whoami and list_notes 200; act for the agent only; without write, add_note and delete_note 403
+// (insufficient_scope); with write, add_note 200 for both, delete_note 200 for the app and a tool error (200, isError)
+// for the agent; the replay refused.
 const failures = [
   call.status !== 200 && `whoami → ${call.status}, expected 200`,
   notes.status !== 200 && `list_notes → ${notes.status}, expected 200`,
   hasAct !== (which === "agent") &&
     (which === "agent" ? "the access token has no act: the IdP didn't name the agent (is the IdP updated, and was --setup re-run?)" : "the access token has act, but this run is the app"),
-  write.status !== (mayWrite ? 200 : 403) &&
-    `add_note → ${write.status}, expected ${mayWrite ? 200 : 403}${which === "agent" && hasWrite ? " (an agent may write only with AGENTS_MAY_WRITE=true on the MCP server and in this script's environment)" : ""}`,
+  !hasWrite && write.status !== 403 && `add_note without write → ${write.status}, expected 403 insufficient_scope`,
+  !hasWrite && del.status !== 403 && `delete_note without write → ${del.status}, expected 403 insufficient_scope`,
+  hasWrite && (write.status !== 200 || write.body.result?.isError === true) && `add_note → ${write.status}${write.body.result?.isError ? " (tool error)" : ""}, expected 200`,
+  hasWrite && (del.status !== 200 || (del.body.result?.isError === true) !== (which === "agent")) &&
+    `delete_note → ${del.status}${del.body.result?.isError ? " (tool error)" : ""}, expected ${which === "agent" ? "a tool error (an agent needs approval)" : "200"}`,
   replay.status !== 400 && `the same ID-JAG again → ${replay.status}, expected 400`,
 ].filter(Boolean);
 if (failures.length) {

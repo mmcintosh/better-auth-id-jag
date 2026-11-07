@@ -6,7 +6,7 @@ Two Better Auth apps on Cloudflare Workers with D1, and a script that plays the 
   People sign in here. The agent exchanges their ID token for an ID-JAG, after the policy has approved it.
 - **`mcp-server/`**: an MCP server and its authorization server. `mcp()` + `jwt()` + `idJagGrant()`. It trusts the IdP
   (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves three tools (`whoami`,
-  `list_notes`, `add_note`).
+  `list_notes`, `add_note`, `delete_note`).
 - **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use. It runs
   as an AI agent or, with `--client=app`, as an ordinary app.
 
@@ -67,6 +67,10 @@ SETUP_KEY_FILE=<file> node examples/workers/client.mjs https://<idp> https://<mc
 node examples/workers/client.mjs https://<idp> https://<mcp>                                 # any time after
 ```
 
+The IdP registers every client for `client_secret_post` and lists only that method in its metadata (the top of
+`enterprise-idp/src/index.ts` says why: [Claude Code](#claude-code)). A state file from before that change holds
+`client_secret_basic` clients: run `--setup` once more.
+
 ## Okta Cross App Access
 
 For your own server, [docs/okta.md](../../docs/okta.md) is the whole guide. For these Workers:
@@ -108,6 +112,32 @@ VS Code 1.123+ (preview) does this flow itself, with Okta as the IdP: verified w
    `mcp.json`, the server `https://<mcp>/mcp` with `"oauth": { "enterpriseManaged": true, "clientId": "<from step 1>" }`.
    VS Code asks for the client secret once.
 
+## Claude Code
+
+Claude Code's Cross App Access (`CLAUDE_CODE_ENABLE_XAA=1`) works against these Workers with **this IdP** as the IdP:
+it asks the IdP for no scope, and this IdP's policy grants the user's scopes anyway (`read`, plus `write` for the users
+in `WRITERS`), which is the IdP's decision to make (draft -06 section 4.3.3). With Okta it can't: Okta grants no scope when
+none is asked for, and the receiver refuses an ID-JAG without one
+([docs/interop.md](../../docs/interop.md)).
+
+1. Register Claude Code's client at the MCP server (`/setup`, as above; Basic is fine there), then at the IdP with
+   Claude Code's loopback redirect:
+
+   ```sh
+   curl -X POST https://<idp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-type: application/json' \
+     -d '{"email":"agent-user@example.com","password":"example-password-1234","clientIdAtResource":"<the MCP client id>","agent":true,"redirectUris":["http://localhost:8765/callback"]}'
+   ```
+
+2. `claude mcp xaa setup --issuer https://<idp>/api/auth --client-id <the IdP client id> --client-secret --callback-port 8765`
+   (the secret from `MCP_XAA_IDP_CLIENT_SECRET`), then `claude mcp xaa login`: the IdP's sign-in page (`/login`) opens
+   in the browser.
+3. `claude mcp add --transport http --xaa --client-id <the MCP client id> --client-secret <name> https://<mcp>/mcp`
+   (the secret from `MCP_CLIENT_SECRET`).
+
+Why `client_secret_post` here: Claude Code 2.1.319 signs in with HTTP Basic when the IdP's metadata lists it, but
+always sends the secret in the body when it asks for the ID-JAG. Better Auth holds a client to one registered method, so
+a Basic client fails the second step. Listing only `client_secret_post` makes Claude Code use it for both.
+
 ## Running locally
 
 `wrangler dev` runs both Workers (each with its own `--persist-to`, because the two configs share a placeholder
@@ -121,14 +151,14 @@ The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
 | Layer | Where | In the demo |
 |---|---|---|
 | Who may have which scope | The IdP's policy | `read` for everyone; `write` only for the emails in the IdP's `WRITERS` (here `agent-user@example.com`). `reader-user@example.com`'s agent asks for `read write` and gets `read` |
-| Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` needs `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
-| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server (set it for `client.mjs` too, so its check expects the write) |
+| Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` and `delete_note` need `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
+| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. An agent may write **within guardrails**: each tool says whether an agent may use it on its own (`add_note`) or needs a person's approval (`delete_note`; this demo has no approval step, so it refuses). The refusal is an MCP **tool error** (200, `isError`), not a 403: the token has the scope, so a client mustn't be told to sign in again for it. Every write is logged with the person, the agent (`act.sub`) and the ID-JAG's `jti` |
 | How long access outlives a cutoff | The MCP server's token lifetimes | `accessTokenExpiresIn: 300`, `scopeExpirations: { write: "2m" }` |
 
 ```sh
-node examples/workers/client.mjs <idp> <mcp> --client=app                 # app for agent-user: read write, add_note 200, token 120 s
-node examples/workers/client.mjs <idp> <mcp>                              # AI agent for agent-user: read write, but add_note 403 (agents only read)
-node examples/workers/client.mjs <idp> <mcp> --as=reader                  # AI agent for reader-user: read only, add_note 403 insufficient_scope
+node examples/workers/client.mjs <idp> <mcp> --client=app                 # app for agent-user: read write, add_note and delete_note 200, token 120 s
+node examples/workers/client.mjs <idp> <mcp>                              # AI agent for agent-user: read write, add_note 200, delete_note a tool error (needs approval)
+node examples/workers/client.mjs <idp> <mcp> --as=reader                  # AI agent for reader-user: read only, add_note and delete_note 403 insufficient_scope
 node examples/workers/client.mjs <idp> <mcp> --client=app --as=reader     # app for reader-user: the same
 node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff         # polls until the token stops working
 ```

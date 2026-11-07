@@ -1,6 +1,6 @@
 // Routes: Better Auth under /api/auth (and the /.well-known documents), POST /setup (registers a
-// client, an AI agent or an app, as a confidential client here, x-setup-key), and /mcp: three tools
-// (`whoami`, `list_notes`, `add_note`), for an access token audience-bound to this server's /mcp.
+// client, an AI agent or an app, as a confidential client here, x-setup-key), and /mcp: four tools
+// (`whoami`, `list_notes`, `add_note`, `delete_note`), for an access token audience-bound to this server's /mcp.
 //
 // The token check is the one requireMcpAuth (@better-auth/mcp) makes: signature with this
 // server's JWKS, `iss` = this authorization server, `aud` = this /mcp, unexpired; a 401 carries
@@ -97,14 +97,24 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
     case "ping":
       return reply({});
     case "tools/list":
-      return reply({ tools: TOOLS.map(({ name, description, scope }) => ({ name, description: `${description} (scope: ${scope})`, inputSchema: { type: "object", properties: name === "add_note" ? { text: { type: "string" } } : {} } })) });
+      return reply({ tools: TOOLS.map(({ name, description, scope, agents }) => ({ name, description: `${description} (scope: ${scope}${agents === "approval" ? "; an AI agent needs a person's approval" : ""})`, inputSchema: { type: "object", properties: name === "add_note" ? { text: { type: "string" } } : name === "delete_note" ? { id: { type: "string" } } : {} } })) });
     case "tools/call": {
       const tool = TOOLS.find((t) => t.name === rpc.params?.name);
       if (!tool) return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32602, message: "unknown tool" } });
       if (!scopes.includes(tool.scope)) return forbid(tool.scope, `${tool.name} needs the ${tool.scope} scope; this token has: ${scopes.join(" ") || "none"}`);
-      if (tool.scope === "write" && claims.act !== undefined && env.AGENTS_MAY_WRITE !== "true") return forbid(tool.scope, `${tool.name}: an agent (act) may only read here`);
+      // An AI agent (a token with act) may write here, within guardrails: each tool says whether an agent may use it on
+      // its own or needs a person's approval. The token has the scope, so a refusal here is a decision about the caller,
+      // not a missing scope: a tool error the model reads, never a 403 insufficient_scope, which tells a client to sign
+      // in again for a scope it already has (Claude Code and VS Code did, docs/interop.md). This demo has no approval
+      // step, so "approval" means refused for an agent.
+      if (claims.act !== undefined && tool.agents === "approval")
+        return reply({ content: [{ type: "text", text: `${tool.name} refused: when an AI agent asks, this needs a person's approval, and this demo has no approval step. The token has the ${tool.scope} scope, so signing in again won't change this; a person or an app can do it.` }], isError: true });
+      // Every write is recorded with who it was for and which agent asked (Workers Logs here; an audit table in practice).
+      if (tool.scope === "write")
+        console.log(JSON.stringify({ event: "mcp.write", tool: tool.name, sub: claims.sub, agent: (claims.act as { sub?: unknown } | undefined)?.sub ?? null, idjag: (claims.idjag as { jti?: unknown } | undefined)?.jti ?? null }));
       if (tool.name === "whoami") return reply(text({ tool: "whoami", sub: claims.sub, scope: claims.scope, act: claims.act ?? null, aud: claims.aud, idjag: claims.idjag, exp: claims.exp }));
       if (tool.name === "list_notes") return reply(text({ tool: "list_notes", notes: ["(the demo keeps no notes)"] }));
+      if (tool.name === "delete_note") return reply(text({ tool: "delete_note", accepted: true, id: String(rpc.params?.arguments?.id ?? "").slice(0, 100), note: "the demo keeps no notes" }));
       return reply(text({ tool: "add_note", accepted: true, text: String(rpc.params?.arguments?.text ?? "").slice(0, 200), note: "the demo doesn't store it" }));
     }
     default:
@@ -115,11 +125,15 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
 /** MCP's Enterprise-Managed Authorization extension (ID-JAG): modelcontextprotocol.io/extensions/auth/enterprise-managed-authorization */
 const EMA_EXTENSION = "io.modelcontextprotocol/enterprise-managed-authorization";
 
-/** The demo's tools and the scope each needs. */
+/**
+ * The demo's tools, the scope each needs, and what an AI agent may do with it: "allow" on its own, "approval" only with a
+ * person's approval (refused here: the demo has no approval step). An app or a person needs only the scope.
+ */
 const TOOLS = [
-  { name: "whoami", description: "Returns the authenticated user and the token's scopes", scope: "read" },
-  { name: "list_notes", description: "Lists notes", scope: "read" },
-  { name: "add_note", description: "Adds a note", scope: "write" },
+  { name: "whoami", description: "Returns the authenticated user and the token's scopes", scope: "read", agents: "allow" },
+  { name: "list_notes", description: "Lists notes", scope: "read", agents: "allow" },
+  { name: "add_note", description: "Adds a note", scope: "write", agents: "allow" },
+  { name: "delete_note", description: "Deletes a note", scope: "write", agents: "approval" },
 ] as const;
 
 export default {
