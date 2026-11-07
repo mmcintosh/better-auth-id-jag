@@ -2449,5 +2449,14 @@
   "paths": [
    "test/issuer/saml-subject.test.ts"
   ]
+ },
+ {
+  "name": "D-066 DPoP: a DPoP proof ignored (an unbound ID-JAG issued)",
+  "file": "src/issuer/exchange.ts",
+  "a": "?? null) !== null) refuse(\"dpop_unsupported\");",
+  "b": "?? null) !== null && false) refuse(\"dpop_unsupported\");",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]
