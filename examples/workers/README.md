@@ -116,7 +116,8 @@ VS Code 1.123+ (preview) does this flow itself, with Okta as the IdP: verified w
 
 Claude Code's Cross App Access (`CLAUDE_CODE_ENABLE_XAA=1`) works against these Workers with **this IdP** as the IdP:
 it asks the IdP for no scope, and this IdP's policy grants the user's scopes anyway (`read`, plus `write` for the users
-in `WRITERS`), which is the IdP's decision to make (draft -06 section 4.3.3). With Okta it can't: Okta grants no scope when
+in `WRITERS`): draft -06 doesn't say what an omitted `scope` gets, and RFC 6749 section 3.3 lets an authorization
+server apply a pre-defined default. With Okta it can't: Okta grants no scope when
 none is asked for, and the receiver refuses an ID-JAG without one
 ([docs/interop.md](../../docs/interop.md)).
 
