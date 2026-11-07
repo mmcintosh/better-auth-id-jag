@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **The live Okta Cross App Access and xaa.dev checks re-run against the published 0.6.0** (#23):
+  `docs/interop.md`. Okta: ID token and refresh token as the subject, replay refused, Okta's own refusals unchanged;
+  xaa.dev: OIDC and SAML, 200 at every step.
+
 ## [0.6.0] - 2026-11-04
 
 ### Breaking
