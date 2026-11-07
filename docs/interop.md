@@ -250,7 +250,7 @@ Live, 2026-10-06, against `examples/workers/mcp-server` with `XAA_ISSUER` and `C
 | Variant | Flow | Result |
 |---|---|---|
 | OIDC | Sign-in → refresh token → ID-JAG → jwt-bearer at our receiver → MCP `initialize`, `notifications/initialized`, `tools/call` | ✅ 200 at every step; the user provisioned just in time; a returning user found by its link |
-| SAML | SAML SSO → assertion exchanged for a refresh token (draft §4.5) → ID-JAG → jwt-bearer → MCP | ✅ 200 at every step, the user resolved by the SAML NameID in `sub_id` |
+| SAML | SAML SSO → assertion exchanged for a refresh token (draft section 4.5) → ID-JAG → jwt-bearer → MCP | ✅ 200 at every step, the user resolved by the SAML NameID in `sub_id` |
 
 What the tester needs from a receiver, and what it found:
 

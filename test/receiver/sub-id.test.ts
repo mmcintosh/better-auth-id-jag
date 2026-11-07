@@ -1,4 +1,4 @@
-// Subject resolution by the SAML NameID `sub_id` (draft -06 §3.2, §9.8; Phase 3 R3-S1–R3-S8,
+// Subject resolution by the SAML NameID `sub_id` (draft -06 section 3.2, section 9.8; Phase 3 R3-S1–R3-S8,
 // D-A27–D-A31). A trust entry with `samlSubjects` resolves users by (mapping.accountProviderId,
 // nameid), what `@better-auth/sso` stores for a SAML sign-in, instead of by `sub`.
 import type { GenericEndpointContext } from "better-auth";
@@ -9,8 +9,8 @@ import { createClient, linkedUser, network, receiverHost, recorder, redeem, type
 
 const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
 const EMAIL_FORMAT = "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress";
-// Draft -06 §4.4.3 (D-059): a valid ID-JAG whose subject isn't allowed here is access_denied, generic. A sub_id this
-// entry can't use (absent when required, another format, transient, unmapped) is invalid_grant: draft -06 §3.2.2's MUST.
+// Draft -06 section 4.4.3 (D-059): a valid ID-JAG whose subject isn't allowed here is access_denied, generic. A sub_id this
+// entry can't use (absent when required, another format, transient, unmapped) is invalid_grant: draft -06 section 3.2.2's MUST.
 const DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 // A trust failure stays invalid_grant, generic.
 const GENERIC = { error: "invalid_grant", error_description: "The grant is invalid." };
@@ -46,7 +46,7 @@ async function host(o: { trust?: Partial<StaticTrustedIssuer>; receiver?: Partia
   return { idp, net, h, rec, client, providerId, attempt, attemptWith, account };
 }
 
-describe("R3-S1: sub_id never establishes trust (§9.8)", () => {
+describe("R3-S1: sub_id never establishes trust (section 9.8)", () => {
   it("a sub_id mapped only under another trust entry is refused; the same token's namespace is accepted only from that entry", async () => {
     const x = samlNamespace();
     const y = samlNamespace();
@@ -97,7 +97,7 @@ describe("R3-S1: sub_id never establishes trust (§9.8)", () => {
   });
 });
 
-describe("R3-S2: every configured member compared, null-safe (§3.2.2)", () => {
+describe("R3-S2: every configured member compared, null-safe (section 3.2.2)", () => {
   it("sp_name_qualifier: mismatch, absent when configured, present when not configured: all refused; exact: accepted", async () => {
     const x = samlNamespace();
     const z = samlNamespace();

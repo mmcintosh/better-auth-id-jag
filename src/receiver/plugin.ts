@@ -27,7 +27,7 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
     init(ctx) {
       extendOAuthProvider(ctx, idJagGrantExtension(resolved));
       warnIfReplayUnsafe(ctx, "idJagGrant");
-      if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs without client authentication. This is outside draft -06 §4.4, which says a request with neither client authentication nor a sender-constrained ID-JAG MUST be refused (sender-constrained ID-JAGs aren't supported here).");
+      if (resolved.allowPublicClients) ctx.logger.warn("[id-jag] allowPublicClients is on: public clients may redeem ID-JAGs without client authentication. This is outside draft -06 section 4.4, which says a request with neither client authentication nor a sender-constrained ID-JAG MUST be refused (sender-constrained ID-JAGs aren't supported here).");
       // Entries for different issuers may share an accountProviderId on purpose (an IdP that changed its issuer URL), but
       // then one issuer's `sub` reaches the other's users, so say so.
       const issuersByProvider = new Map<string, Set<string>>();

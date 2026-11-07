@@ -1,5 +1,5 @@
-// Subject token: a SAML 2.0 Assertion **this IdP** issued (better-auth-saml-idp), as RFC 8693 §3's
-// `urn:ietf:params:oauth:token-type:saml2` (draft -06 §4.3.1 for an ID-JAG, §4.5 for a refresh
+// Subject token: a SAML 2.0 Assertion **this IdP** issued (better-auth-saml-idp), as RFC 8693 section 3's
+// `urn:ietf:params:oauth:token-type:saml2` (draft -06 section 4.3.1 for an ID-JAG, section 4.5 for a refresh
 // token). D-B26, D-B27.
 //
 // We only decode. Everything about the Assertion itself (XML hardening, our signature on the
@@ -34,7 +34,7 @@ const STANDARD = /^[A-Za-z0-9+/]+={0,2}$/;
 const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /**
- * The Assertion's XML from a `subject_token`: base64url (RFC 8693 §3; padding optional, correct
+ * The Assertion's XML from a `subject_token`: base64url (RFC 8693 section 3; padding optional, correct
  * when present) or padded standard base64 (the draft's example), never a mix of the two alphabets;
  * * no whitespace; canonical (no stray bits); at most MAX_SAML2_TOKEN_LENGTH characters and
  * MAX_ASSERTION_BYTES bytes; strict UTF-8.
@@ -123,7 +123,7 @@ export async function verifyOwnSamlAssertion(ctx: GenericEndpointContext, token:
       case "NOT_YET_VALID":
         return refuse("subject_token_not_yet_valid", `saml2: NOT_YET_VALID${message}`);
       case "ACCOUNT_INACTIVE":
-        // A valid Assertion whose user can't have one: an authorization answer (draft -06 §4.3.4.3), not a bad token.
+        // A valid Assertion whose user can't have one: an authorization answer (draft -06 section 4.3.4.3), not a bad token.
         return refuse("banned_user", `saml2: ACCOUNT_INACTIVE${message}`);
       case undefined:
         // Not one of the refusals we know: fail closed, and tell the operator. A refusal with a code from a newer

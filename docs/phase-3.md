@@ -24,14 +24,14 @@ requesting-app run, and the planned Okta evidence session (`docs/phase-2.md`, "N
 2. **`cnf` refused, and `iss` from `getIssuer()`** (D-012). The ID-token issuer is now kept apart from the ID-JAG's
    `iss`: the provider signs ID tokens with the raw value but publishes a normalised one.
 3. **Receiver: `sub_id` (saml-nameid) resolution** (D-A27–D-A31):
-   - mappings come only from the already-matched trust entry (§9.5);
+   - mappings come only from the already-matched trust entry (section 9.5);
    - qualifiers are compared null-safely;
    - transient NameIDs are refused;
    - a malformed `sub_id` never falls back to `sub`;
    - links use the mapping key, and the convergence rules apply to it.
 4. **Issuer: both SAML paths** (D-016; `docs/tracks/issuer.md` D-B26 onward):
    - **(a):** a saml2 assertion → an ID-JAG;
-   - **(b):** a saml2 assertion → a refresh token (draft -04 §4.5), then the existing refresh-token path;
+   - **(b):** a saml2 assertion → a refresh token (draft -04 section 4.5), then the existing refresh-token path;
    - `scope_required`, the `id-jag.refresh-issued` event, and the duck-typed `SamlIdpExchange`.
 
    better-auth-saml-idp 1.2.0 (the maintainer's other repository, released today) does the verification. The

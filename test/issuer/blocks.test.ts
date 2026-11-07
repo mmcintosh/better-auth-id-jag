@@ -7,7 +7,7 @@ import { AUDIT_MODEL, auditRow, JTI_MODEL, jtiKey, sweepJtis } from "../../src/c
 import { type IdJagIssuerOptions, BLOCK_MODEL } from "../../src/issuer";
 import { type Browser, createClient, createIssuerHost, exchange, exchangeRefresh, getTokens, ISSUER, type IssuerHost, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
-// Draft -06 §4.3.4.3 (D-059): a block or a policy refusal is access_denied, generic.
+// Draft -06 section 4.3.4.3 (D-059): a block or a policy refusal is access_denied, generic.
 const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const canManage = ({ user }: { user: Record<string, unknown> }) => user.role === "admin";
 const OTHER_AUDIENCE = "https://other-rs.example";

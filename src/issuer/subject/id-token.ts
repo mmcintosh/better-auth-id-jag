@@ -123,7 +123,7 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
   const parsed = idTokenClaimsSchema.safeParse(raw);
   if (!parsed.success) return bad(`claims: ${parsed.error.issues.map((i) => i.path.join(".")).join(",")}`);
   const claims = parsed.data;
-  // Expired is expired: no grace (plan §3.3 step 3).
+  // Expired is expired: no grace (plan section 3.3 step 3).
   if (claims.exp <= expected.now) refuse("subject_token_expired");
   if (claims.iat - IAT_SKEW_SECONDS > expected.now) bad("iat in the future");
   // Public, like exp: it depends only on the token, which is the caller's own (D-B22).
@@ -151,7 +151,7 @@ export async function verifyOwnIdToken(ctx: GenericEndpointContext, token: strin
     return bad("signature");
   }
 
-  // OIDC Core §3.1.3.7: the client is an audience; with several, azp names it.
+  // OIDC Core section 3.1.3.7: the client is an audience; with several, azp names it.
   const aud = typeof claims.aud === "string" ? [claims.aud] : claims.aud;
   if (!aud.includes(expected.clientId)) bad("audience is not the authenticated client");
   if (aud.length > 1 && claims.azp !== expected.clientId) bad("azp");

@@ -165,7 +165,7 @@ describe("verifyIdJag: refuses, each with its reason (S2, S3, S4, S7)", () => {
     expect(["self_issued", "wrong_audience"]).toContain(await reasonOf(verifyIdJag(await sign(k, claims({ aud: ISS })), k.jwks, at())));
   });
 
-  it("an ID-JAG issued to itself (draft -06 §9.4)", async () => {
+  it("an ID-JAG issued to itself (draft -06 section 9.4)", async () => {
     const k = await keyPair("ES256");
     expect(await reasonOf(verifyIdJag(await sign(k, claims({ iss: AUD })), k.jwks, { issuer: AUD, audience: AUD, now: T }))).toBe("self_issued");
   });
@@ -342,7 +342,7 @@ describe("parseIdJag: properties (S9)", () => {
   });
 });
 
-describe("sub_id in the SAML NameID format (draft -06 §3.2.1)", () => {
+describe("sub_id in the SAML NameID format (draft -06 section 3.2.1)", () => {
   it("parses the draft's example; other formats are not this one; malformed ones are refused", async () => {
     const { parseSamlNameIdSubId } = await import("../../src/core");
     const example = { format: "saml-nameid", issuer: "https://idp.example.com/exk33qwjcwDda7luK346", nameid: "foo@example.com", nameid_format: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress", sp_name_qualifier: "https://resource.example.com/saml/sp" };

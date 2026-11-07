@@ -1,4 +1,4 @@
-// The Track A exit criterion (plan §5): a hand-minted ID-JAG from a test IdP yields an access token
+// The Track A exit criterion (plan section 5): a hand-minted ID-JAG from a test IdP yields an access token
 // that @better-auth/mcp's requireMcpAuth accepts for the right resource and rejects for another.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireMcpAuth } from "@better-auth/mcp";

@@ -1,4 +1,4 @@
-// Which issuer an ID-JAG claims to come from, and whether we trust it (plan §3.4 step 3). The
+// Which issuer an ID-JAG claims to come from, and whether we trust it (plan section 3.4 step 3). The
 // lookup uses the **unverified** `iss` (Okta's resource-app guide: bind the issuer first, then
 // verify with its keys). Sources, union, each optional:
 // - static `trustedIssuers` in code;
@@ -76,7 +76,7 @@ const tableRowSchema = z.looseObject({
 
 const orUndef = <T>(v: T | null | undefined): T | undefined => (v === null ? undefined : v);
 
-/** The well-known OpenID configuration URL of an issuer (OIDC Discovery §4). */
+/** The well-known OpenID configuration URL of an issuer (OIDC Discovery section 4). */
 export function openIdConfigurationUrl(issuer: string): string {
   // Trailing slashes, without a regex (CodeQL js/polynomial-redos).
   let end = issuer.length;
@@ -179,7 +179,7 @@ export async function findTrustedIssuer(ctx: GenericEndpointContext, o: Resolved
   }
   const entry = candidates[0] as TrustEntry;
   // Subjects are resolved by (accountProviderId, sub), but a multi-tenant issuer's sub is unique only within its tenant
-  // (draft -06 §6.3): another tenant's entry under the same namespace would let this tenant's sub reach its users.
+  // (draft -06 section 6.3): another tenant's entry under the same namespace would let this tenant's sub reach its users.
   // Static entries are checked at startup; rows can change at any time, so they're checked here.
   const sharing = all.find((t) => t !== entry && t.accountProviderId === entry.accountProviderId && t.tenant !== entry.tenant);
   if (sharing) {

@@ -308,7 +308,7 @@ describe("through the grant", () => {
     expect(s.net.calls).toHaveLength(2);
   });
 
-  it("key_ops (RFC 7517 §4.3): a key listing verify among other operations is used, as Oracle publishes; one without verify is not", async () => {
+  it("key_ops (RFC 7517 section 4.3): a key listing verify among other operations is used, as Oracle publishes; one without verify is not", async () => {
     for (const alg of ["RS256", "ES256"] as const) {
       const s = await host({ alg });
       // Oracle's: WebCrypto refuses to import an RSA signing key for these usages unless only verify is kept.

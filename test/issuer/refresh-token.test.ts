@@ -8,7 +8,7 @@ import type { AuthorizeInput, AuthorizeResult } from "../../src/issuer";
 import { AUDIENCE, basic, createIssuerHost, exchange, exchangeRefresh, type IssuerHost, RESOURCE, refresh, setupRefresh, takeReasons, verifyWithHostJwks } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read", "write"] });
-// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
+// Draft -06 section 4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
 const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 const MODEL = "oauthRefreshToken";
 

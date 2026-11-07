@@ -1324,7 +1324,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the unknown_subject audit detail (§9.9)",
+  "name": "R3-S7 the NameID in the unknown_subject audit detail (section 9.9)",
   "file": "src/receiver/resolve.ts",
   "a": "`sub_id at ${key.providerId}`",
   "b": "`sub_id ${key.accountId} at ${key.providerId}`",
@@ -1333,7 +1333,7 @@
   ]
  },
  {
-  "name": "R3-S7 the NameID in the not-authorized audit detail (§9.9)",
+  "name": "R3-S7 the NameID in the not-authorized audit detail (section 9.9)",
   "file": "src/receiver/resolve.ts",
   "a": "JSON.stringify({ issuer: s.issuer,",
   "b": "JSON.stringify({ nameid: s.nameid, issuer: s.issuer,",
@@ -1870,7 +1870,7 @@
  {
   "name": "D-061 receiver public-client warning loses the draft section",
   "file": "src/receiver/plugin.ts",
-  "a": "This is outside draft -06 §4.4, which",
+  "a": "This is outside draft -06 section 4.4, which",
   "b": "The draft says",
   "paths": [
    "test/receiver/grant.test.ts"

@@ -1,7 +1,7 @@
 # Track B: the issuer (`idJagIssuer()`)
 
 `src/issuer/`: a Better Auth plugin that makes an OIDC provider on `@better-auth/oauth-provider` + `jwt()` issue ID-JAGs
-(draft-ietf-oauth-identity-assertion-authz-grant-04 §4.3) through the RFC 8693 token exchange, after a policy the host
+(draft-ietf-oauth-identity-assertion-authz-grant-04 section 4.3) through the RFC 8693 token exchange, after a policy the host
 defines in code, in a database registry, or both. Built on the shared core (`src/core`): `buildIdJag`, `newJti`, the URNs,
 `IdJagRefusal`/`toApiError`, `recordJti` (side `issued`), `emit`, `sweepJtis`/`sweepAudit`. Nothing in `src/core` changed.
 
@@ -34,7 +34,7 @@ idJagIssuer({
   registry?: { enabled: boolean; canManage?: ({ user, session }) => boolean | Promise<boolean>; cacheSeconds?: number },
   blocks?: { canManage?: ({ user, session }) => boolean | Promise<boolean> }, // D-B24; blocks are enforced regardless
   maxIdTokenAgeSeconds?: number,         // D-B22: oldest ID token (by iat) accepted; default 3600, 60…86400
-  allowPublicClients?: boolean,          // default false; true is outside draft -06 §4.3.3 and logs a startup warning (S5)
+  allowPublicClients?: boolean,          // default false; true is outside draft -06 section 4.3.3 and logs a startup warning (S5)
   signingAlgorithm?: "RS256" | "ES256" | "EdDSA", // default: the jwt plugin's keyPairConfig.alg
   defaultLifetimeSeconds?: number,       // default 300, max 900 (S7)
   allowLoopbackHttpAudiences?: boolean,  // http://localhost etc. for development; default false
@@ -84,7 +84,7 @@ Phase 3 exports: `getSamlIdpExchange`, `assertionExchangeErrorCode`, `ASSERTION_
 `SamlIdpExchange`, `VerifiedAssertion`, `AssertionExchangeErrorCode`, `AssertionExchangeErrorLike`, `SamlOptions`,
 `SamlAssertionExpectations`. `SubjectTokenClaims.tokenType` gained the saml2 URN.
 
-## How each plan §3.3 step is implemented
+## How each plan section 3.3 step is implemented
 
 1. **Client.** `provider.authenticateClient({ requireCredentials: !allowPublicClients })`. A request that names a client
    but sends no credential becomes our `public_client` (401, `WWW-Authenticate: Basic`); every other provider refusal
@@ -361,7 +361,7 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
   - **Single use costs.** The assertion is consumed at verification, after every request check (parameters,
     audience, pairwise) but before the policy. A policy refusal therefore burns it, which matches the SAML IdP's own
     rule: single use whatever the outcome.
-- **D-B27: path (b), a SAML assertion exchanged for a refresh token (`saml.refreshTokens`, draft -04 §4.5).** Only
+- **D-B27: path (b), a SAML assertion exchanged for a refresh token (`saml.refreshTokens`, draft -04 section 4.5).** Only
   `requested_token_type=refresh_token` with `subject_token_type=saml2`; any other subject type for a refresh token is
   `unsupported_subject_token_type`, and every other requested type is still `unsupported_requested_token_type`. In
   order:
@@ -528,7 +528,7 @@ discovery documents; `grant_types_supported` lists token-exchange automatically.
 signing-algorithm 1). The other 60 per runtime are the core and Phase 0 tests, unchanged. `pnpm typecheck` and
 `pnpm lint` are clean.
 
-**Exit criterion (plan §5 Track B).** `exchange.test.ts` ("exit criterion…", ES256), `rs256.test.ts` (RS256) and
+**Exit criterion (plan section 5 Track B).** `exchange.test.ts` ("exit criterion…", ES256), `rs256.test.ts` (RS256) and
 `registry.test.ts` (the first test, registry policy with a mapped client id). In each, a confidential client gets an ID
 token through the real authorization-code flow and exchanges it. Then `verifyIdJag` from `src/core` verifies the
 ID-JAG against the host's JWKS, fetched over the host's own `/jwks` route. The ID-JAG has `typ` `oauth-id-jag+jwt`, a

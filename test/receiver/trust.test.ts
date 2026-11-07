@@ -1,4 +1,4 @@
-// Trust sources (plan §3.4 step 3): static config, @better-auth/sso OIDC provider rows, and the
+// Trust sources (plan section 3.4 step 3): static config, @better-auth/sso OIDC provider rows, and the
 // idJagTrustedIssuer table; their union, with ambiguity refused; S1: nothing trusted, nothing accepted.
 import { describe, expect, it } from "vitest";
 import { TRUSTED_ISSUER_MODEL } from "../../src/receiver";
@@ -133,7 +133,7 @@ describe("trust: static config and the idJagTrustedIssuer table", () => {
     expect((await s.attempt(idp, { sub, tenant: "t-1" })).reason).toBe("accepted");
   });
 
-  // Draft -06 §4.4.1 / §6.3: a multi-tenant issuer's sub is unique only within its tenant (iss+tenant+sub), so the
+  // Draft -06 section 4.4.1 / section 6.3: a multi-tenant issuer's sub is unique only within its tenant (iss+tenant+sub), so the
   // subject must be resolved within the tenant. Two tenants of one issuer under one account namespace would link
   // tenant B's "u1" to tenant A's user.
   it("two tenants of one issuer can't share an account namespace (static entries)", async () => {

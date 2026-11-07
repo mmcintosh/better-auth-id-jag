@@ -16,7 +16,7 @@ name claimed.
 ## D-002: Better Auth pinned to 1.7.6 (2026-10-05) — implementation choice (superseded by D-044: 1.7.10)
 
 The siblings' dev dependencies and the first issuer consumer are on 1.7.6, and the measured extension
-API (plan §2.3) is 1.7.6's. 1.7.7 was published the same day; CI's matrix (1.7.5 and latest-1.7, as the siblings) will
+API (plan section 2.3) is 1.7.6's. 1.7.7 was published the same day; CI's matrix (1.7.5 and latest-1.7, as the siblings) will
 cover it once CI exists. Peer range stays `>=1.7.5 <1.8.0`. Every `@better-auth/*` is pinned exactly to 1.7.6.
 
 ## D-003: Phase 0 result — extension grants work under both providers, on Node and workerd (2026-10-05)
@@ -44,7 +44,7 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
 ## D-005: Vitest 4 with @cloudflare/vitest-plugin; CI scope; first consumer (2026-10-05) — the maintainer's decisions
 
 - **Vitest 4.1.11 and `@cloudflare/vitest-plugin` 1.3.6**, as `better-auth-saml-idp` (its D-069): the plugin peers
-  `vitest ^4.1`, and it runs the **whole** suite inside workerd, which the plan asks for (§4). Two projects over the same
+  `vitest ^4.1`, and it runs the **whole** suite inside workerd, which the plan asks for (section 4). Two projects over the same
   files: `node` (node:sqlite) and `workerd` (D1, migrated by Better Auth's own `getMigrations`). The siblings on Vitest 5
   (`better-auth-scim-provisioning`, `better-auth-digital-credentials`) drive workerd through Miniflare from Node for
   specific tests instead. Vitest 5 when the plugin supports it (cloudflare/workers-sdk#15500, #15618).
@@ -69,12 +69,12 @@ Decided by the maintainer, after an independent review of Phase 0 (go for Phase 
   the rest. Each reason is `public` (the caller sent the defect: a missing parameter, a malformed token, an expired
   one) or not; a non-public reason shows only its error code's generic text (S8). Reason codes and details go to the
   audit event only.
-- **`typ`** is compared as a media type: case-insensitive, `application/` optional (RFC 7515 §4.1.9). Missing = refused.
+- **`typ`** is compared as a media type: case-insensitive, `application/` optional (RFC 7515 section 4.1.9). Missing = refused.
 - **Parse before verify.** `parseIdJag` checks shape, `typ`, `alg` (RS256, ES256, EdDSA only), `kid`, `crit` (refused:
   we understand no extensions), required claims, `aud` as a string or one-element array, `0 < exp - iat <= 900`.
   `verifyIdJag` then checks `iss` against the issuer the caller resolved **before** using any key, the signature
   (jose `compactVerify`, signature only), `aud` by exact string, then `exp`/`nbf`/`iat` with skew (default 60 s).
-  `client_id` continuity and `jti` are the receiver's, after this. **Order differs from the plan's §3.4:** time
+  `client_id` continuity and `jti` are the receiver's, after this. **Order differs from the plan's section 3.4:** time
   checks come before the `jti` insert, so the replay row never records a token refused for its age.
 - **jti table** `idJagJti`: key = SHA-256 of `id-jag:<side>\0<iss>\0<jti>`, insert-first, unique at field level and as
   a named table-level index (MongoDB), `expiresAt` = token `exp` + skew, `sweepJtis` deletes expired rows. Shared:
@@ -100,10 +100,10 @@ An independent adversarial review (a separate reviewer, read-only, reproducing e
 - **High: `authorization_details` and `act` were passed through unchecked.** The draft says a receiver MUST process
   `authorization_details` (RFC 9396), and ignoring it or `act` could grant more than the IdP authorised. Both are now
   refused at parse (`unsupported_claim`, public), and `buildIdJag` won't mint them. `sub_id` is typed as an RFC 9493
-  object and is informational only (draft §8: never a source of trust).
+  object and is informational only (draft section 8: never a source of trust).
 - **NaN/Infinity options switched checks off.** `clockSkewSeconds` must be an integer in [0, 300], `maxLifetimeSeconds`
   in [1, 900], `now` a non-negative integer. Anything else is a configuration error.
-- **Self-issued ID-JAGs (draft §9.3)** are refused (`self_issued`).
+- **Self-issued ID-JAGs (draft section 9.3)** are refused (`self_issued`).
 - **S8 oracles.**
   - The time checks now run before trust, so `expired` can't confirm that an issuer is trusted. **This amends D-006's
     order:** parse, time, `iss`, signature, `aud`.
@@ -140,7 +140,7 @@ An independent adversarial review (a separate reviewer, read-only, reproducing e
   - Boundary tests cover `exp` + skew, `nbf`, `iat`, exactly 900 s and a zero lifetime.
 
 **Open, for the maintainer:**
-- **Re-presentation (finding 5).** Draft §4.4.3 lets a client re-submit an unexpired ID-JAG once its access token
+- **Re-presentation (finding 5).** Draft section 4.4.3 lets a client re-submit an unexpired ID-JAG once its access token
   expires. Our receiver enforces strict single use (S3). The implementation choice is to keep strict single use and document
   it: the client gets a new ID-JAG from the IdP, which keeps revocation at the IdP.
 - **Adapters that don't enforce UNIQUE (finding 12):** Better Auth's memory adapter, or a MongoDB without the named
@@ -206,7 +206,7 @@ Also decided for Phase 2:
 
 Okta's ID-JAG for an AI agent always carries `act: { sub: <the agent's Okta client id>, sub_profile: "ai_agent web_app" }`.
 D-007 refused `act` (with `authorization_details`), so the receiver refused every Okta ID-JAG. `act` records who acts
-on the user's behalf (RFC 8693 §4.1) and widens nothing, so the core now accepts it: an object with a string `sub`,
+on the user's behalf (RFC 8693 section 4.1) and widens nothing, so the core now accepts it: an object with a string `sub`,
 optional `sub_profile`, nested prior actors up to 4 deep, anything else `invalid_claim`. The receiver carries it into
 the access token as `act`, so the resource server sees that an agent acts for the user. `authorization_details` stays
 refused (the draft says it MUST be processed; nothing sends it yet). `buildIdJag` may now mint `act`; our issuer
@@ -240,7 +240,7 @@ doesn't yet (it has no agent identity to name). After the fix, the whole flow pa
 ## D-012: `cnf` refused; the ID-JAG's `iss` from the provider's getIssuer (2026-10-06) — implementation choices, from a review note
 
 Two gaps, found by reviewing an external reference note on ID-JAG for Better Auth.
-- **`cnf` (draft §9.8.1.2).** An ID-JAG bound to a key must be refused unless the client presents a matching DPoP
+- **`cnf` (draft section 9.8.1.2).** An ID-JAG bound to a key must be refused unless the client presents a matching DPoP
   proof, which is a MUST. We ignored `cnf`, so a key-bound ID-JAG got a plain bearer token, stripping the binding the
   IdP asked for. Until DPoP is supported, `cnf` is refused like `authorization_details` (public `unsupported_claim`),
   and `buildIdJag` won't mint it.
@@ -359,7 +359,7 @@ Each test was written first and seen to fail.
 On the Phase 3 design:
 1. **Both SAML paths:**
    - **(a)** assertion → ID-JAG directly;
-   - **(b)** assertion → refresh token (draft -04 §4.5, RFC 8693, what Okta and the MCP extension use), then the
+   - **(b)** assertion → refresh token (draft -04 section 4.5, RFC 8693, what Okta and the MCP extension use), then the
      existing refresh-token path.
    - They share one verifier.
 2. **The SP-to-client mapping** lives on the SAML IdP's SP configuration (`tokenExchange: { clientId }`).
@@ -864,7 +864,7 @@ Found running the receiver against Oracle OCI IAM's ID-JAG (#24, docs/interop.md
 `key_ops` `["wrapKey", "encrypt", "verify"]`. jose passes `key_ops` to WebCrypto as the key's usages, and WebCrypto
 refuses an RSASSA (or ECDSA) key with any usage but `verify`, so every ID-JAG signed with it failed.
 
-- **The receiver keeps a key only if it may verify:** no `key_ops`, or `key_ops` including `"verify"` (RFC 7517 §4.3),
+- **The receiver keeps a key only if it may verify:** no `key_ops`, or `key_ops` including `"verify"` (RFC 7517 section 4.3),
   besides `use` absent or `"sig"` as before. It hands jose the key with `key_ops: ["verify"]`, the only use made of it.
 - **A key WebCrypto refuses is `jwks_unavailable`, not a 500.** The signature check's fallback read `error.code` as
   a string; a `DOMException`'s legacy `code` is a number (12), which crashed the log sanitiser. Only string codes
@@ -881,7 +881,7 @@ The maintainer's decision, after running PingFederate 13.1.3 live (#24, docs/int
 order), so it refused every one (`missing_kid`); with the check off in a scratch copy, the same ID-JAG was accepted.
 The draft doesn't require `kid`; RFC 7515 makes every key reference optional.
 
-- **The header must still name the key:** `kid`, or else `x5t` or `x5t#S256` (RFC 7515 §4.1.7, §4.1.8). None of the
+- **The header must still name the key:** `kid`, or else `x5t` or `x5t#S256` (RFC 7515 section 4.1.7, section 4.1.8). None of the
   three is `missing_kid`, as before; an empty or non-string `kid` is too. A thumbprint that is present must be
   base64url of the right length (27 or 43 characters), with a `kid` or without; otherwise `invalid_claim`.
 - **A `kid`, when there is one, is used alone,** exactly as before.
@@ -905,9 +905,9 @@ policy refuses an ID-JAG when the person's second factor is older than the resou
 to tell the person how to fix that. In 0.4.0 every deny was the generic `invalid_grant` (S8), and the hook's `reason`
 went to the audit only.
 
-- **Draft -04 defines it:** §9.2 says the IdP may answer the token exchange with an `insufficient_user_authentication`
+- **Draft -04 defines it:** section 9.2 says the IdP may answer the token exchange with an `insufficient_user_authentication`
   error, RFC 9470 style (its example carries `max_age`), and the client sends the person back to the IdP and retries.
-  §4.3.4.3 makes errors RFC 6749 §5.2 responses, which allow `error_description` and `error_uri`.
+  Section 4.3.4.3 makes errors RFC 6749 section 5.2 responses, which allow `error_description` and `error_uri`.
 - **Shape:** `AuthorizeDeny.stepUp?: { maxAge?, acrValues?, description?, uri? }`, sent as `max_age`, `acr_values`
   (space-separated), `error_description` (default "The subject does not meet the authentication requirements.") and
   `error_uri`. HTTP 400, `Cache-Control: no-store` as for every token endpoint answer. A deny without `stepUp` is
@@ -1213,8 +1213,8 @@ before acting on it.
 
 ## D-057: each tenant of one issuer has its own account namespace (2026-11-01)
 
-Found while comparing draft -06 with the code. Draft -06 §4.4.1 says a receiver
-"MUST resolve the subject only within the recipient tenant", and §6.3 that a multi-tenant issuer's `sub` is unique only
+Found while comparing draft -06 with the code. Draft -06 section 4.4.1 says a receiver
+"MUST resolve the subject only within the recipient tenant", and section 6.3 that a multi-tenant issuer's `sub` is unique only
 with its tenant (`iss`+`tenant`+`sub`). -04 already implied it.
 
 - **The defect.** `resolveSubject` links by (`accountProviderId`, `sub`). Every trust entry's default
@@ -1259,7 +1259,7 @@ ID-JAG draft -05 (2026-10-30) profiles error codes on both sides, and -06 (2026-
 every refusal that depends on trust, users or policy was one generic `invalid_grant` (S8). Mark chose, 2026-11-03, to
 follow the draft (decisions D1 and D2 in the private draft -06 plan).
 
-- **Issuer** (§4.3.3, §4.3.4.3). A subject token that fails validation → `invalid_request` (RFC 8693 §2.2.2: "a new
+- **Issuer** (section 4.3.3, section 4.3.4.3). A subject token that fails validation → `invalid_request` (RFC 8693 section 2.2.2: "a new
   subject token may help"): `invalid_subject_token`, `subject_token_expired`, and for SAML Assertions two new reasons,
   `subject_token_replay` and `subject_token_not_yet_valid` (the receiver's `replay` and `not_yet_valid` stay
   `invalid_grant`, so one reason keeps one code). More than one `audience` → `invalid_request` (`repeated_audience`).
@@ -1268,7 +1268,7 @@ follow the draft (decisions D1 and D2 in the private draft -06 plan).
   can't otherwise tell "unknown" from "not allowed"). A valid subject token whose user or client isn't allowed →
   `access_denied`: `policy_denied`, `blocked`, `no_policy`, `unknown_subject`, `banned_user`, and a pairwise client
   (`pairwise_client`, was `invalid_subject_token`: a new subject token would not help).
-- **Receiver** (§4.4.3). A valid ID-JAG whose subject isn't allowed here → `access_denied`: `unknown_subject`,
+- **Receiver** (section 4.4.3). A valid ID-JAG whose subject isn't allowed here → `access_denied`: `unknown_subject`,
   `subject_rejected`, `banned_user`. These run after every trust check, so trust failures still look alike.
   Failures a retry may fix are not authorization answers: a lost first-use race, a database error, a
   `resolveSubject` that throws and a SCIM conflict that outlasts its retries are `subject_unavailable`
@@ -1289,18 +1289,18 @@ follow the draft (decisions D1 and D2 in the private draft -06 plan).
 
 ## D-060: every resource in the claim must be ours; subject-token types proved (2026-11-03)
 
-Draft -06 §4.4.1: "If the resource claim is present, each identifier MUST be a protected resource governed by this
+Draft -06 section 4.4.1: "If the resource claim is present, each identifier MUST be a protected resource governed by this
 Resource Authorization Server ... If any identifier is not, [it] MUST reject the request with invalid_grant ... because
 the ID-JAG was not issued for resources it governs."
 
 - **Receiver.** Right after the `client_id` check, every identifier in the claim is looked up in the registered set,
-  by exact string (draft §4.3: Simple String Comparison); one that isn't there is `foreign_resource` (`invalid_grant`,
+  by exact string (draft section 4.3: Simple String Comparison); one that isn't there is `foreign_resource` (`invalid_grant`,
   generic). Before, we checked only the one resource we picked: `[ours, foreign]` with `resource=ours` was accepted.
   What stays: one resource per access token; the request may pick one from the claim, and one not in the claim is
   `unknown_resource` (`invalid_target`: the request's fault, not the token's). "None acceptable → access_denied"
   can't happen here: after this check every claimed resource is registered, and we refuse rather than narrow.
   Per-tenant resource sets (`aud_tenant`) are not modelled: the registered set is the server's.
-- **Issuer, subject-token type** (§4.3.3: the IdP MUST confirm the token is of the indicated type). End to end, as
+- **Issuer, subject-token type** (section 4.3.3: the IdP MUST confirm the token is of the indicated type). End to end, as
   `subject_token_type=id_token`: our own ID-JAG, oauth-provider's JWT access token (`typ: at+jwt`, signed with the
   same JWKS as the ID tokens), an opaque access token and a refresh token are all `invalid_subject_token`; the two
   JWTs stop at the `typ` check. No code change: `id-token.ts` already refused them. Also proved: a granted resource
@@ -1312,16 +1312,16 @@ the ID-JAG was not issued for resources it governs."
 
 ## D-061: public clients outside the draft; RS256 documented and advertised (2026-11-03)
 
-Draft -06 makes client authentication a MUST on both sides (§4.3.3: "The IdP MUST authenticate the Client"; §4.4: a
+Draft -06 makes client authentication a MUST on both sides (section 4.3.3: "The IdP MUST authenticate the Client"; section 4.4: a
 request with "neither client authentication nor a sender-constrained ID-JAG" MUST be refused), RS256 mandatory to
-implement (§3), and adds an OPTIONAL issuer metadata field, `id_jag_signing_alg_values_supported`, which "if present,
-... MUST include RS256" (§7.1). Mark's decisions D3 and D4, 2026-11-03.
+implement (section 3), and adds an OPTIONAL issuer metadata field, `id_jag_signing_alg_values_supported`, which "if present,
+... MUST include RS256" (section 7.1). Mark's decisions D3 and D4, 2026-11-03.
 
 - **`allowPublicClients` stays** on both sides, off by default, with the same behaviour. Removing it would break a
   host that relies on it for no gain to a host that doesn't; deprecating it would promise a removal we haven't
   decided. The startup warning now names the draft section it is outside of, and the README's conformance rows are ⚠️
   with that wording. The receiver's wording says sender-constrained ID-JAGs aren't supported here (DPoP, refused),
-  so the exception in §4.4 doesn't apply.
+  so the exception in section 4.4 doesn't apply.
 - **No change to the signing default.** It stays the `jwt()` plugin's key (EdDSA through Better Auth 1.7): making
   RS256 the default would add a key to an existing host's JWKS and change the algorithm under its receivers. The
   README and `docs/security.md` say to set `signingAlgorithm: "RS256"` for a receiver that accepts only RS256.
@@ -1343,14 +1343,14 @@ after D-057 and D-059 to D-061 closed the gaps a paragraph-level comparison of -
   client switching on `error` sees D-059's codes.
 - **Section references.** Code comments, the README and `docs/security.md` cite -06's numbers; design records
   (`docs/tracks/`, `docs/phase-*.md`) and earlier DECISIONS keep the draft they were written against, which they
-  name. Moved: §4.4.3 → §4.4.4 (refresh token; -06's §4.4.3 is the new error-response section), §9.2 → §9.3
-  (step-up), §9.3 → §9.4 (cross-domain use), §9.5 → §9.8 (subject trust), §9.6 → §9.9 (subject disclosure), §9.8 →
-  §9.11 (sender constraining).
-- **Conformance table.** Single use goes from ⚠️ to ✅: -06 §4.4.4 says a receiver can "accept each ID-JAG only once
-  by tracking its jti", which settles what wg issue #130 asked. New rows: the subject-token type (§4.3.3), the
-  profiled error codes on both sides (§4.3.4.3, §4.4.3), `sub` for the resource authorization server (§5.2: ⚠️,
-  always the user's id; a pairwise RP registration isn't detected), tenants (§4.4.1, §6.3), RS256 (§3) and
-  `id_jag_signing_alg_values_supported` (§7.1).
+  name. Moved: section 4.4.3 → section 4.4.4 (refresh token; -06's section 4.4.3 is the new error-response section), section 9.2 → section 9.3
+  (step-up), section 9.3 → section 9.4 (cross-domain use), section 9.5 → section 9.8 (subject trust), section 9.6 → section 9.9 (subject disclosure), section 9.8 →
+  Section 9.11 (sender constraining).
+- **Conformance table.** Single use goes from ⚠️ to ✅: -06 section 4.4.4 says a receiver can "accept each ID-JAG only once
+  by tracking its jti", which settles what wg issue #130 asked. New rows: the subject-token type (section 4.3.3), the
+  profiled error codes on both sides (section 4.3.4.3, section 4.4.3), `sub` for the resource authorization server (section 5.2: ⚠️,
+  always the user's id; a pairwise RP registration isn't detected), tenants (section 4.4.1, section 6.3), RS256 (section 3) and
+  `id_jag_signing_alg_values_supported` (section 7.1).
 - **Not changed by -06, still refused by name:** DPoP and mTLS binding, `authorization_details`, several resources per
   access token, minting `aud_sub` / `sub_id` / `aud_tenant`, accepting self-issued ID-JAGs, `actor_token`.
 - **Draft watch.** `scripts/draft-watch.mjs` now reports -06 as both implemented and latest, 181 days before expiry.
@@ -1363,7 +1363,7 @@ Before publishing 0.6.0, Mark asked for a review by a fresh agent that hadn't bu
 their conclusions. It found the remaining error-code gaps below, each confirmed against the draft text and the
 code, and Mark chose (2026-11-03) `server_error` for a hook that throws and a new `unknown_resource` verdict.
 
-- **`sub_id` refusals are `invalid_grant`.** Draft -06 §3.2.2: a receiver that requires a SAML NameID `sub_id` MUST
+- **`sub_id` refusals are `invalid_grant`.** Draft -06 section 3.2.2: a receiver that requires a SAML NameID `sub_id` MUST
   reject a missing, malformed, unsupported or unauthorized one with `invalid_grant`. D-059 moved `subject_rejected`
   to `access_denied` wholesale, and these four refusals used it. New reason `sub_id_rejected` (`invalid_grant`,
   generic); `subject_rejected` stays for the host's `resolveSubject` "reject", an authorization answer.
@@ -1376,9 +1376,9 @@ code, and Mark chose (2026-11-03) `server_error` for a hook that throws and a ne
   as D-059 did for the receiver's other failures; the receiver keeps `invalid_grant` rather than a 500 for these, so
   its answers stay as D-059 set them.
 - **`authorization_details` at the issuer** is refused (`authorization_details_unsupported`, `invalid_request`,
-  public). Draft -06 §4.3.3 says the IdP MUST process it; we ignored it, so a client that asked for less got the
+  public). Draft -06 section 4.3.3 says the IdP MUST process it; we ignored it, so a client that asked for less got the
   policy's scopes.
-- **The hook can say `unknown_resource`** → `invalid_target` (draft -06 §4.3.3: a resource the IdP doesn't grant
+- **The hook can say `unknown_resource`** → `invalid_target` (draft -06 section 4.3.3: a resource the IdP doesn't grant
   MUST be `invalid_target`). Before, only the registry could; a hook could only deny (`access_denied`). The example
   IdP uses it.
 - **SAML `ACCOUNT_INACTIVE`** (the Assertion's user is banned or gone) is `banned_user` (`access_denied`), as an ID
@@ -1387,9 +1387,9 @@ code, and Mark chose (2026-11-03) `server_error` for a hook that throws and a ne
   needs it, and it takes explicit configuration), with a startup warning for static entries and a note in
   `docs/security.md`. Table rows aren't checked.
 - **Docs.** README quick start (it denied an unknown audience), the conformance table (`act` minting is ✅; ⚠️ for
-  one resource per request, refresh tokens not rotated per §9.2, `tenant` only when pinned, `aud_tenant`/`aud_sub`
+  one resource per request, refresh tokens not rotated per section 9.2, `tenant` only when pinned, `aud_tenant`/`aud_sub`
   ignored; a row for `authorization_details` at the issuer), the Errors section (`server_error`, `sub_id`,
-  `allowedClientIds` staying `invalid_grant` on purpose), `docs/security.md` (§9.4, `typ` compared as a media type,
+  `allowedClientIds` staying `invalid_grant` on purpose), `docs/security.md` (section 9.4, `typ` compared as a media type,
   pinning `tenant`, one `accountProviderId` per issuer), `SECURITY.md` and `CONTRIBUTING.md` (-06), stale comments,
   and a Breaking section at the top of the CHANGELOG, as `docs/versioning.md` promises.
 - **Evidence:** `test/core/errors.test.ts` (the codes, the 500), `test/issuer/refusals.test.ts` (hook throws,

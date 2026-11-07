@@ -142,7 +142,7 @@ export class JwksCache {
       if (!source.discoveryUri) refuse("jwks_unavailable", "no jwksUri or discoveryUri");
       const doc = discoverySchema.safeParse(await this.getJson(source.discoveryUri, "discovery"));
       if (!doc.success) refuse("jwks_unavailable", "discovery document invalid");
-      // RFC 8414 §3.3 / OIDC Discovery §4.3: the document's issuer must be the issuer, exactly.
+      // RFC 8414 section 3.3 / OIDC Discovery section 4.3: the document's issuer must be the issuer, exactly.
       if (doc.data.issuer !== source.issuer) refuse("jwks_unavailable", "discovery issuer mismatch");
       jwksUri = doc.data.jwks_uri;
     }
@@ -220,7 +220,7 @@ async function readCapped(res: Response, max: number, what: string): Promise<str
   return new TextDecoder("utf-8", { fatal: false }).decode(all);
 }
 
-/** RFC 7517 §4.3: a key without `key_ops` may be used for anything; one with it, only for what it lists. */
+/** RFC 7517 section 4.3: a key without `key_ops` may be used for anything; one with it, only for what it lists. */
 function verifies(ops: unknown): boolean {
   return ops === undefined || (Array.isArray(ops) && ops.includes("verify"));
 }
@@ -242,7 +242,7 @@ function matches(k: JWK, ref: KeyRef): boolean {
 }
 
 /**
- * The key with its certificate thumbprints (RFC 7517 §4.8, §4.9) worked out from `x5c` when the JWKS doesn't publish
+ * The key with its certificate thumbprints (RFC 7517 section 4.8, section 4.9) worked out from `x5c` when the JWKS doesn't publish
  * them, so an ID-JAG naming its key by thumbprint finds it. Published values are kept as they are: a wrong one only
  * means the key isn't found, since the signature is still checked with the key itself.
  */

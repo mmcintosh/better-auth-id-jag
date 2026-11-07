@@ -1,14 +1,14 @@
-// The token-exchange grant (RFC 8693) that issues ID-JAGs (draft -06 §4.3), plan §3.3:
+// The token-exchange grant (RFC 8693) that issues ID-JAGs (draft -06 section 4.3), plan section 3.3:
 //   1. client  2. parameters  3. subject token  4. policy  5. mint  6. record, audit, respond.
 // With `saml.refreshTokens`, one more exact pair: requested_token_type=refresh_token for
-// subject_token_type=saml2 issues a refresh token instead (draft -06 §4.5,
+// subject_token_type=saml2 issues a refresh token instead (draft -06 section 4.5,
 // issueRefreshTokenForAssertion, D-B27). Every other requested type is refused.
 // Exported as a plain function too (`handleTokenExchange`), so a host, or a future core grant
 // that owns the token-exchange key, can compose it: two extensions can't share a grant key
 // (docs/phase-0.md).
 //
 // Every refusal is an IdJagRefusal, audited, then thrown as the APIError the token endpoint turns
-// into an RFC 6749 §5.2 body (a plain Error would be an empty 500). Errors the provider throws
+// into an RFC 6749 section 5.2 body (a plain Error would be an empty 500). Errors the provider throws
 // itself during client authentication (a wrong secret, a client not registered for this grant)
 // are passed through as the provider shaped them.
 import type { GenericEndpointContext, User } from "better-auth";
@@ -58,7 +58,7 @@ export interface IssuerState {
 }
 
 const MAX_SCOPE_LENGTH = 4096;
-/** Parameters that may appear at most once (RFC 6749 §3.2). `resource` may repeat (RFC 8707) but we take one. */
+/** Parameters that may appear at most once (RFC 6749 section 3.2). `resource` may repeat (RFC 8707) but we take one. */
 const SINGLE = ["requested_token_type", "subject_token", "subject_token_type", "audience", "scope", "actor_token", "actor_token_type"] as const;
 
 type Form = Map<string, string[]>;
@@ -187,7 +187,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     const wantsRefreshToken = requestedTokenType === REFRESH_TOKEN_TOKEN_TYPE && options.samlRefreshScopes !== undefined;
     if (requestedTokenType !== ID_JAG_TOKEN_TYPE && !wantsRefreshToken) refuse("unsupported_requested_token_type", requestedTokenType ?? "absent");
     if (one("actor_token") !== undefined || one("actor_token_type") !== undefined) refuse("actor_token_unsupported");
-    // Draft -06 §4.3.3: the IdP MUST process authorization_details. We don't, so it is refused, not ignored (an ID-JAG
+    // Draft -06 section 4.3.3: the IdP MUST process authorization_details. We don't, so it is refused, not ignored (an ID-JAG
     // carrying only the policy's scopes would be wider than what the client asked for).
     if (form.has("authorization_details")) refuse("authorization_details_unsupported");
     const subjectToken = one("subject_token");
@@ -288,7 +288,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       ...(claims.act ? { act: claims.act } : {}),
     });
     maybeSweep(ctx, state);
-    // RFC 8693 §2.2.1. Cache-Control: no-store comes from the token endpoint (metadata.noStore).
+    // RFC 8693 section 2.2.1. Cache-Control: no-store comes from the token endpoint (metadata.noStore).
     const response = {
       issued_token_type: ID_JAG_TOKEN_TYPE,
       access_token: token,
@@ -340,7 +340,7 @@ function tokenBody(r: unknown): Record<string, unknown> {
 
 /**
  * Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -06
- * §4.5: `requested_token_type=refresh_token`, `subject_token_type=saml2`). In order: the client
+ * Section 4.5: `requested_token_type=refresh_token`, `subject_token_type=saml2`). In order: the client
  * (confidential, allowed `refresh_token`, not pairwise); no `audience` or `resource` (the token is
  * for us); scopes (openid and offline_access, within the configured list, the client's and the
  * provider's); the assertion (verified and consumed by the SAML IdP); the user re-read (exists, not
@@ -401,7 +401,7 @@ async function issueRefreshTokenForAssertion(
   const expiresAt = storedSeconds(row?.expiresAt);
   if (expiresAt === undefined) throw new Error("id-jag: the provider's refresh token has no stored expiry");
 
-  // 6. Audit, respond (draft -06 §4.5: the refresh token in access_token, token_type N_A).
+  // 6. Audit, respond (draft -06 section 4.5: the refresh token in access_token, token_type N_A).
   emit(ctx, options, { type: "id-jag.refresh-issued", userId: user.id, clientId: client.clientId, scopes, spEntityId: assertion.serviceProvider.entityId, assertionId: assertion.assertionId });
   maybeSweep(ctx, state);
   const response = {

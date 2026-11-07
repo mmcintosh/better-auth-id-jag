@@ -1,4 +1,4 @@
-// Subject resolution (plan §3.4 step 10): hook first, then the linked account, then the email
+// Subject resolution (plan section 3.4 step 10): hook first, then the linked account, then the email
 // fallback (only when allowed, only for listed domains), then JIT (off by default). Banned users
 // refused whichever way they were found.
 import { describe, expect, it } from "vitest";

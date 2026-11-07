@@ -14,7 +14,7 @@ describe("RS256 (the jwt plugin's keyPairConfig)", () => {
     const parsed = await verifyWithHostJwks(host, r.body.access_token as string);
     expect(parsed.header.alg).toBe("RS256");
     expect(parsed.claims).toMatchObject({ scope: "read", client_id: "rs-client" });
-    // Draft -06 §7.1: the algorithm is published, and it is the one the ID-JAG was signed with (D-061).
+    // Draft -06 section 7.1: the algorithm is published, and it is the one the ID-JAG was signed with (D-061).
     for (const [path, doc] of await discoveryDocs(host)) expect(doc[ISSUER_SIGNING_ALG_METADATA_FIELD], path).toEqual(["RS256"]);
   });
 });

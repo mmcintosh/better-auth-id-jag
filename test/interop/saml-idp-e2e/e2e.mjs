@@ -121,7 +121,7 @@ const redeem = (assertion) => token(mcpAuth, MCP_ISSUER, { grant_type: "urn:ietf
 const mcpJwks = async () => createLocalJWKSet(await (await mcpAuth.handler(new Request(`${MCP_ISSUER}/jwks`))).json());
 const idpJwks = async () => createLocalJWKSet(await (await idpAuth.handler(new Request(`${IDP_ISSUER}/jwks`))).json());
 
-// ---- Path (b): SAML assertion → refresh token (draft -06 §4.5) → ID-JAG → access token.
+// ---- Path (b): SAML assertion → refresh token (draft -06 section 4.5) → ID-JAG → access token.
 const a1 = await sso();
 check("SSO: an Assertion from the SAML IdP", a1.includes("Assertion") && a1.includes(SP.entityId));
 const rt = await exchange({ requested_token_type: "urn:ietf:params:oauth:token-type:refresh_token", subject_token_type: "urn:ietf:params:oauth:token-type:saml2", subject_token: b64url(a1), scope: "openid offline_access" });

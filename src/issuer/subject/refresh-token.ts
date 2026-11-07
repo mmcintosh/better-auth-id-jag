@@ -1,5 +1,5 @@
 // Subject token: a refresh token **this provider** issued to the authenticated client (draft -06
-// §4.3: "a Refresh Token previously issued by the IdP Authorization Server for that resource
+// Section 4.3: "a Refresh Token previously issued by the IdP Authorization Server for that resource
 // owner"; the MCP extension's SAML path and conformance tools exchange one). D-B14.
 //
 // Looked up exactly as oauth-provider 1.7.6 looks it up at its refresh_token grant (dist,
@@ -21,7 +21,7 @@ import type { GenericEndpointContext } from "better-auth";
 import type { OAuthOptions, OAuthProviderApi, Scope } from "@better-auth/oauth-provider";
 import { MAX_TOKEN_LENGTH, refuse } from "../../core";
 
-/** The subject token type for a refresh token (RFC 8693 §3). Not in the core's URNs yet: a core change request. */
+/** The subject token type for a refresh token (RFC 8693 section 3). Not in the core's URNs yet: a core change request. */
 export { REFRESH_TOKEN_TOKEN_TYPE } from "../../core";
 
 export const REFRESH_TOKEN_MODEL = "oauthRefreshToken";

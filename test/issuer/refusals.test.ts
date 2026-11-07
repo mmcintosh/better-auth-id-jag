@@ -43,7 +43,7 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     await refused(host, await exchange(host, client, idToken, { actor_token_type: ID_TOKEN_TOKEN_TYPE }), "actor_token_unsupported", "invalid_request");
   });
 
-  it("authorization_details: refused, never ignored (draft -06 §4.3.3: the IdP MUST process it)", async () => {
+  it("authorization_details: refused, never ignored (draft -06 section 4.3.3: the IdP MUST process it)", async () => {
     // Ignoring it would issue the policy's scopes to a client that asked for something narrower.
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read", "write"] }) } });
     const { client, idToken } = await setup(host);
@@ -71,7 +71,7 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
   it("an audience that isn't an https issuer identifier, or our own issuer: invalid_audience; several: repeated_audience (D-059)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
-    // Draft -06 §4.3.3: more than one audience MUST be invalid_request.
+    // Draft -06 section 4.3.3: more than one audience MUST be invalid_request.
     await refused(host, await exchange(host, client, idToken, { audience: [AUDIENCE, "https://other.example"] }), "repeated_audience", "invalid_request");
     await refused(host, await exchange(host, client, idToken, { audience: [AUDIENCE, AUDIENCE] }), "repeated_audience", "invalid_request");
     for (const audience of ["http://rs.example", "https://rs.example/#x", "https://rs.example/?a=1", "rs.example", "https://user@rs.example", "https://rs.example/ a", "", ISSUER]) {
@@ -165,7 +165,7 @@ describe("refusals: the client (S5)", () => {
   it("allowPublicClients: a public client gets an ID-JAG, and startup warns", async () => {
     const warnings: string[] = [];
     const host = await createIssuerHost({ issuer: { authorize: allow, allowPublicClients: true }, auth: { logger: { level: "warn", log: (_l: string, m: string) => void warnings.push(m) } } });
-    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 §4.3.3"))).toBe(true);
+    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 section 4.3.3"))).toBe(true);
     const owner = await signUp(host);
     const pub = await createClient(host, owner.browser, { authMethod: "none", extra: { application_type: "native" } });
     const idToken = await getIdToken(host, owner.browser, pub);
@@ -412,7 +412,7 @@ describe("refusals: policy (S1, S7)", () => {
     await refused(host, await exchange(host, client, idToken, { resource: RESOURCE }), "policy_denied", "access_denied");
   });
 
-  it("the hook says the audience is unknown: unknown_audience, invalid_target (draft -06 §4.3.3, D-059); its reason goes to the audit only", async () => {
+  it("the hook says the audience is unknown: unknown_audience, invalid_target (draft -06 section 4.3.3, D-059); its reason goes to the audit only", async () => {
     const host = await createIssuerHost({ issuer: { authorize: ({ audience }) => (audience === AUDIENCE ? allow() : { decision: "unknown_audience", reason: "SECRET-REASON" }) } });
     const { client, idToken } = await setup(host);
     const r = await exchange(host, client, idToken, { audience: "https://elsewhere.example" });
@@ -422,7 +422,7 @@ describe("refusals: policy (S1, S7)", () => {
     expect((await exchange(host, client, idToken)).status).toBe(200);
   });
 
-  it("the hook says the resource is unknown: unknown_resource, invalid_target (draft -06 §4.3.3); its reason goes to the audit only", async () => {
+  it("the hook says the resource is unknown: unknown_resource, invalid_target (draft -06 section 4.3.3); its reason goes to the audit only", async () => {
     const host = await createIssuerHost({ issuer: { authorize: ({ resource }) => (resource === undefined || resource === "https://mcp.example.com/" ? allow() : { decision: "unknown_resource", reason: "SECRET-REASON" }) } });
     const { client, idToken } = await setup(host);
     const r = await exchange(host, client, idToken, { resource: "https://elsewhere.example/api" });
@@ -441,7 +441,7 @@ describe("refusals: policy (S1, S7)", () => {
   });
 });
 
-describe("subject token type (draft -06 §4.3.3, D-060): a token of another kind is never taken for an ID token", () => {
+describe("subject token type (draft -06 section 4.3.3, D-060): a token of another kind is never taken for an ID token", () => {
   it("our ID-JAG, a JWT access token, an opaque access token and a refresh token, as subject_token_type id_token: invalid_subject_token", async () => {
     const host = await createIssuerHost({ provider: { resources: [RESOURCE], clientRegistrationDefaultResources: [RESOURCE] }, issuer: { authorize: allow } });
     const { client, user } = await setupRefresh(host);
@@ -467,7 +467,7 @@ describe("subject token type (draft -06 §4.3.3, D-060): a token of another kind
     expect((await exchange(host, client, tokens.id_token as string)).status).toBe(200);
   });
 
-  it("a granted resource appears in the ID-JAG exactly as sent: not normalised (draft -06 §4.3.3, Simple String Comparison)", async () => {
+  it("a granted resource appears in the ID-JAG exactly as sent: not normalised (draft -06 section 4.3.3, Simple String Comparison)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
     for (const resource of ["https://MCP.example/mcp", "https://mcp.example/mcp/", "https://mcp.example:443/mcp", "urn:example:MCP"]) {
@@ -501,7 +501,7 @@ describe("S8: unknown user, banned user, no policy and policy denied look the sa
     expect([...takeReasons(policyHost), ...takeReasons(bare)].sort()).toEqual(["banned_user", "no_policy", "policy_denied", "unknown_subject"]);
     expect(new Set(answers).size).toBe(1);
     expect(JSON.parse(answers[0]!)).toEqual([400, GENERIC_DENIED]);
-    // Draft -06 §4.3.4.3: an ID token issued to another client failed validation: invalid_request, generic.
+    // Draft -06 section 4.3.4.3: an ID token issued to another client failed validation: invalid_request, generic.
     const foreign = await exchange(policyHost, a.client, c.idToken);
     expect([foreign.status, foreign.body]).toEqual([400, GENERIC_REQUEST]);
     expect(takeReasons(policyHost)).toEqual(["invalid_subject_token"]);

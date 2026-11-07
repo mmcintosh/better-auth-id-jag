@@ -1,7 +1,7 @@
 // Audience and resource identifiers. The audience is the resource authorization server's issuer
 // identifier (RFC 8414), which a receiver compares by exact string: so we normalise only what URL
 // syntax makes equivalent beyond doubt (scheme and host case, a default port) and never add or
-// remove a path, not even a trailing slash ("no trailing-slash games", plan §3.4 step 5).
+// remove a path, not even a trailing slash ("no trailing-slash games", plan section 3.4 step 5).
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
 const CONTROL = /[\u0000- \u007f-\u009f]/;

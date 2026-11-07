@@ -1,4 +1,4 @@
-// Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -06 §4.5,
+// Path (b), D-B27: a SAML assertion this IdP issued, exchanged for a refresh token (draft -06 section 4.5,
 // what Okta's SAML requesting app and MCP's Enterprise-Managed Authorization send), which then
 // yields ID-JAGs through the existing refresh-token subject path (D-B14).
 import { decodeJwt } from "jose";
@@ -26,7 +26,7 @@ import {
 } from "../support/issuer-host";
 
 
-// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
+// Draft -06 section 4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
 const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const GENERIC_SCOPE = { error: "invalid_scope", error_description: "The requested scope is invalid." };

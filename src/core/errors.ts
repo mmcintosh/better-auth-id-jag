@@ -1,4 +1,4 @@
-// Every refusal, on both sides, goes through `refuse()`: an RFC 6749 §5.2 / RFC 8693 §2.2.2 error
+// Every refusal, on both sides, goes through `refuse()`: an RFC 6749 section 5.2 / RFC 8693 section 2.2.2 error
 // thrown as Better Auth's APIError, so the token endpoint answers with the standard JSON body (a
 // plain Error from a grant handler becomes an empty 500: docs/phase-0.md, Phase 1 probe).
 //
@@ -14,8 +14,8 @@
 // check. So the code tells "not allowed" from "bad token"; within each, every reason still looks alike.
 import { APIError, isAPIError } from "better-auth/api";
 
-// insufficient_user_authentication: draft -06 §9.3 step-up (RFC 9470's code, at the token endpoint).
-// access_denied: draft -06 §4.3.4.3 / §4.4.3, a valid token whose user or client isn't authorized.
+// insufficient_user_authentication: draft -06 section 9.3 step-up (RFC 9470's code, at the token endpoint).
+// access_denied: draft -06 section 4.3.4.3 / section 4.4.3, a valid token whose user or client isn't authorized.
 // server_error: something on our side failed (the host's hook threw), so neither a new token nor a different request is
 // the answer; sent with HTTP 500, as a JSON body.
 export type OAuthErrorCode = "invalid_request" | "invalid_client" | "invalid_grant" | "unauthorized_client" | "invalid_scope" | "invalid_target" | "access_denied" | "insufficient_user_authentication" | "server_error";
@@ -66,33 +66,33 @@ export const REASONS = {
   client_mismatch: { error: "invalid_grant", public: false },
   replay: { error: "invalid_grant", public: false },
   unknown_resource: { error: "invalid_target", public: false },
-  // Draft -06 §4.4.1: the ID-JAG's resource claim names something we don't govern, so it wasn't issued for us.
+  // Draft -06 section 4.4.1: the ID-JAG's resource claim names something we don't govern, so it wasn't issued for us.
   foreign_resource: { error: "invalid_grant", public: false },
-  // Both sides: the token is valid, but the user or client isn't allowed (draft -06 §4.3.4.3, §4.4.3).
+  // Both sides: the token is valid, but the user or client isn't allowed (draft -06 section 4.3.4.3, section 4.4.3).
   unknown_subject: { error: "access_denied", public: false },
   subject_rejected: { error: "access_denied", public: false },
   // Receiver: a trust entry that resolves by SAML NameID got a sub_id it can't use (absent, another format, transient,
-  // not mapped for this issuer). Draft -06 §3.2.2: MUST be invalid_grant.
+  // not mapped for this issuer). Draft -06 section 3.2.2: MUST be invalid_grant.
   sub_id_rejected: { error: "invalid_grant", public: false },
   banned_user: { error: "access_denied", public: false },
   // Receiver: resolving the subject failed in a way a retry may fix (a concurrent first use, a database error, the
   // host's hook threw). Not an authorization answer, so not access_denied: invalid_grant, as any other failed check.
   subject_unavailable: { error: "invalid_grant", public: false },
   no_scope: { error: "invalid_scope", public: false },
-  // Issuer, a SAML assertion exchanged for a refresh token (draft -06 §4.5): the request lacks a
+  // Issuer, a SAML assertion exchanged for a refresh token (draft -06 section 4.5): the request lacks a
   // scope it must carry. The caller sent the scope parameter, so naming the defect is safe.
   scope_required: { error: "invalid_scope", public: true, description: "openid and offline_access are required." },
   // Issuer: the exchange.
   unsupported_requested_token_type: { error: "invalid_request", public: true, description: "Unsupported requested_token_type." },
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
-  // Draft -06 §4.3.3: the IdP MUST process authorization_details; we don't, so it is refused rather than ignored.
+  // Draft -06 section 4.3.3: the IdP MUST process authorization_details; we don't, so it is refused rather than ignored.
   authorization_details_unsupported: { error: "invalid_request", public: true, description: "authorization_details is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },
-  // Draft -06 §4.3.3: more than one audience is invalid_request.
+  // Draft -06 section 4.3.3: more than one audience is invalid_request.
   repeated_audience: { error: "invalid_request", public: true, description: "audience must appear once." },
   invalid_resource: { error: "invalid_target", public: true, description: "resource must be an absolute URI without a fragment." },
-  // Draft -06 §4.3.4.3: a subject token that fails validation is invalid_request (RFC 8693 §2.2.2).
+  // Draft -06 section 4.3.4.3: a subject token that fails validation is invalid_request (RFC 8693 section 2.2.2).
   invalid_subject_token: { error: "invalid_request", public: false },
   subject_token_expired: { error: "invalid_request", public: true, description: "The subject token has expired." },
   subject_token_not_yet_valid: { error: "invalid_request", public: true, description: "The subject token is not yet valid." },
@@ -101,11 +101,11 @@ export const REASONS = {
   // The requesting client is registered for pairwise subjects, which the issuer doesn't support: a new token won't help.
   pairwise_client: { error: "access_denied", public: false },
   policy_denied: { error: "access_denied", public: false },
-  // The host's authorize hook asked for step-up (draft -06 §9.3, D-043): it chose to tell the caller.
+  // The host's authorize hook asked for step-up (draft -06 section 9.3, D-043): it chose to tell the caller.
   step_up_required: { error: "insufficient_user_authentication", public: true, description: "The subject does not meet the authentication requirements." },
   blocked: { error: "access_denied", public: false },
   no_policy: { error: "access_denied", public: false },
-  // Draft -06 §4.3.3: an audience with no resource server we trust MUST be invalid_target.
+  // Draft -06 section 4.3.3: an audience with no resource server we trust MUST be invalid_target.
   unknown_audience: { error: "invalid_target", public: false },
   // Issuer: the host's code failed (the authorize hook threw, the SAML verifier threw): not the caller's doing, and
   // not an answer about the user, so neither invalid_request nor access_denied. HTTP 500.
@@ -128,8 +128,8 @@ export function logSafe(s: string, max = 300): string {
 }
 
 /**
- * A step-up challenge (draft -06 §9.3, RFC 9470 §3): what the caller is told to come back with. Validated by the
- * issuer's policy before it gets here (RFC 6749 §5.2 characters, an https error_uri).
+ * A step-up challenge (draft -06 section 9.3, RFC 9470 section 3): what the caller is told to come back with. Validated by the
+ * issuer's policy before it gets here (RFC 6749 section 5.2 characters, an https error_uri).
  */
 export interface StepUpChallenge {
   maxAge?: number | undefined;
@@ -173,7 +173,7 @@ export function toApiError(refusal: IdJagRefusal): APIError {
     ...(c?.maxAge !== undefined ? { max_age: c.maxAge } : {}),
     ...(c?.acrValues?.length ? { acr_values: c.acrValues.join(" ") } : {}),
   };
-  // 401 with a challenge for client authentication (RFC 6749 §5.2), 500 for server_error, 400 for the rest.
+  // 401 with a challenge for client authentication (RFC 6749 section 5.2), 500 for server_error, 400 for the rest.
   if (refusal.error === "invalid_client") return new APIError("UNAUTHORIZED", body, { "WWW-Authenticate": 'Basic realm="token"' });
   if (refusal.error === "server_error") return new APIError("INTERNAL_SERVER_ERROR", body);
   return new APIError("BAD_REQUEST", body);

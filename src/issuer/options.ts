@@ -71,7 +71,7 @@ export interface AuthorizeAllow {
   clientIdAtResource?: string | undefined;
   /**
    * `email`: the user's email, only when verified. `tenant`: a tenant id. `act` (D-036): name the requesting client as
-   * the actor, RFC 8693 §4.1, `{ sub: <its client id here> }`, as Okta does for an AI agent; an object adds a
+   * the actor, RFC 8693 section 4.1, `{ sub: <its client id here> }`, as Okta does for an AI agent; an object adds a
    * `sub_profile` (Okta's: "ai_agent web_app"). Set it for clients that act for the user, such as AI agents.
    */
   claims?: { email?: boolean | undefined; tenant?: string | undefined; act?: boolean | { sub_profile?: string | undefined } | undefined } | undefined;
@@ -82,7 +82,7 @@ export interface AuthorizeDeny {
   /** For the audit log only (log-safe there); never sent to the caller. */
   reason?: string | undefined;
   /**
-   * Ask for step-up (draft -06 §9.3, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
+   * Ask for step-up (draft -06 section 9.3, D-043): the caller gets `insufficient_user_authentication` with these, RFC 9470
    * style, instead of the generic `access_denied`, and is expected to send the person back to sign in again. Setting it
    * tells the caller this user got past identity and policy lookup (S8), so set it only for that. `maxAge` → `max_age`
    * (seconds); `acrValues` → `acr_values`; `description` → `error_description` (printable ASCII without `"` or `\`,
@@ -93,7 +93,7 @@ export interface AuthorizeDeny {
 }
 
 /**
- * The audience names no resource server this host serves (draft -06 §4.3.3): the caller gets `invalid_target`, not
+ * The audience names no resource server this host serves (draft -06 section 4.3.3): the caller gets `invalid_target`, not
  * `access_denied`, so it knows to change the request. Return it only for an audience you don't know at all, not for
  * one this user or client may not use (that is a deny).
  */
@@ -104,7 +104,7 @@ export interface AuthorizeUnknownAudience {
 }
 
 /**
- * The audience is one you serve, but the requested `resource` isn't one it governs (draft -06 §4.3.3): the caller gets
+ * The audience is one you serve, but the requested `resource` isn't one it governs (draft -06 section 4.3.3): the caller gets
  * `invalid_target`, not `access_denied`. As with `unknown_audience`, return it only for a resource you don't know, not
  * for one this user or client may not use (that is a deny).
  */
@@ -163,7 +163,7 @@ export interface IdJagIssuerOptions extends AuditOptions {
    */
   maxIdTokenAgeSeconds?: number | undefined;
   /**
-   * Let a public client (no client authentication) exchange. Off by default (S5). Draft -06 §4.3.3
+   * Let a public client (no client authentication) exchange. Off by default (S5). Draft -06 section 4.3.3
    * says the IdP MUST authenticate the client, so turning it on is outside the draft; it logs a
    * warning at startup.
    */
@@ -205,11 +205,11 @@ export interface IdJagIssuerOptions extends AuditOptions {
 export const DEFAULT_SAML_REFRESH_SCOPES = ["openid", "offline_access", "profile", "email"] as const;
 
 export interface SamlOptions {
-  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -06 §4.3.1). Default false. */
+  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -06 section 4.3.1). Default false. */
   subjectTokens?: boolean | undefined;
   /**
    * Path (b): `subject_token_type=saml2` with `requested_token_type=refresh_token`, exchanged for
-   * a refresh token (draft -06 §4.5), which then yields ID-JAGs as a refresh-token subject.
+   * a refresh token (draft -06 section 4.5), which then yields ID-JAGs as a refresh-token subject.
    * `scopes`: what such a refresh token may be granted (default openid, offline_access, profile,
    * email; must contain openid and offline_access). Default off.
    */
@@ -218,7 +218,7 @@ export interface SamlOptions {
 
 const fn = z.custom<(...args: never[]) => unknown>((v) => typeof v === "function", "must be a function");
 const intIn = (min: number, max: number) => z.number().int().min(min).max(max);
-/** An RFC 6749 §3.3 scope-token: printable ASCII except space, `"` and `\`. */
+/** An RFC 6749 section 3.3 scope-token: printable ASCII except space, `"` and `\`. */
 const scopeToken = z
   .string()
   .min(1)

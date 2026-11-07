@@ -7,7 +7,7 @@ import type { AuditOptions, IdJagClaims } from "../core";
 import { lifetimeOption, skewOption } from "../core";
 import { type FetchLike, JwksCache, type JwksSettings } from "./jwks";
 
-/** A trusted issuer configured in code (plan §3.4 step 3). */
+/** A trusted issuer configured in code (plan section 3.4 step 3). */
 export interface StaticTrustedIssuer {
   /** The exact `iss` of its ID-JAGs. */
   issuer: string;
@@ -36,8 +36,8 @@ export interface StaticTrustedIssuer {
   /** The organization role of a user JIT creates (needs `organizationId`). Default "member". */
   jitRole?: string | undefined;
   /**
-   * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -06 §3.2) instead of `sub`, for these
-   * SAML namespaces only (draft -06 §9.8: the association is this trust entry's local configuration;
+   * Resolve users by the ID-JAG's SAML NameID `sub_id` (draft -06 section 3.2) instead of `sub`, for these
+   * SAML namespaces only (draft -06 section 9.8: the association is this trust entry's local configuration;
    * `sub_id.issuer` never establishes trust). Accounts are linked as { providerId: accountProviderId,
    * accountId: nameid }, which is what `@better-auth/sso` creates at SAML sign-in. Unset: `sub_id` is ignored.
    */
@@ -94,7 +94,7 @@ export interface SamlSubjectMapping {
   accountProviderId: string;
 }
 
-/** The transient NameID format (SAML core §8.3.8): a new value per session, never a stable link key. */
+/** The transient NameID format (SAML core section 8.3.8): a new value per session, never a stable link key. */
 export const TRANSIENT_NAMEID_FORMAT = "urn:oasis:names:tc:SAML:2.0:nameid-format:transient";
 
 /** Trust the OIDC providers registered in `@better-auth/sso` (opt-in). */
@@ -148,7 +148,7 @@ export interface IdJagGrantOptions extends AuditOptions {
   /** The resource used when neither the ID-JAG nor the request names one. Must be a registered resource. */
   defaultResource?: string | undefined;
   /**
-   * Accept public clients (no client authentication). Default false. Draft -06 §4.4 says a request with neither client
+   * Accept public clients (no client authentication). Default false. Draft -06 section 4.4 says a request with neither client
    * authentication nor a sender-constrained ID-JAG MUST be refused, so turning it on is outside the draft; it logs a
    * warning at startup.
    */
@@ -342,7 +342,7 @@ function samlOptions(t: StaticTrustedIssuer): Pick<TrustEntry, "samlSubjects" | 
  * entries may share it, e.g. two ID-JAG issuers relaying one SAML IdP's NameIDs), or an entry's `sub`s.
  */
 function checkAccountProvidersAcrossEntries(entries: TrustEntry[]): void {
-  // A multi-tenant issuer's sub is unique only within its tenant (draft -06 §6.3, iss+tenant+sub): two tenants of one
+  // A multi-tenant issuer's sub is unique only within its tenant (draft -06 section 6.3, iss+tenant+sub): two tenants of one
   // issuer (or a pinned tenant and an entry that takes every tenant) under one account namespace would link one
   // tenant's "u1" to another tenant's user.
   for (const [i, a] of entries.entries())

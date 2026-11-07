@@ -91,7 +91,7 @@ describe("registry: policy evaluation", () => {
     await registered(h, other.client);
     const b = await exchange(h, client, idToken);
     expect(takeReasons(h)).toEqual(["policy_denied"]);
-    // Draft -06 §4.3.4.3: the client can tell an audience we don't know from one it may not use.
+    // Draft -06 section 4.3.4.3: the client can tell an audience we don't know from one it may not use.
     expect(a.body).toEqual({ error: "invalid_target", error_description: publicDescription("unknown_audience") });
     expect(b.body).toEqual({ error: "access_denied", error_description: publicDescription("policy_denied") });
   });

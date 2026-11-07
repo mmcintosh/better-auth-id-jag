@@ -58,9 +58,9 @@ describe("refusals (S8)", () => {
     const code = (r: ReasonCode) => REASONS[r].error;
     expect(["invalid_subject_token", "subject_token_expired", "repeated_audience"].map((r) => code(r as ReasonCode))).toEqual(["invalid_request", "invalid_request", "invalid_request"]);
     expect(["unknown_audience", "invalid_audience", "invalid_resource", "unknown_resource"].map((r) => code(r as ReasonCode))).toEqual(["invalid_target", "invalid_target", "invalid_target", "invalid_target"]);
-    // Draft -06 §4.4.1 (D-060): a resource claim we don't govern is the ID-JAG's defect, not the request's.
+    // Draft -06 section 4.4.1 (D-060): a resource claim we don't govern is the ID-JAG's defect, not the request's.
     expect(code("foreign_resource")).toBe("invalid_grant");
-    // Draft -06 §3.2.2: a sub_id the receiver can't use is invalid_grant (MUST), not an authorization answer.
+    // Draft -06 section 3.2.2: a sub_id the receiver can't use is invalid_grant (MUST), not an authorization answer.
     expect(code("sub_id_rejected")).toBe("invalid_grant");
     expect(code("authorization_details_unsupported")).toBe("invalid_request");
     expect(ALL.filter((r) => code(r) === "access_denied").sort()).toEqual(["banned_user", "blocked", "no_policy", "pairwise_client", "policy_denied", "subject_rejected", "unknown_subject"]);

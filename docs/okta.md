@@ -130,7 +130,7 @@ What the agent sees depends on the check. Problems it could see for itself (a ma
 `error_description`. Everything that depends on whom your server trusts (the issuer, the signature, the audience,
 the client, a replay) comes back as `invalid_grant` with one generic description, so a caller can't probe your
 configuration. A valid ID-JAG whose subject your server won't accept (`unknown_subject`, `subject_rejected`,
-`banned_user`) comes back as `access_denied`, also generic (draft -06 §4.4.3). Client authentication is oauth-provider's own (`invalid_client`, `unauthorized_client`). The
+`banned_user`) comes back as `access_denied`, also generic (draft -06 section 4.4.3). Client authentication is oauth-provider's own (`invalid_client`, `unauthorized_client`). The
 real reason is always in the receiver's audit trail: `events.onRefused` (`e.reason`), or the `idJagAudit` table with
 `auditLog: { retentionDays }`.
 

@@ -10,7 +10,7 @@ import type { AuthorizeResult } from "../../src/issuer";
 import { createIssuerHost, exchange, exchangeRefresh, type IssuerHost, setup, setupRefresh, signUp, takeReasons } from "../support/issuer-host";
 
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read"] });
-// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
+// Draft -06 section 4.3.4.3 (D-059): a subject token that failed validation is invalid_request.
 const EXPIRED = { error: "invalid_request", error_description: publicDescription("subject_token_expired") };
 const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 

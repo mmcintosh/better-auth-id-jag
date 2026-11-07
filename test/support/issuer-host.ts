@@ -441,7 +441,7 @@ const b64Bytes = (bytes: Uint8Array) => {
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s);
 };
-/** base64url without padding (RFC 8693 §3). */
+/** base64url without padding (RFC 8693 section 3). */
 export const samlToken = (xml: string) => b64url(new TextEncoder().encode(xml));
 /** Standard base64 with padding (the draft's example). */
 export const samlTokenStd = (xml: string) => b64Bytes(new TextEncoder().encode(xml));
@@ -470,7 +470,7 @@ export async function setupSaml(host: IssuerHost, o: { grantTypes?: string[]; cl
 export const exchangeSaml = (host: IssuerHost, client: Partial<Client> | null, token: string, form: Record<string, string | string[] | undefined> = {}) =>
   exchange(host, client, token, { subject_token_type: SAML2_TOKEN_TYPE, ...form });
 
-/** Path (b): a SAML assertion for a refresh token (draft -06 §4.5). */
+/** Path (b): a SAML assertion for a refresh token (draft -06 section 4.5). */
 export const requestSamlRefresh = (host: IssuerHost, client: Partial<Client> | null, token: string, form: Record<string, string | string[] | undefined> = {}) =>
   exchange(host, client, token, { requested_token_type: REFRESH_TOKEN_TYPE, subject_token_type: SAML2_TOKEN_TYPE, audience: undefined, scope: "openid offline_access", ...form });
 

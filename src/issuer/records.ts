@@ -10,7 +10,7 @@ export const MAX_SCOPES = 200;
 export const MAX_CLIENTS = 1000;
 export const MAX_SUBJECTS = 1000;
 
-// RFC 6749 §3.3 scope-token.
+// RFC 6749 section 3.3 scope-token.
 const scopeToken = z.string().regex(/^[\x21\x23-\x5b\x5d-\x7e]{1,256}$/, "not a scope token");
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing them is the point.
 const ident = z.string().min(1).max(512).regex(/^[^\u0000-\u001f\u007f-\u009f]+$/, "control characters");
@@ -116,7 +116,7 @@ async function sha256b64url(input: string): Promise<string> {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** The unique key of a resource server: one audience per organization (plan §3.5). */
+/** The unique key of a resource server: one audience per organization (plan section 3.5). */
 export const lookupKeyOf = (organizationId: string | undefined | null, audience: string) => sha256b64url(JSON.stringify(["id-jag-rs", organizationId ?? "", audience]));
 
 export function resourceServerColumns(c: ResourceServerConfig) {

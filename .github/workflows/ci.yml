@@ -2,7 +2,7 @@
 # Node and inside workerd (vitest's two projects). A non-blocking row runs the newest Better Auth 1.8
 # (pre-releases included): its failures show as failed steps and annotations, but the job stays green
 # until the package supports 1.8. Runners are pinned to ubuntu-24.04 (not ubuntu-latest), and every
-# action to a SHA. Adapters, runtimes and the Workers example join when there is code for them (plan §4).
+# action to a SHA. Adapters, runtimes and the Workers example join when there is code for them (plan section 4).
 name: CI
 on:
   push: { branches: [main] }

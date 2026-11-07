@@ -249,7 +249,7 @@ describe("receiver: every refusal, by reason and by body", () => {
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ scope: "admin", sub: "nobody" })), "no_scope");
   });
 
-  it("foreign_resource (invalid_grant): the claim names a resource we don't govern, even beside ours (draft -06 §4.4.1, D-060)", async () => {
+  it("foreign_resource (invalid_grant): the claim names a resource we don't govern, even beside ours (draft -06 section 4.4.1, D-060)", async () => {
     const s = await setup();
     await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ resource: "https://elsewhere.example/mcp" })), "foreign_resource");
     // Every identifier counts, whichever one the request picks: this ID-JAG wasn't issued for resources we govern.
@@ -384,7 +384,7 @@ describe("receiver: client authentication (S5)", () => {
       plugins: [jwt(), oauthProvider({ loginPage: "/l", consentPage: "/c" }) as never, idJagGrant({ allowPublicClients: true, trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }] })],
     });
     await probe.$context;
-    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 §4.4"))).toBe(true);
+    expect(warnings.some((w) => w.includes("allowPublicClients") && w.includes("outside draft -06 section 4.4"))).toBe(true);
     const pub = await createClient(s.h, { authMethod: "none" });
     const r = await redeem(s.h, null, await s.valid({ client_id: pub.client_id }), { client_id: pub.client_id });
     expect(r.status, r.text).toBe(200);
@@ -434,7 +434,7 @@ describe("receiver: S8, refusals the caller can't tell apart", () => {
       expect(r.text).toBe(first.text);
     }
     expect(first.body).toEqual({ error: "invalid_grant", error_description: "The grant is invalid." });
-    // Draft -06 §4.4.3: a valid ID-JAG whose subject isn't known here. Only after every trust check passed.
+    // Draft -06 section 4.4.3: a valid ID-JAG whose subject isn't known here. Only after every trust check passed.
     expect([unknown.status, unknown.body]).toEqual([400, { error: "access_denied", error_description: "The subject or client is not authorized for this request." }]);
   });
 });

@@ -39,7 +39,7 @@ idJagGrant({
   trustedIssuerTable?: boolean,                                                           // default off
   resolveSubject?: (input) => { action: "link", userId } | { action: "continue" } | { action: "reject" },
   defaultResource?: string,
-  allowPublicClients?: boolean,      // default false; true is outside draft -06 §4.4 and warns at startup
+  allowPublicClients?: boolean,      // default false; true is outside draft -06 section 4.4 and warns at startup
   allowEmptyScope?: boolean,         // default false
   requireResourceClaim?: boolean,    // default false (D-A06, D-A21)
   clockSkewSeconds?, maxLifetimeSeconds?,                 // validated by the core: [0, 300], [1, 900]
@@ -51,7 +51,7 @@ idJagGrant({
 })
 ```
 
-## The plan's §3.4 steps, as built
+## The plan's section 3.4 steps, as built
 
 The order is D-007's, as the Phase 1 design corrected it.
 
@@ -63,7 +63,7 @@ The order is D-007's, as the Phase 1 design corrected it.
 | 4. Signature, `aud` | `grant.ts`, `jwks.ts`, core | `verifyIdJag(token, key, { issuer: trust.issuer, audience: getIssuer(ctx, opts) })`. `key` is a lazy resolver, so verifyIdJag's own order holds: `iss`, `self_issued`, then the signature, and only the signature fetches keys. The resolver also refuses an `alg` the issuer's JWKS doesn't publish, as `bad_signature`. `aud` is compared exactly. |
 | 5. `client_id` | `grant.ts` | `claims.client_id === authenticated clientId`, exactly (D-004). Then the trust entry's `allowedClientIds`, if set. Both are `client_mismatch`. |
 | 6. Scopes (moved before the subject, D-007) | `grant.ts` | Granted = ID-JAG `scope` ∩ the request's `scope` (if sent) ∩ the client's registered scopes ∩ the resource's scopes. The resource's scopes are its `allowedScopes`, or else the provider's advertised or configured scopes. `openid` and `offline_access` are always removed. Empty → `no_scope`. |
-| 7. Resource | `grant.ts` | Picked from the claim, or else the request's `resource`, or else `defaultResource`, or else the only registered one. It must be in `opts.resources`; for `mcp()` that includes its `resource`. Otherwise `unknown_resource` (`invalid_target`). Plan §3.4 step 9. |
+| 7. Resource | `grant.ts` | Picked from the claim, or else the request's `resource`, or else `defaultResource`, or else the only registered one. It must be in `opts.resources`; for `mcp()` that includes its `resource`. Otherwise `unknown_resource` (`invalid_target`). Plan section 3.4 step 9. |
 | 8. `jti` | core | `recordJti(adapter, { side: "accepted", ..., exp, clockSkewSeconds })`; `false` → `replay`. |
 | 9. Subject | `resolve.ts` | Plan step 10: the hook, then the subject's key (D-A28: `sub`, or for an entry with `samlSubjects` the mapped SAML NameID of `sub_id`), then the account (`providerId` = the entry's account provider id, `accountId` = `sub`; or the mapping's `accountProviderId` and the NameID), then the email fallback (opt-in, listed or verified domains), then JIT (opt-in). Banned users are refused. A JIT user joins the trust entry's organization (D-A18–D-A20). |
 | 10. Issue | `grant.ts` | `provider.issueTokens({ client, user, scopes, resources: [resource], accessTokenClaims: { idjag: { iss, jti, tenant? } }, authTime, tokenResponse: {} })`. With no `offline_access` there is no refresh token, and with no `openid` no ID token. `id-jag.accepted` is emitted. |
@@ -121,7 +121,7 @@ Every refusal is an `IdJagRefusal`. It is emitted as `id-jag.refused` and thrown
 - **D-A13: `tenant` pinning.** A static or table entry with `tenant` matches only ID-JAGs with that `tenant` claim. This is Okta's `iss` + `tenant` mapping for multi-tenant IdPs.
 - **D-A14: the hook fails closed.** A throw, or anything that isn't `link` / `continue` / `reject`, is `subject_rejected`. `link` to a missing user is `unknown_subject`.
 - **D-A15: provider errors after the `jti` is recorded.** One example: `issueTokens` throwing `invalid_target` because `enforcePerClientResources` (default true) finds the client unlinked from the resource. These burn the `jti` and are not audited. The client gets a new ID-JAG. `mcp()` links its resource to every new client, so this needs a misconfigured host.
-- **D-A16: the access token carries `idjag: { iss, jti, tenant? }`** (plan §3.4 step 12), as a per-issuance JWT claim. It isn't visible at opaque-token introspection, which doesn't apply here: with a resource, the token is a JWT.
+- **D-A16: the access token carries `idjag: { iss, jti, tenant? }`** (plan section 3.4 step 12), as a per-issuance JWT claim. It isn't visible at opaque-token introspection, which doesn't apply here: with a resource, the token is a JWT.
 - **D-A17: a `clock` option** (for tests). It drives the time checks, the JWKS cache and the sweep throttle. Access-token times are the provider's.
 
 ### Phase 2 additions (D-009 #4 and #5)
@@ -222,7 +222,7 @@ Four defects, each reproduced by the reviewer; each got a failing test first, wh
 
 ### Phase 3: SAML NameID `sub_id` (task T8, D-A27–D-A31)
 
-The design's receiver part (phase-3 design §2, rows R3-S1 to R3-S8), draft -04 §3.1, §3.2.1–§3.2.2, §4.4.1, §9.5 and §9.6. The core's `SAML_NAMEID_SUB_ID_FORMAT`, `samlNameIdSubIdSchema` and `parseSamlNameIdSubId()` are used as they are. Nothing in `src/core/**` changed.
+The design's receiver part (phase-3 design section 2, rows R3-S1 to R3-S8), draft -04 section 3.1, section 3.2.1–section 3.2.2, section 4.4.1, section 9.5 and section 9.6. The core's `SAML_NAMEID_SUB_ID_FORMAT`, `samlNameIdSubIdSchema` and `parseSamlNameIdSubId()` are used as they are. Nothing in `src/core/**` changed.
 
 - **D-A27: options and table columns.**
   - A static trust entry takes `samlSubjects?: [{ issuer, spNameQualifier?, nameQualifier?, nameIdFormats?, accountProviderId }]` and `requireSubId?: boolean` (default false).
@@ -238,11 +238,11 @@ The design's receiver part (phase-3 design §2, rows R3-S1 to R3-S8), draft -04 
     - **[uncertain] in the design, resolved by reading sso 1.7.6:** an SAML `ssoProvider` row's `issuer` is the registrant's `body.issuer` (`z.string().url()`). It isn't checked against the IdP metadata's entity ID when the row is registered. At sign-in, sso uses `idp.entityMeta.getEntityID()`, so the two can differ. Inferring a mapping from the row's `issuer` would therefore be wrong. A follow-up could derive it with sso's exported `deriveSAMLIdentityProviderEntityID(samlConfig)`.
 - **D-A28: the order, and what is compared** (`subjectKey` in `resolve.ts`, exported).
   - **Where:** after the host's `resolveSubject` hook, which sees the raw claims, `sub_id` included, and can still link, continue or reject. It comes before any account lookup.
-    - Step 9 runs only after trust by `iss`, the signature, `aud`, `client_id`, scopes, the resource and `jti`. Only the mappings of the trust entry that matched are read, so `sub_id.issuer` never selects or establishes trust (§9.5).
+    - Step 9 runs only after trust by `iss`, the signature, `aud`, `client_id`, scopes, the resource and `jti`. Only the mappings of the trust entry that matched are read, so `sub_id.issuer` never selects or establishes trust (section 9.5).
   - **No `samlSubjects`:** `sub_id` is ignored and the key is (accountProviderId, `sub`), as before. A malformed `sub_id` isn't refused either (R3-S5).
   - **With `samlSubjects`, and a `sub_id` whose `format` is `saml-nameid`:**
     1. It is parsed with the core's strict schema. If that fails, the result is `subject_rejected` with the detail `sub_id malformed (...)`.
-       - The core throws its public `invalid_claim`. It is re-thrown as the non-public `subject_rejected`, because draft §3.2.2 says `invalid_grant`. The public body would also tell a caller which issuers resolve by `sub_id`.
+       - The core throws its public `invalid_claim`. It is re-thrown as the non-public `subject_rejected`, because draft section 3.2.2 says `invalid_grant`. The public body would also tell a caller which issuers resolve by `sub_id`.
        - It is never a fallback to `sub`.
     2. A transient `nameid_format` is refused, whatever the mappings say, and before any mapping is matched.
     3. The mapping must match the `issuer` exactly, and `sp_name_qualifier` and `name_qualifier` null-safely: a value missing from the configuration must also be missing from the `sub_id`. There is no case folding and no trailing-slash normalisation. With no match: `subject_rejected` ("sub_id not authorized for this issuer").
@@ -261,7 +261,7 @@ The design's receiver part (phase-3 design §2, rows R3-S1 to R3-S8), draft -04 
     - It links (accountProviderId, nameid).
   - **JIT:** links with the mapping key, not `sub`. xaa.dev warns that `sub` may be an "opaque, Auth Server-local identifier that changes on server restart". A later ID-JAG with another `sub` and the same `sub_id` finds the same user.
   - **Known gap:** JIT still needs an `email` claim, because Better Auth users must have one. xaa.dev's persistent-NameID runs carry no `email`, so they get a clean `unknown_subject` (generic body, nothing created) unless an account is already linked or the host's hook resolves them. sso itself falls back to the NameID as the email at SAML sign-in. We don't, because a NameID isn't a verified address.
-  - **Audit details (§9.6):** a NameID can be an email address or an enterprise id, so it never appears in a refusal detail. "Not authorized" and "format not allowed" record the log-safe members instead: `issuer`, `sp_name_qualifier`, `name_qualifier` and `nameid_format`. That is the "observe mode" the design asks for, for configuring xaa.dev from its first refused run. `unknown_subject` records `sub_id at <accountProviderId>`.
+  - **Audit details (section 9.6):** a NameID can be an email address or an enterprise id, so it never appears in a refusal detail. "Not authorized" and "format not allowed" record the log-safe members instead: `issuer`, `sp_name_qualifier`, `name_qualifier` and `nameid_format`. That is the "observe mode" the design asks for, for configuring xaa.dev from its first refused run. `unknown_subject` records `sub_id at <accountProviderId>`.
 - **D-A30: one account provider id per namespace** (the R3-S7 rule, enforced at configuration time by D-A27). With two mappings and two `accountProviderId`s, the same NameID from two IdP connections gives two users (xaa.dev's test).
 - **D-A31: concurrent first use converges under the new key too** (D-A24). `converge` now takes the key, (providerId, accountId), instead of the trust entry and `sub`. So the oldest-row-wins re-read, the cleanup of duplicates and of the loser's JIT user and membership, and the no-500 wrapper all apply to links under a mapping key unchanged.
 

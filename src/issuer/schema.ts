@@ -1,4 +1,4 @@
-// The issuer's tables (plan §3.5): the core's jti and audit tables, the blocks table (always: it
+// The issuer's tables (plan section 3.5): the core's jti and audit tables, the blocks table (always: it
 // is how an administrator stops further exchanges, D-B16), plus the registry's two when it is
 // enabled. Unique columns are declared at field level (SQL migrators) and as named
 // table-level indexes (Better Auth 1.7's MongoDB adapter creates only those: better-auth-saml-idp

@@ -1,4 +1,4 @@
-// The optional `idJagTrustedIssuer` table (plan §3.5), the third trust source beside code and
+// The optional `idJagTrustedIssuer` table (plan section 3.5), the third trust source beside code and
 // `@better-auth/sso`. Phase 1 reads it; rows are written by the host (an admin API comes later).
 // List-valued columns are JSON strings, as `@better-auth/sso` stores `oidcConfig`.
 import type { BetterAuthPluginDBSchema } from "better-auth";

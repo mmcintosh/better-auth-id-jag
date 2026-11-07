@@ -1,4 +1,4 @@
-// Interop, row 1: our issuer → our receiver (plan §4, "CI, always"). Two Better Auth instances in one
+// Interop, row 1: our issuer → our receiver (plan section 4, "CI, always"). Two Better Auth instances in one
 // process, each with its own database, talking only through HTTP-shaped Requests:
 //   1. a user signs in at the IdP and the agent gets an ID token by authorization_code (PKCE);
 //   2. RFC 8693 token exchange at the IdP: audience = the MCP AS's issuer, resource = the MCP resource;

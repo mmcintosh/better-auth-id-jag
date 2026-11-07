@@ -1,11 +1,11 @@
-// The jwt-bearer grant for ID-JAGs (plan §3.4, with the order D-007 settled):
+// The jwt-bearer grant for ID-JAGs (plan section 3.4, with the order D-007 settled):
 //  1. client authentication (confidential only by default; a CIMD client only with private_key_jwt)
 //  2. parse the assertion (typ, alg, kid or x5t, required claims, lifetime), then its time claims, then
 //     `resource` when requireResourceClaim is on
 //  3. trust lookup from the unverified `iss`
 //  4. verifyIdJag with that issuer's keys: iss, signature, aud = our issuer (exact)
 //  5. client_id continuity: the claim is the authenticated client's id here, exactly; then every identifier in
-//     the `resource` claim is one of ours (draft -06 §4.4.1), else the token wasn't issued for us
+//     the `resource` claim is one of ours (draft -06 section 4.4.1), else the token wasn't issued for us
 //  6. scopes: ID-JAG ∩ request ∩ client ∩ resource; before the subject, so `no_scope` can't tell
 //     whether a user exists (S8)
 //  7. resource: from the registered set only
@@ -156,7 +156,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     if (claims.client_id !== authn.clientId) refuse("client_mismatch", `claim ${claims.client_id}`);
     if (trust.allowedClientIds && !trust.allowedClientIds.includes(authn.clientId)) refuse("client_mismatch", "client not allowed for this issuer");
 
-    // Draft -06 §4.4.1: each identifier in the resource claim MUST be a resource we govern, else invalid_grant
+    // Draft -06 section 4.4.1: each identifier in the resource claim MUST be a resource we govern, else invalid_grant
     // ("the ID-JAG was not issued for resources it governs"), whichever one the client asks for. Before scopes and
     // the subject, like every other check of the token (S8).
     const registered = registeredResources(opts);

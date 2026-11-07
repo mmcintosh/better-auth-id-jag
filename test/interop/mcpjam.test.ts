@@ -59,7 +59,7 @@ const ATTACKS: Record<Exclude<Mode, "valid" | "unknown_sub">, ReasonCode> = {
   missing_claims: "missing_claim",
   invalid_type_header: "wrong_typ",
   wrong_issuer: "untrusted_issuer",
-  // Its resource claim names a resource we don't govern: refused right after client_id (draft -06 §4.4.1, D-060).
+  // Its resource claim names a resource we don't govern: refused right after client_id (draft -06 section 4.4.1, D-060).
   resource_mismatch: "foreign_resource",
   client_id_mismatch: "client_mismatch",
   unknown_kid: "bad_signature",

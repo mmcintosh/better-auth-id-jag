@@ -1,4 +1,4 @@
-// Building, parsing and verifying ID-JAGs (draft -06 §3, §4.4). Parsing comes before the signature
+// Building, parsing and verifying ID-JAGs (draft -06 section 3, section 4.4). Parsing comes before the signature
 // so a failure names its step, and the receiver can pick the trusted issuer from the (unverified)
 // `iss` before fetching any key, as Okta's resource-app guide asks. Verification is the signature
 // only (jose's compactVerify) followed by our own claim checks, so every failure has our reason code.
@@ -25,7 +25,7 @@ const seconds = z.number().int().nonnegative().max(2 ** 40);
  * Claims this package cannot honour yet, refused rather than ignored:
  * - `authorization_details` (RFC 9396): the draft says a receiver MUST process it; ignoring it
  *   could grant more than the IdP authorised.
- * - `cnf`: a key-bound ID-JAG (draft -06 §9.11.1.2). Without a matching DPoP proof the receiver MUST reject
+ * - `cnf`: a key-bound ID-JAG (draft -06 section 9.11.1.2). Without a matching DPoP proof the receiver MUST reject
  *   it, and DPoP isn't supported yet, so it's always refused (D-012). Issuing a bearer token for
  *   it would strip the binding the IdP asked for.
  * `act` is supported: see actSchema (D-010).
@@ -36,7 +36,7 @@ export const UNSUPPORTED_CLAIMS = ["authorization_details", "cnf"] as const;
 export const MAX_ACT_DEPTH = 4;
 
 /**
- * RFC 8693 §4.1 `act`: who acts on the subject's behalf, e.g. Okta names the AI agent
+ * RFC 8693 section 4.1 `act`: who acts on the subject's behalf, e.g. Okta names the AI agent
  * (`{ sub: "<agent id>", sub_profile: "ai_agent ..." }`). It records delegation and widens
  * nothing; the receiver carries it into the access token so the resource server sees the actor.
  * An object with a string `sub`, optionally nested (prior actors), at most MAX_ACT_DEPTH deep.
@@ -51,10 +51,10 @@ function actDepth(act: ActClaim | undefined): number {
 }
 
 /**
- * `sub_id` in the SAML NameID format (draft -06 §3.2.1): `format`, `issuer` and `nameid` required;
+ * `sub_id` in the SAML NameID format (draft -06 section 3.2.1): `format`, `issuer` and `nameid` required;
  * `nameid_format`, `name_qualifier`, `sp_name_qualifier`, `sp_provided_id` optional; nothing else.
  * Strict, for when a receiver resolves users by it. At parse time `sub_id` stays loosely typed
- * (it's informational until then, and never a source of trust: draft -06 §9.8).
+ * (it's informational until then, and never a source of trust: draft -06 section 9.8).
  */
 export const samlNameIdSubIdSchema = z.strictObject({
   format: z.literal("saml-nameid"),
@@ -95,7 +95,7 @@ export const idJagClaimsSchema = z.looseObject({
   tenant: nonEmpty.optional(),
   aud_tenant: nonEmpty.optional(),
   aud_sub: nonEmpty.optional(),
-  // RFC 9493 subject identifier. Never a source of trust (draft §8): informational only.
+  // RFC 9493 subject identifier. Never a source of trust (draft section 8): informational only.
   sub_id: z.looseObject({ format: nonEmpty }).optional(),
   act: actSchema.optional(),
 });
@@ -107,9 +107,9 @@ export interface IdJagHeader {
   alg: IdJagAlgorithm;
   /** The signing key's id. Absent only when the header names the key by certificate thumbprint instead (PingFederate). */
   kid?: string | undefined;
-  /** RFC 7515 §4.1.7: the SHA-1 thumbprint of the key's certificate, base64url. */
+  /** RFC 7515 section 4.1.7: the SHA-1 thumbprint of the key's certificate, base64url. */
   x5t?: string | undefined;
-  /** RFC 7515 §4.1.8: the SHA-256 thumbprint of the key's certificate, base64url. */
+  /** RFC 7515 section 4.1.8: the SHA-256 thumbprint of the key's certificate, base64url. */
   "x5t#S256"?: string | undefined;
   typ: string;
 }
@@ -125,7 +125,7 @@ export interface ParsedIdJag {
 }
 
 /**
- * `typ` is a media type (RFC 7515 §4.1.9): compared case-insensitively, `application/` optional.
+ * `typ` is a media type (RFC 7515 section 4.1.9): compared case-insensitively, `application/` optional.
  * Anything else, including a missing `typ`, is not an ID-JAG (S2).
  */
 export function isIdJagTyp(typ: unknown): boolean {
@@ -174,7 +174,7 @@ export function parseIdJag(token: string, o: { maxLifetimeSeconds?: number } = {
   const kid = typeof rawHeader.kid === "string" && rawHeader.kid.length > 0 ? rawHeader.kid : undefined;
   if (rawHeader.kid !== undefined && kid === undefined) refuse("missing_kid", "empty or not a string");
   if (kid === undefined && rawHeader.x5t === undefined && rawHeader["x5t#S256"] === undefined) refuse("missing_kid");
-  // Critical header parameters we don't understand mean "don't accept" (RFC 7515 §4.1.11).
+  // Critical header parameters we don't understand mean "don't accept" (RFC 7515 section 4.1.11).
   if (rawHeader.crit !== undefined) refuse("invalid_claim", "crit");
 
   for (const name of REQUIRED) if (rawClaims[name] === undefined) refuse("missing_claim", name);
@@ -257,7 +257,7 @@ export async function verifyIdJag(token: string, key: IdJagKey, expected: Verify
   checkTimes(parsed.claims, now, skew);
   // Before the signature: no key is fetched for an issuer the caller didn't resolve.
   if (parsed.claims.iss !== expected.issuer) refuse("untrusted_issuer", parsed.claims.iss);
-  // Draft -06 §9.4: an IdP must not accept an ID-JAG it issued to itself.
+  // Draft -06 section 9.4: an IdP must not accept an ID-JAG it issued to itself.
   if (expected.issuer === expected.audience || parsed.claims.iss === parsed.audience) refuse("self_issued", parsed.claims.iss);
   const algorithms = [...(expected.algorithms ?? ALLOWED_ALGORITHMS)];
   // Narrowed to what this trusted issuer publishes: not public, or it would reveal the trust (S8).

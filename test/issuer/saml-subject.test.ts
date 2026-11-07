@@ -27,7 +27,7 @@ import {
   verifyWithHostJwks,
 } from "../support/issuer-host";
 
-// Draft -06 §4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
+// Draft -06 section 4.3.4.3 (D-059): a subject token that failed validation is invalid_request; a valid one not allowed, access_denied.
 const GENERIC_REQUEST = { error: "invalid_request", error_description: "The request is invalid." };
 const GENERIC_DENIED = { error: "access_denied", error_description: "The subject or client is not authorized for this request." };
 const allow = (): AuthorizeResult => ({ decision: "allow", scopes: ["read", "write"] });

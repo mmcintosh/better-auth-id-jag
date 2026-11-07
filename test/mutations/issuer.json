@@ -2370,7 +2370,7 @@
  {
   "name": "D-061 issuer public-client warning loses the draft section",
   "file": "src/issuer/plugin.ts",
-  "a": "This is outside draft -06 §4.3.3, which",
+  "a": "This is outside draft -06 section 4.3.3, which",
   "b": "The draft says",
   "paths": [
    "test/issuer/refusals.test.ts"

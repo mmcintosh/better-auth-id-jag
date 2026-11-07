@@ -1,4 +1,4 @@
-// Plan §3.3 step 4: who may have an ID-JAG for which audience, with which scopes. Deny by default
+// Plan section 3.3 step 4: who may have an ID-JAG for which audience, with which scopes. Deny by default
 // (S1): no source configured, no resource server for the audience, or no matching policy is a
 // refusal, never "allow all". Each configured source must allow (code hook and registry), and the
 // narrower outcome wins: scopes intersect, the shortest lifetime wins, email only if every source
@@ -9,7 +9,7 @@
 // policy denied, a block) are all `access_denied` with one generic body, like unknown or banned users
 // (draft -06, D-059). The registry's specific refusals (`no_scope`, `unknown_resource`) come only
 // **after** a policy allowed: by then the caller could have learnt the allow anyway (by asking for no
-// scope or no resource). An audience with no resource server is `invalid_target` (draft -06 §4.3.3).
+// scope or no resource). An audience with no resource server is `invalid_target` (draft -06 section 4.3.3).
 // The hook says more only when the host chooses to: step-up (D-043), `unknown_audience`,
 // `unknown_resource`. A hook that throws is `server_error` (`internal_error`): our failure, not an answer.
 import type { GenericEndpointContext, User } from "better-auth";
@@ -65,7 +65,7 @@ interface Allow {
 const subProfileName = "(?:(?![\\u115f\\u1160\\u3164\\uffa0\\u2800])[\\p{L}\\p{N}\\p{P}\\p{S}])+";
 const subProfile = z.string().max(256).regex(new RegExp(`^${subProfileName}(?: ${subProfileName})*$`, "u"), "space-separated names");
 
-// Step-up (draft -06 §9.3, D-043), sent to the caller as RFC 6749 §5.2 / RFC 9470 parameters, so their character
+// Step-up (draft -06 section 9.3, D-043), sent to the caller as RFC 6749 section 5.2 / RFC 9470 parameters, so their character
 // sets: error_description and error_uri exclude `"` and `\`; acr_values is space-separated NQCHAR values. The uri is
 // an absolute https URL the client shows a person (no credentials, no fragment).
 const descriptionChars = /^[\x20\x21\x23-\x5b\x5d-\x7e]+$/;
@@ -171,7 +171,7 @@ async function fromHook(hook: (input: AuthorizeInput) => unknown, r: PolicyReque
   if (!parsed.success) return refuse("policy_denied", "authorize returned a malformed verdict");
   const v = parsed.data as AuthorizeResult;
   if (v.decision === "unknown_audience") return refuse("unknown_audience", `authorize: ${v.reason ?? "unknown audience"}`);
-  // Draft -06 §4.3.3: a resource the IdP doesn't grant MUST be invalid_target.
+  // Draft -06 section 4.3.3: a resource the IdP doesn't grant MUST be invalid_target.
   if (v.decision === "unknown_resource") return refuse("unknown_resource", `authorize: ${v.reason ?? "unknown resource"}`);
   if (v.decision !== "allow") {
     if (v.stepUp) {
