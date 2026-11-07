@@ -16,7 +16,7 @@ the IdP metadata field `id_jag_signing_alg_values_supported`, and makes the rece
 claim names anything that isn't ours (`foreign_resource`, D-060). So a row stays valid until a re-run says otherwise,
 and these have been re-run on 0.6.0: Okta and xaa.dev, by hand on 2026-11-06; MCPJam, identity-provider.net, Keycloak
 and node-oauth2-server, in the Interop workflow on 2026-11-07 against main at `8150f89` (0.6.0's code; run
-42342544915), and weekly after. The PingFederate, Oracle and VS Code rows predate 0.6.0.
+42342544915), and weekly after. The PingFederate, Oracle and VS Code rows predate 0.6.0; the Claude Code row is new on 0.6.0.
 
 ## The matrix
 
@@ -33,6 +33,7 @@ and node-oauth2-server, in the Interop workflow on 2026-11-07 against main at `8
 | better-auth-scim-provisioning 1.2.0 (IdP) → `@better-auth/scim` (this repository's version) + our receiver | (SCIM-provisioned users) | **Verified** 2026-10-10 in every CI run on Node (`test/interop/scim-provisioning.test.ts`): a user the IdP provisioned resolves by SCIM (`resolvedBy: "scim"`); banned or deleted at the IdP, the receiver refuses even an ID-JAG issued before. Also on Postgres, MySQL, Drizzle and Prisma (the adapter matrix). Not on D1: `@better-auth/scim` needs native transactions. |
 | Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). **Re-run** 2026-11-06 against the published **0.6.0** ([below](#re-run-on-the-published-060-2026-11-06)): ID token and refresh token as the subject, replay refused by our receiver, Okta's scope and audience refusals unchanged. |
 | VS Code 1.141.0 (MCP client) with Okta Cross App Access | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-15, VS Code's enterprise-managed MCP authentication (preview): Okta sign-in → ID token → ID-JAG at Okta → our access token → MCP `initialize` and `tools/list` 200. **Differs:** VS Code redeems with `client_secret_post` and asks for every scope the server advertises (see below). |
+| Claude Code 2.1.319 (MCP client) with Okta Cross App Access | Our receiver (`mcp()` host on Workers) | **Refused, correctly** (live 2026-11-06, on 0.6.0): Okta sign-in → ID token → ID-JAG at Okta → redeemed at our receiver, which refused it: `invalid_scope`, audit reason `no_scope`. Claude Code asks Okta for no scope, so Okta's ID-JAG has no `scope` claim, which means no scope was granted (draft -06 §4.3.3; D-067). See below. |
 | xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). **Re-run** 2026-11-06 against the published **0.6.0**: 200 at every step, the returning user found by its link. |
 | xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). **Re-run** 2026-11-06 against the published **0.6.0**: the same, the same user. |
 | MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
@@ -259,6 +260,25 @@ What a server needs to know:
 | Shows a consent dialog ("… wants to authenticate to <IdP>") **after** the ID-JAG was minted and redeemed | A token minted and never used is normal: the dialog can be cancelled |
 | Mints again silently while the IdP session lasts (three ID-JAGs in three minutes) | Expect that volume; each was single-use and recorded |
 | Opens `GET /mcp` for server messages | A server without that stream answers 405 (MCP's Streamable HTTP). The example answered 200, so VS Code polled it every few seconds; it answers 405 now |
+
+## Claude Code with Okta → our receiver
+
+A second real MCP client, live, 2026-11-06, against the demo receiver on the published 0.6.0: Claude Code 2.1.319 with
+Cross App Access turned on (`CLAUDE_CODE_ENABLE_XAA=1`), `claude mcp xaa setup` naming Okta's issuer and the AI agent's
+Okta client, `claude mcp xaa login` for the Okta sign-in, and the server added with
+`claude mcp add --transport http --xaa --client-id <the client id our receiver issued> --client-secret`. Okta and our
+receiver were set up as in [docs/okta.md](okta.md).
+
+After the Okta sign-in in the browser, Claude Code exchanged the ID token for an ID-JAG at Okta and redeemed it at our
+receiver on its own, when it connected to the server. Our receiver refused it: `invalid_scope`, audit `id-jag.refused`, reason `no_scope`, detail
+`(none)`, so the ID-JAG carried no `scope` claim at all. Claude Code asks Okta for no scope, and Okta then mints the
+ID-JAG without one; Claude Code 2.1.319 has no command-line option to ask for scopes.
+
+Under draft -06 §4.3.3 the IdP "MUST include the granted values, if any" in `scope`, so an ID-JAG without `scope` grants
+no scope, and refusing it is right. A receiver option to grant the client's registered scopes instead was drafted and
+not adopted (D-067). With `allowEmptyScope: true` the redemption would succeed with an access token that has no scope.
+A client works with this receiver once it asks the IdP for scopes, as VS Code does (the scopes in the 401 or in
+`scopes_supported`).
 
 ## xaa.dev → our receiver
 
