@@ -1,5 +1,5 @@
 // Subject token: a SAML 2.0 Assertion **this IdP** issued (better-auth-saml-idp), as RFC 8693 §3's
-// `urn:ietf:params:oauth:token-type:saml2` (draft -06 §4.3.1 for an ID-JAG, §4.5 for a refresh
+// `urn:ietf:params:oauth:token-type:saml2` (draft -06 §4.3 for an ID-JAG, §4.5 for a refresh
 // token). D-B26, D-B27.
 //
 // We only decode. Everything about the Assertion itself (XML hardening, our signature on the

@@ -163,17 +163,18 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     const foreign = stringList(claims.resource)?.find((r) => !registered.includes(r));
     if (foreign !== undefined) refuse("foreign_resource", foreign);
 
-    // 6. Scopes, which only narrow (S7).
+    // 6. The resource (chosen first: it decides which scopes apply), then the scopes, which only narrow (S7).
     const resource = chooseResource(stringList(claims.resource), stringList(body.resource), o.defaultResource, registered);
     const requestScope = typeof body.scope === "string" ? new Set(splitScope(body.scope)) : null;
     const clientScopes = authn.client.scopes ? new Set<string>(authn.client.scopes) : null;
     const supported = new Set(resourceScopes(opts, resource));
+    // No scope claim means the IdP granted none (draft -06 §4.3.3), so nothing can survive the intersection (D-067).
     const scopes = [...new Set(splitScope(claims.scope))].filter(
       (s) => !(STRIPPED_SCOPES as readonly string[]).includes(s) && (requestScope === null || requestScope.has(s)) && (clientScopes === null || clientScopes.has(s)) && supported.has(s),
     );
     if (scopes.length === 0 && !o.allowEmptyScope) refuse("no_scope", claims.scope ?? "(none)");
 
-    // 7. Resource, from the registered set only.
+    // 7. The chosen resource must be registered.
     if (!registered.includes(resource)) refuse("unknown_resource", resource);
 
     // 8. Single use (S3). The row's expiry is computed from exp + skew by the core.

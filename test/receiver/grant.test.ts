@@ -408,6 +408,11 @@ describe("receiver: scopes only narrow (S7)", () => {
     expect(r.status, r.text).toBe(200);
     expect(r.body.scope).toBe("");
   });
+
+  it("an ID-JAG with no scope claim is refused: the IdP granted no scope (draft -06 §4.3.3; D-067)", async () => {
+    const s = await setup({ clientScope: "read write" });
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ scope: undefined })), "no_scope");
+  });
 });
 
 describe("receiver: S8, refusals the caller can't tell apart", () => {

@@ -135,7 +135,7 @@ real reason is always in the receiver's audit trail: `events.onRefused` (`e.reas
 `auditLog: { retentionDays }`.
 
 The checks run in a fixed order ([README, "Receiver"](../README.md#receiver-idjaggrant)): client, format and times,
-issuer, signature, `aud`, `client_id` and the `resource` claim, scopes, resource, single use, then the subject. So you see one problem at a
+issuer, signature, `aud`, `client_id` and the `resource` claim, the resource, scopes, single use, then the subject. So you see one problem at a
 time, and fixing it can reveal the next. An ID-JAG is spent at the single-use step, before the subject is resolved:
 after an `unknown_subject`, the agent needs a new ID-JAG.
 
@@ -148,11 +148,13 @@ after an `unknown_subject`, the agent needs a new ID-JAG.
 | `bad_signature` | The keys come from somewhere else than the org's, for example a half-updated entry with the org issuer but `/oauth2/default/v1/keys` (Okta's `kid` isn't there) | The org's `/oauth2/v1/keys` |
 | `wrong_audience` | The resource app's Issuer URL isn't your issuer exactly (a trailing slash, no `/api/auth`, the MCP URL) | Copy `issuer` from your `/.well-known/oauth-authorization-server/api/auth` |
 | `client_mismatch` | The connection's client id isn't the client authenticating at your server (for example the issuer URL filled in), or that client isn't in the trust entry's `allowedClientIds` | Re-create the connection with the agent's client id at your server; check `allowedClientIds` |
-| `no_scope` | No scope is in all of: the ID-JAG (the connection's scopes), the request, the client's registered scopes and your resource's | Align the connection's scopes with your client's and your resource's |
-| `unknown_resource` | The connection's resource indicator isn't a resource your server registered | Use your MCP resource URL exactly |
+| `no_scope` | No scope is in all of: the ID-JAG (the connection's scopes), the request, the client's registered scopes and your resource's. Or the ID-JAG has no `scope` at all: Okta omits it when the client asked for none (Claude Code does), and no scope in the ID-JAG means none was granted (draft -06 §4.3.3) | Align the connection's scopes with your client's and your resource's. A client that asks for no scope can't be served; it has to ask the IdP for scopes |
+| `foreign_resource` | The connection's resource indicator isn't a resource your server registered (`invalid_grant`) | Use your MCP resource URL exactly |
+| `unknown_resource` | The agent's request names a resource the ID-JAG doesn't carry, or none can be chosen (`invalid_target`) | Request the resource from the connection, or set `defaultResource` |
 | `replay` | The agent presented the same ID-JAG twice | Get a new ID-JAG for each access token |
 | `unknown_subject` | No step in "Finding the user" found or created the user: no link, no `emailFallback` domain, no JIT, SCIM required with no provisioned user, or JIT found the email taken | Section 2, "Finding the user" |
 | `subject_rejected` | Your `resolveSubject` rejected it, for example an MFA rule and an ID-JAG without `amr`/`acr` | Check what your rule requires against what Okta sends |
+| `subject_unavailable` | Resolving the user failed in a way a retry may fix: two first uses at once, a database error, or your `resolveSubject` threw | Retry with a new ID-JAG; check your server's log |
 | `unsupported_claim` | The ID-JAG carries `authorization_details` or `cnf` | Not supported yet. (`act` is supported: Okta always sends it for an AI agent.) |
 
 Okta's own refusals happen at the token exchange, before your server sees anything: `invalid_target`,

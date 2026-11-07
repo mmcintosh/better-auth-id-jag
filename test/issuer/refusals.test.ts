@@ -43,6 +43,14 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     await refused(host, await exchange(host, client, idToken, { actor_token_type: ID_TOKEN_TOKEN_TYPE }), "actor_token_unsupported", "invalid_request");
   });
 
+  it("a DPoP proof: dpop_unsupported, never an unbound ID-JAG (draft -06 §9.11.1.1; D-066)", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { client, idToken } = await setup(host);
+    await refused(host, await exchange(host, client, idToken, {}, { headers: { DPoP: "any-proof" } }), "dpop_unsupported", "invalid_request");
+    // Without the header the same request is served.
+    expect((await exchange(host, client, idToken)).status).toBe(200);
+  });
+
   it("authorization_details: refused, never ignored (draft -06 §4.3.3: the IdP MUST process it)", async () => {
     // Ignoring it would issue the policy's scopes to a client that asked for something narrower.
     const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read", "write"] }) } });
