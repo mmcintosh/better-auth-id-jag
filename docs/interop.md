@@ -10,9 +10,13 @@ This page lists which other ID-JAG implementations our issuer (`idJagIssuer()`) 
 Nothing here is claimed from reading docs alone. Where a row says "verified", the test is in
 `test/interop/`, and the commands to run it are below.
 
-The dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim, URN or
-metadata name, only some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant`
-was), so a row stays valid until a re-run says otherwise.
+Most dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim or URN.
+It changes some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant` was), adds
+the IdP metadata field `id_jag_signing_alg_values_supported`, and makes the receiver refuse an ID-JAG whose `resource`
+claim names anything that isn't ours (`foreign_resource`, D-060). So a row stays valid until a re-run says otherwise,
+and these have been re-run on 0.6.0: Okta and xaa.dev, by hand on 2026-11-06; MCPJam, identity-provider.net, Keycloak
+and node-oauth2-server, in the Interop workflow on 2026-11-07 against main at `8150f89` (0.6.0's code; run
+42342544915), and weekly after. The PingFederate, Oracle and VS Code rows predate 0.6.0.
 
 ## The matrix
 
@@ -27,10 +31,10 @@ was), so a row stays valid until a re-run says otherwise.
 | Our receiver | Keycloak issuer | **Not possible**, because Keycloak doesn't issue ID-JAGs. Its guide lists the issuer side as "Not Yet Implemented". |
 | SAML IdP: better-auth-saml-idp (assertion exchange) → our issuer → our receiver | (both SAML paths) | **Verified** 2026-10-06 against **better-auth-saml-idp 1.2.0 from npm** (and before that its `feat/assertion-exchange` at `2d54cb4`), with this repository's main: every check passes (`test/interop/saml-idp-e2e`). |
 | better-auth-scim-provisioning 1.2.0 (IdP) → `@better-auth/scim` (this repository's version) + our receiver | (SCIM-provisioned users) | **Verified** 2026-10-10 in every CI run on Node (`test/interop/scim-provisioning.test.ts`): a user the IdP provisioned resolves by SCIM (`resolvedBy: "scim"`); banned or deleted at the IdP, the receiver refuses even an ID-JAG issued before. Also on Postgres, MySQL, Drizzle and Prisma (the adapter matrix). Not on D1: `@better-auth/scim` needs native transactions. |
-| Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). |
+| Okta Cross App Access (issuer) | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06, an Okta Integrator Free Plan org (Okta 2026.09.1), our receiver deployed on Cloudflare Workers with D1. RS256 ID-JAG accepted; Okta's `act` claim (the AI agent) carried into the access token. **Found:** our receiver refused `act` until D-010 (see below). A second session the same day ran the lifecycle checks: a returning user, the refresh-token subject, replay, scope and audience refusals, the connection disabled, the user unassigned and deactivated (D-023, below). **Re-run** 2026-11-06 against the published **0.6.0** ([below](#re-run-on-the-published-060-2026-11-06)): ID token and refresh token as the subject, replay refused by our receiver, Okta's scope and audience refusals unchanged. |
 | VS Code 1.141.0 (MCP client) with Okta Cross App Access | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-15, VS Code's enterprise-managed MCP authentication (preview): Okta sign-in → ID token → ID-JAG at Okta → our access token → MCP `initialize` and `tools/list` 200. **Differs:** VS Code redeems with `client_secret_post` and asks for every scope the server advertises (see below). |
-| xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). |
-| xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). |
+| xaa.dev playground IdP (Okta's), OIDC | Our receiver (`mcp()` host on Workers) | **Verified live** 2026-10-06 with xaa.dev's resource-app tester, "Use My Own Auth Server": ID token → ID-JAG at xaa.dev → our access token → MCP `tools/call` 200. **Differs:** the tester calls our token endpoint and MCP server from the browser (CORS) and authenticates with `client_secret_post` (see below). **Re-run** 2026-11-06 against the published **0.6.0**: 200 at every step, the returning user found by its link. |
+| xaa.dev playground IdP, SAML | Our receiver | **Verified live** 2026-10-06: SAML SSO → assertion → refresh token → ID-JAG with a SAML `sub_id` → our access token, the user resolved by NameID through `samlSubjects` → MCP `tools/call` 200 (see below). **Re-run** 2026-11-06 against the published **0.6.0**: the same, the same user. |
 | MCPJam's Cross App Access debugger (`@mcpjam/sdk` 9.3.0), OIDC and SAML | Our receiver (`mcp()` host over HTTP) | **Verified** 2026-10-14, weekly in the Interop workflow: MCPJam's ID-JAG → our access token → MCP `initialize`, and each of MCPJam's ten attacks refused with the matching reason, for an ID token and for a SAML `sub_id` (see below). |
 | identity-provider.net ("ZipIdP", a stub IdP on xaa.rocks) | Our receiver | **Verified live** 2026-10-14, weekly in the Interop workflow: ID token and refresh token → ZipIdP's ID-JAG (RS256) → our access token; replay, another client id and an ML-DSA-signed ID-JAG refused (see below). |
 | PingFederate 13.1.3 (issuer) | Our receiver | **Verified live** 2026-10-14, PingFederate in Docker (`pingidentity/pingfederate:13.1.3-latest`, a DevOps evaluation license), refresh-token subject: ID-JAG → our access token; replay refused. **Differs:** Ping names its signing key by `x5t` only, never `kid` (accepted since D-042); `client_id` and a 5-minute lifetime need two settings on the connection (see below). |
@@ -208,6 +212,22 @@ an access token already issued lives until it expires.
 
 Setting it up in Okta, step by step, with the values for your own server: [docs/okta.md](okta.md).
 
+### Re-run on the published 0.6.0 (2026-11-06)
+
+The same org, agent and connection, against the example MCP server built from the 0.6.0 release commit (`a76ece9`, the code
+published to npm as 0.6.0; deployed 2026-11-05 UTC), with `okta-agent.mjs --subject=id --negative` and then `--subject=refresh` (#23):
+
+| Check | Result |
+|---|---|
+| ID token as the subject | Okta's ID-JAG (RS256, `typ` `oauth-id-jag+jwt`, `act` `{ sub: <agent>, sub_profile: "ai_agent web_app" }`) → our access token, `act` carried → MCP `tools/call` 200; the returning user, by its link |
+| Refresh token as the subject | The same, the same user |
+| The same ID-JAG twice | **Our receiver** refused: `invalid_grant`; audit reason `replay` |
+| `scope=read admin` | **Okta** refused: `invalid_scope` |
+| An audience with no connection | **Okta** refused: `invalid_target` |
+
+The lifecycle checks (connection disabled, user unassigned or deactivated) weren't repeated: they are Okta's
+refusals, before our receiver is reached.
+
 ## VS Code with Okta → our receiver
 
 A real MCP client, live, 2026-10-15: VS Code 1.141.0 (Linux), its
@@ -245,7 +265,8 @@ What a server needs to know:
 [xaa.dev](https://xaa.dev) is Okta's Cross App Access playground. Its **resource-app tester** (Resource App →
 Register it with xaa.dev's IdP → **Use My Own Auth Server**) has the playground IdP (`https://idp.xaa.dev`, RS256,
 JWKS at `/jwks`) issue ID-JAGs to our receiver, redeems them at our token endpoint, and calls our MCP server.
-Live, 2026-10-06, against `examples/workers/mcp-server` with `XAA_ISSUER` and `CORS_ORIGINS` set:
+Live, 2026-10-06, against `examples/workers/mcp-server` with `XAA_ISSUER` and `CORS_ORIGINS` set, and again on
+2026-11-06 against the published 0.6.0 (both variants, 200 at every step, the same user both times):
 
 | Variant | Flow | Result |
 |---|---|---|
@@ -340,7 +361,7 @@ All 5 passed:
 - **Every assertion failure gives the same `invalid_grant` text**, as ours does (S8).
 - **`aud` must equal `tokenEndpointUri` exactly.** The option's name notwithstanding, its comment says that value is
   the issuer identifier.
-- **The PR targets draft -03.** Its claim checks are the ones -04 requires.
+- **The PR targets draft -03.** Its claim checks are the ones -06 still requires.
 
 ## MCPJam → our receiver
 
