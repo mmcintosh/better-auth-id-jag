@@ -43,7 +43,7 @@ describe("refusals: the request (public reasons, specific descriptions)", () => 
     await refused(host, await exchange(host, client, idToken, { actor_token_type: ID_TOKEN_TOKEN_TYPE }), "actor_token_unsupported", "invalid_request");
   });
 
-  it("a DPoP proof: dpop_unsupported, never an unbound ID-JAG (draft -06 §9.11.1.1; D-066)", async () => {
+  it("a DPoP proof: dpop_unsupported, never an unbound ID-JAG (draft -06 section 9.11.1.1; D-066)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow } });
     const { client, idToken } = await setup(host);
     await refused(host, await exchange(host, client, idToken, {}, { headers: { DPoP: "any-proof" } }), "dpop_unsupported", "invalid_request");

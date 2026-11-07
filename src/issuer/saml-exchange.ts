@@ -1,5 +1,5 @@
 // The capability better-auth-saml-idp (>= 1.2.0) publishes on Better Auth's context so this issuer
-// can exchange the SAML assertions it issued (draft -06 §4.3, §4.5; D-016). Mirrored here, not
+// can exchange the SAML assertions it issued (draft -06 section 4.3, section 4.5; D-016). Mirrored here, not
 // imported: better-auth-saml-idp is an optional peer, with no runtime import (Workers bundles, and
 // no second copy of that module), so the capability is found by duck typing.
 //

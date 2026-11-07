@@ -168,7 +168,7 @@ export async function handleIdJagGrant(input: OAuthExtensionGrantHandlerInput, o
     const requestScope = typeof body.scope === "string" ? new Set(splitScope(body.scope)) : null;
     const clientScopes = authn.client.scopes ? new Set<string>(authn.client.scopes) : null;
     const supported = new Set(resourceScopes(opts, resource));
-    // No scope claim means the IdP granted none (draft -06 §4.3.3), so nothing can survive the intersection (D-067).
+    // No scope claim means the IdP granted none (draft -06 section 4.3.3), so nothing can survive the intersection (D-067).
     const scopes = [...new Set(splitScope(claims.scope))].filter(
       (s) => !(STRIPPED_SCOPES as readonly string[]).includes(s) && (requestScope === null || requestScope.has(s)) && (clientScopes === null || clientScopes.has(s)) && supported.has(s),
     );

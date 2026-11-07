@@ -5,7 +5,7 @@
 ### Security
 
 - **The issuer refuses an ID-JAG request that carries a DPoP proof** (D-066): `invalid_request`, "DPoP-bound ID-JAGs
-  are not supported.". Draft -06 §9.11.1.1 says the IdP MUST validate the proof and bind the ID-JAG to it; the issuer
+  are not supported.". Draft -06 section 9.11.1.1 says the IdP MUST validate the proof and bind the ID-JAG to it; the issuer
   doesn't mint bound ID-JAGs, and it used to ignore the header and return an unbound one. A patch release, as
   docs/versioning.md allows for a security fix the draft requires. A SAML assertion exchanged for a refresh token is
   unchanged: oauth-provider checks a DPoP proof there itself.

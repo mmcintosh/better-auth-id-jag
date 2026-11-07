@@ -198,7 +198,7 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       if (subjectTokenType !== SAML2_TOKEN_TYPE) refuse("unsupported_subject_token_type", `${subjectTokenType} for a refresh token`);
       return await issueRefreshTokenForAssertion(input, state, { client, form, subjectToken, seen });
     }
-    // Draft -06 §9.11.1.1 (D-066): an ID-JAG requested with a DPoP proof must be bound to its key. We can't, so we
+    // Draft -06 section 9.11.1.1 (D-066): an ID-JAG requested with a DPoP proof must be bound to its key. We can't, so we
     // refuse rather than return an unbound one the client may take for bound. (The refresh-token path above goes
     // through the provider's issueTokens, which validates a DPoP proof itself.)
     if ((ctx.headers?.get("dpop") ?? ctx.request?.headers.get("dpop") ?? null) !== null) refuse("dpop_unsupported");
