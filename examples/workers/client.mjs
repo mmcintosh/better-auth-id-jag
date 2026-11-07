@@ -172,6 +172,8 @@ const failures = [
   hasWrite && (write.status !== 200 || write.body.result?.isError === true) && `add_note → ${write.status}${write.body.result?.isError ? " (tool error)" : ""}, expected 200`,
   hasWrite && (del.status !== 200 || (del.body.result?.isError === true) !== (which === "agent")) &&
     `delete_note → ${del.status}${del.body.result?.isError ? " (tool error)" : ""}, expected ${which === "agent" ? "a tool error (an agent needs approval)" : "200"}`,
+  hasWrite && which === "agent" && del.body.result?.structuredContent?.status !== "approval_required" &&
+    `delete_note's refusal: status ${JSON.stringify(del.body.result?.structuredContent?.status)}, expected "approval_required"`,
   replay.status !== 400 && `the same ID-JAG again → ${replay.status}, expected 400`,
 ].filter(Boolean);
 if (failures.length) {

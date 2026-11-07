@@ -413,6 +413,15 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 | Different rights for different users | The IdP's policies (per group); your app's roles | JIT can add new users to an organization with a role (`organizationId`, `jitRole`) |
 | Which records | **Your app** | Rich Authorization Requests (`authorization_details`) are refused for now |
 | Who is acting | The ID-JAG's `act` claim names the agent (Okta sends it) | Carried into the access token: log it, or allow agents less than people |
+| Calls that need a person's approval | **Your MCP server**, or a gateway in front of it | This package never sees tool calls. What it offers is approval at issuance: your `authorize` policy can require a step-up before granting a scope, and `scopeExpirations` keeps that scope short-lived |
+
+**How to refuse a tool call.** Answer HTTP 403 with `insufficient_scope` only when the token lacks the scope the tool
+needs: that tells the client to get a token with it. For any other refusal (an agent that needs a person's approval, a
+policy that says no) return an MCP tool result with `isError: true`, a sentence for the person, and
+`structuredContent: { status, retryable }`, with a status such as `approval_required` or `policy_denied`. A 403 that names
+a scope the token already has made VS Code and Claude Code sign in again for it and fetch more ID-JAGs
+([docs/interop.md](docs/interop.md)), and Okta counts every ID-JAG against a limit of 250 per user, per resource app,
+per month ([Okta](https://help.okta.com/oie/en-us/Content/Topics/apps/apps-config-xaa-connection.htm)).
 
 **How fast a cutoff takes effect.** When the IdP stops an agent (a connection removed, a user unassigned or deactivated), it stops issuing ID-JAGs at once. An ID-JAG already issued lives at most its lifetime (300 s by default, 900 s at most) and works once. But an **access token already issued lives until it expires**: the provider's `accessTokenExpiresIn`, **an hour by default**. No refresh token is issued, so the agent then needs a new ID-JAG. For agents, set a short `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, and `scopeExpirations` (for example `{ write: "5m" }`) for the sensitive scopes.
 
