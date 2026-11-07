@@ -1442,3 +1442,22 @@ The maintainer's decision (2026-11-04, for 0.6.0).
   end-to-end project on 1.7.16, 19 passed. CI's latest-1.7 row ran 1.7.16 on 2026-11-04 (#88): 1001 passed.
 - **Also needed:** the ruleset's required checks `test (1.7.10, 22)` and `test (1.7.10, 24)` are renamed to
   `test (1.7.16, 22)` and `test (1.7.16, 24)`. The demo Workers run 1.7.16 from their next deploy.
+
+## D-065: development pin 1.7.18, the floor stays 1.7.16; the SAML end-to-end project against 1.8.0 too (2026-11-06)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.16 → 1.7.18 (published 2026-11-05), and
+  the SAML end-to-end project with them. `better-call` 1.4.5 and `@better-auth/utils` 0.5.1 are unchanged. The peer
+  range and CI's floor rows stay on 1.7.16: no advisory covers 1.7.16 or 1.7.17 (D-064).
+- **1.7.17 and 1.7.18's changes we checked:** session revocation with `secondaryStorage` and `storeSessionInDatabase`
+  (#12212, #12259), `rememberMe` refresh (#12181), device authorization with a cached revoked session (#12216),
+  trusted-origin wildcards (#12217), phone number, TOTP and two-factor fixes, `better-auth/test` helpers (#12244,
+  #12250), and `verifyAccessToken` with `remoteVerify` and `typ` (#12249). This package uses none of those paths: it
+  doesn't call `verifyAccessToken` and registers no session hooks.
+- **better-auth-saml-idp 1.8.0** (2026-11-06, floor Better Auth 1.7.16) passes the SAML end-to-end project: 19
+  passed, the same as 1.2.0. The project keeps 1.2.0, the lowest version our optional peer `>=1.2.0 <2` allows.
+- **Evidence:** typecheck, lint, `docs:check`, `pack:check`; the suite 1005 passed, 127 skipped; one `better-auth`
+  and one `@better-auth/core` in the lockfile; the SAML end-to-end project on 1.7.18, 19 passed with
+  better-auth-saml-idp 1.2.0 and with 1.8.0.
+
