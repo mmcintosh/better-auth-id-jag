@@ -7,6 +7,10 @@
 - **The live Okta Cross App Access and xaa.dev checks re-run against the published 0.6.0** (#23):
   `docs/interop.md`. Okta: ID token and refresh token as the subject, replay refused, Okta's own refusals unchanged;
   xaa.dev: OIDC and SAML, 200 at every step.
+- **Real MCP clients in `docs/interop.md`:** Claude Code 2.1.319 with Okta (refused, correctly: it asks for no scope,
+  so Okta's ID-JAG has none) and with the example IdP (verified with tool calls); VS Code 1.145.0 with Okta re-run with
+  tool calls. What a server needs to know about each, including that a refusal for any reason other than a missing scope
+  belongs in an MCP tool error, not a 403 `insufficient_scope`, which made both clients sign in again.
 
 ## [0.6.0] - 2026-11-04
 
