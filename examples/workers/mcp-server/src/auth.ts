@@ -23,8 +23,6 @@ export interface Env {
   OKTA_JWKS_URI?: string;
   /** Optional: browser origins allowed to call the token endpoint and /mcp (comma-separated), e.g. xaa.dev's testers. */
   CORS_ORIGINS?: string;
-  /** Optional: "true" lets a token with `act` (an AI agent acting for a user) use write tools. Default: agents only read. */
-  AGENTS_MAY_WRITE?: string;
 }
 
 export function createAuth(env: Env, origin: string) {
