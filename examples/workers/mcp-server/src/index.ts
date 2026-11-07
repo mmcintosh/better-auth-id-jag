@@ -102,7 +102,11 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
       const tool = TOOLS.find((t) => t.name === rpc.params?.name);
       if (!tool) return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32602, message: "unknown tool" } });
       if (!scopes.includes(tool.scope)) return forbid(tool.scope, `${tool.name} needs the ${tool.scope} scope; this token has: ${scopes.join(" ") || "none"}`);
-      if (tool.scope === "write" && claims.act !== undefined && env.AGENTS_MAY_WRITE !== "true") return forbid(tool.scope, `${tool.name}: an agent (act) may only read here`);
+      // The token has the scope, but this server lets an AI agent (a token with act) only read. That is a decision about
+      // the caller, not a missing scope: answered as a tool error the model reads, not a 403 insufficient_scope, which
+      // tells a client to sign in again for a scope it already has (Claude Code did, docs/interop.md).
+      if (tool.scope === "write" && claims.act !== undefined && env.AGENTS_MAY_WRITE !== "true")
+        return reply({ content: [{ type: "text", text: `${tool.name} refused: on this server an AI agent may only read. The token has the ${tool.scope} scope, so signing in again won't change this; a person or an app can do it.` }], isError: true });
       if (tool.name === "whoami") return reply(text({ tool: "whoami", sub: claims.sub, scope: claims.scope, act: claims.act ?? null, aud: claims.aud, idjag: claims.idjag, exp: claims.exp }));
       if (tool.name === "list_notes") return reply(text({ tool: "list_notes", notes: ["(the demo keeps no notes)"] }));
       return reply(text({ tool: "add_note", accepted: true, text: String(rpc.params?.arguments?.text ?? "").slice(0, 200), note: "the demo doesn't store it" }));

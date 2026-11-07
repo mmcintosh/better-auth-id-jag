@@ -152,12 +152,12 @@ The demo shows the layers ID-JAG leaves to you (README, "What ID-JAG controls"):
 |---|---|---|
 | Who may have which scope | The IdP's policy | `read` for everyone; `write` only for the emails in the IdP's `WRITERS` (here `agent-user@example.com`). `reader-user@example.com`'s agent asks for `read write` and gets `read` |
 | Which tool a scope unlocks | The MCP server | `whoami` and `list_notes` need `read`; `add_note` needs `write`. Without it: **403** with `WWW-Authenticate: … error="insufficient_scope", scope="write"` |
-| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server (set it for `client.mjs` too, so its check expects the write) |
+| What an agent may do compared with an app | The IdP names it, the MCP server decides | The IdP puts `act` in an AI agent's ID-JAGs (Okta does too), not in an app's. A token with `act` may only read, unless `AGENTS_MAY_WRITE=true` on the MCP server (set it for `client.mjs` too, so its check expects the write). The refusal is an MCP **tool error** (200, `isError`), not a 403: the token has the scope, so a client mustn't be told to sign in again for it |
 | How long access outlives a cutoff | The MCP server's token lifetimes | `accessTokenExpiresIn: 300`, `scopeExpirations: { write: "2m" }` |
 
 ```sh
 node examples/workers/client.mjs <idp> <mcp> --client=app                 # app for agent-user: read write, add_note 200, token 120 s
-node examples/workers/client.mjs <idp> <mcp>                              # AI agent for agent-user: read write, but add_note 403 (agents only read)
+node examples/workers/client.mjs <idp> <mcp>                              # AI agent for agent-user: read write, but add_note a tool error (agents only read)
 node examples/workers/client.mjs <idp> <mcp> --as=reader                  # AI agent for reader-user: read only, add_note 403 insufficient_scope
 node examples/workers/client.mjs <idp> <mcp> --client=app --as=reader     # app for reader-user: the same
 node examples/workers/client.mjs <idp> <mcp> --as=reader --cutoff         # polls until the token stops working
