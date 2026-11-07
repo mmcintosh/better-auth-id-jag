@@ -159,15 +159,16 @@ if (cutoff) {
     await new Promise((resolve) => setTimeout(resolve, 10_000));
   }
 }
-// Expected: whoami and list_notes 200; act for the agent only; add_note 200 only with write and not as an
-// agent, else 403; the replay refused.
+// Expected: whoami and list_notes 200; act for the agent only; add_note: without write 403 (insufficient_scope),
+// an agent with write a tool error (200, isError), else 200; the replay refused.
 const failures = [
   call.status !== 200 && `whoami → ${call.status}, expected 200`,
   notes.status !== 200 && `list_notes → ${notes.status}, expected 200`,
   hasAct !== (which === "agent") &&
     (which === "agent" ? "the access token has no act: the IdP didn't name the agent (is the IdP updated, and was --setup re-run?)" : "the access token has act, but this run is the app"),
-  write.status !== (mayWrite ? 200 : 403) &&
-    `add_note → ${write.status}, expected ${mayWrite ? 200 : 403}${which === "agent" && hasWrite ? " (an agent may write only with AGENTS_MAY_WRITE=true on the MCP server and in this script's environment)" : ""}`,
+  !hasWrite && write.status !== 403 && `add_note without write → ${write.status}, expected 403 insufficient_scope`,
+  hasWrite && (write.status !== 200 || (write.body.result?.isError === true) === mayWrite) &&
+    `add_note → ${write.status}${write.body.result?.isError ? " (tool error)" : ""}, expected ${mayWrite ? "200" : "200 with a tool error"}${which === "agent" ? " (an agent may write only with AGENTS_MAY_WRITE=true on the MCP server and in this script's environment)" : ""}`,
   replay.status !== 400 && `the same ID-JAG again → ${replay.status}, expected 400`,
 ].filter(Boolean);
 if (failures.length) {
