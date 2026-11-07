@@ -29,6 +29,8 @@ const cutoff = process.argv.includes("--cutoff");
 const b64url = (bytes) => Buffer.from(bytes).toString("base64url");
 const decode = (jwt) => jwt.split(".").slice(0, 2).map((p) => JSON.parse(Buffer.from(p, "base64url").toString()));
 const basic = (c) => `Basic ${btoa(`${encodeURIComponent(c.client_id)}:${encodeURIComponent(c.client_secret)}`)}`;
+// The IdP's clients use client_secret_post (enterprise-idp/src/index.ts says why); the MCP server's use Basic.
+const secretPost = (c) => ({ client_id: c.client_id, client_secret: c.client_secret });
 const step = (n, what, value) => console.log(`\n${n}. ${what}\n${typeof value === "string" ? value : JSON.stringify(value, null, 2)}`);
 
 async function post(url, body, headers = {}) {
@@ -86,7 +88,7 @@ const authzBody = await authz.text();
 const location = authz.headers.get("location") ?? (() => { try { return JSON.parse(authzBody).url; } catch { return ""; } })() ?? "";
 const code = new URL(location, idp).searchParams.get("code");
 if (!code) throw new Error(`authorize: ${authz.status} ${location} ${authzBody}`);
-const tokens = await post(`${idp}/api/auth/oauth2/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier }, { authorization: basic(atIdp) });
+const tokens = await post(`${idp}/api/auth/oauth2/token`, { grant_type: "authorization_code", code, redirect_uri: redirect, code_verifier: verifier, ...secretPost(atIdp) });
 if (!tokens.json.id_token) throw new Error(`token: ${tokens.status} ${JSON.stringify(tokens.json)}`);
 step(2, "Signed in at the IdP: ID token (payload)", decode(tokens.json.id_token)[1]);
 
@@ -101,8 +103,8 @@ const exchanged = await post(
     scope,
     subject_token: tokens.json.id_token,
     subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+    ...secretPost(atIdp),
   },
-  { authorization: basic(atIdp) },
 );
 if (exchanged.status !== 200) throw new Error(`exchange: ${exchanged.status} ${JSON.stringify(exchanged.json)}`);
 const [jagHeader, jagClaims] = decode(exchanged.json.access_token);
