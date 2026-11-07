@@ -273,10 +273,11 @@ export function barrier(n: number, timeoutMs = 5000) {
   };
 }
 
-export function tokenRequest(form: Record<string, string>, basic?: { id: string; secret: string }) {
+export function tokenRequest(form: Record<string, string>, basic?: { id: string; secret: string }, headers: Record<string, string> = {}) {
   return new Request(`${ISSUER}/oauth2/token`, {
     method: "POST",
     headers: {
+      ...headers,
       "content-type": "application/x-www-form-urlencoded",
       ...(basic ? { authorization: `Basic ${btoa(`${encodeURIComponent(basic.id)}:${encodeURIComponent(basic.secret)}`)}` } : {}),
     },
@@ -285,9 +286,9 @@ export function tokenRequest(form: Record<string, string>, basic?: { id: string;
 }
 
 /** POST the jwt-bearer grant with an assertion, as a client. */
-export async function redeem(h: ReceiverHost, client: Client | null, assertion: string | undefined, extra: Record<string, string> = {}) {
+export async function redeem(h: ReceiverHost, client: Client | null, assertion: string | undefined, extra: Record<string, string> = {}, headers: Record<string, string> = {}) {
   const form: Record<string, string> = { grant_type: JWT_BEARER_GRANT, ...(assertion === undefined ? {} : { assertion }), ...extra };
-  const res = await h.auth.handler(tokenRequest(form, client ? { id: client.client_id, secret: client.client_secret } : undefined));
+  const res = await h.auth.handler(tokenRequest(form, client ? { id: client.client_id, secret: client.client_secret } : undefined, headers));
   const text = await res.text();
   let body: Record<string, unknown> = {};
   try {

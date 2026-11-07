@@ -5,10 +5,15 @@
 ### Security
 
 - **The issuer refuses an ID-JAG request that carries a DPoP proof** (D-066): `invalid_request`, "DPoP-bound ID-JAGs
-  are not supported.". Draft -06 section 9.11.1.1 says the IdP MUST validate the proof and bind the ID-JAG to it; the issuer
+  are not supported.", audit reason `dpop_unsupported`. Draft -06 section 9.11.1.1 says the IdP MUST validate the proof and bind the ID-JAG to it; the issuer
   doesn't mint bound ID-JAGs, and it used to ignore the header and return an unbound one. A patch release, as
   docs/versioning.md allows for a security fix the draft requires. A SAML assertion exchanged for a refresh token is
-  unchanged: oauth-provider checks a DPoP proof there itself.
+  unchanged: oauth-provider checks a DPoP proof there itself. The new reason widens the exported `ReasonCode` type: a
+  TypeScript `switch` over every reason that ends in `never` needs a `dpop_unsupported` case. New reasons normally wait
+  for a minor release (docs/versioning.md); this one ships in a patch under the exception for security fixes the draft
+  requires.
+- **The receiver's handling of a DPoP proof is now pinned by a test** (oauth-provider's, after the single-use and
+  subject steps): an invalid proof is `invalid_dpop_proof` and spends the ID-JAG; a valid one binds the access token.
 
 ### Documentation
 

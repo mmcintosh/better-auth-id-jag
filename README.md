@@ -251,8 +251,8 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 3. that the issuer is trusted, looked up from the unverified `iss` before any key is fetched;
 4. that it isn't self-issued, then the signature against the issuer's JWKS, then `aud`, exactly;
 5. that `client_id` is the authenticated client, and that every resource in the ID-JAG's `resource` claim is one of ours (else `invalid_grant`: the ID-JAG wasn't issued for us, draft -06 §4.4.1);
-6. the resource the token is for: the one the request names (it must be in the claim), else the claim's only one, else `defaultResource` or the only registered resource (`invalid_target` otherwise);
-7. the scopes, which only narrow, decided before the subject so `no_scope` can't reveal whether a user exists;
+6. the resource the token is for: the one the request names (one at most, and it must be in the claim), else the claim's only one, else `defaultResource` or the only registered resource (`invalid_target` otherwise);
+7. the scopes, which only narrow, decided before the subject so `no_scope` can't reveal whether a user exists; then the chosen resource must be one you registered (`invalid_target`), so a request for an unregistered resource can see `no_scope` first;
 8. single use of `jti`;
 9. the subject.
 
@@ -394,7 +394,7 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 
 ## Errors
 
-Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`, `insufficient_user_authentication` for a step-up, and `server_error` with HTTP 500), with the codes draft -06 profiles, so the client knows what to do next:
+Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`, and `server_error` with HTTP 500), plus RFC 9470's `insufficient_user_authentication` for a step-up, with the codes draft -06 profiles, so the client knows what to do next:
 
 - **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience`, an `authorization_details` parameter, or a DPoP proof (the issuer doesn't mint DPoP-bound ID-JAGs), is `invalid_request`. An audience with no resource server, or a resource it doesn't govern, is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user, including behind a SAML Assertion) is `access_denied`: a new token won't help. Your `authorize` hook throwing, or the SAML verifier failing, is HTTP 500 `server_error`: try again later.
 - **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. So is a SAML `sub_id` the trust entry can't use (draft -06 §3.2.2), and a client outside a trust entry's `allowedClientIds` (deliberately: `access_denied` there would tell the caller the issuer is trusted). A valid ID-JAG whose subject isn't allowed here (unknown, rejected by your `resolveSubject`, banned) is `access_denied`. A failure on our side (a concurrent first use, a database error, your `resolveSubject` throwing, a JIT organization membership that can't be added) stays `invalid_grant`, since a retry may help.
@@ -416,7 +416,7 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 
 **How fast a cutoff takes effect.** When the IdP stops an agent (a connection removed, a user unassigned or deactivated), it stops issuing ID-JAGs at once. An ID-JAG already issued lives at most its lifetime (300 s by default, 900 s at most) and works once. But an **access token already issued lives until it expires**: the provider's `accessTokenExpiresIn`, **an hour by default**. No refresh token is issued, so the agent then needs a new ID-JAG. For agents, set a short `accessTokenExpiresIn` on `mcp()` or `oauthProvider()`, and `scopeExpirations` (for example `{ write: "5m" }`) for the sensitive scopes.
 
-[The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents read-only (any token with `act`: Okta's agents there, and the example IdP's own agent), and tokens of 2 and 5 minutes, measured.
+[The example's "Layered permissions"](examples/workers/README.md#layered-permissions) does all of this on the deployed demo: write for some users only, a scope per tool with `insufficient_scope`, agents (any token with `act`: Okta's agents there, and the example IdP's own agent) allowed some writes and needing a person's approval for others, and tokens of 2 and 5 minutes, measured.
 
 ## Conformance
 
@@ -466,7 +466,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | ✅ | §4.4.3 Error codes | A failed check (trust, signature, `aud`, `client_id`, replay, a foreign resource): one generic `invalid_grant`. A valid ID-JAG whose subject isn't allowed here: `access_denied`. A resource the request picks outside the claim: `invalid_target`. |
 | ⚠️ | Section 3.1 `aud_tenant`, `aud_sub` | Ignored. Safe for a single-tenant resource authorization server; a host serving several tenants behind one issuer identifier doesn't scope subject resolution by `aud_tenant` (section 4.4.1). |
 | ❌ | §4.4.1 `authorization_details` (RFC 9396) | Refused (`unsupported_claim`): the draft says a receiver MUST process it. |
-| ❌ | Section 9.11 DPoP and mTLS (`cnf`), `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`, `invalid_grant`), as section 9.11 requires for a confirmation method the server doesn't support. A DPoP proof on the request itself is checked by oauth-provider when the access token is issued, after the single-use step: an invalid proof is `invalid_dpop_proof` and spends the ID-JAG; a valid one binds the access token. |
+| ❌ | Section 9.11 DPoP and mTLS (`cnf`), `jwt-dpop` grant | An ID-JAG with `cnf` is refused (`unsupported_claim`, `invalid_grant`), as section 9.11 requires for a confirmation method the server doesn't support. A DPoP proof on the request itself is checked by oauth-provider when the access token is issued, after the single-use and subject steps (so just-in-time provisioning may already have created the user): an invalid proof is `invalid_dpop_proof` and spends the ID-JAG; a valid one binds the access token (`cnf.jkt`). A test pins both. |
 | ✅ | §9.4 Not self-issued | An ID-JAG whose `iss` is this server is refused. |
 | ⚠️ | §4.4 Client authentication (MUST, absent a sender-constrained ID-JAG) | Required by default; a CIMD client counts only with `private_key_jwt`. `allowPublicClients` turns it off, which is outside the draft; a startup warning says so. |
 | ✅ | §3 RS256 (MUST), ES256 (SHOULD) | Both accepted, and EdDSA. |
@@ -497,7 +497,7 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 ## Example: two Workers
 
-[examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with three tools (`whoami`, `list_notes`, `add_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server keeps agents read-only, so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
+[examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with four tools (`whoami`, `list_notes`, `add_note`, `delete_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server lets an agent add a note but not delete one without a person's approval (refused as a tool error, not a 403), so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
 
 ## Runtimes and databases
 
