@@ -241,11 +241,10 @@ The design's receiver part (phase-3 design §2, rows R3-S1 to R3-S8), draft -04 
     - Step 9 runs only after trust by `iss`, the signature, `aud`, `client_id`, scopes, the resource and `jti`. Only the mappings of the trust entry that matched are read, so `sub_id.issuer` never selects or establishes trust (§9.5).
   - **No `samlSubjects`:** `sub_id` is ignored and the key is (accountProviderId, `sub`), as before. A malformed `sub_id` isn't refused either (R3-S5).
   - **With `samlSubjects`, and a `sub_id` whose `format` is `saml-nameid`:**
-    1. It is parsed with the core's strict schema. If that fails, the result is `subject_rejected` with the detail `sub_id malformed (...)`.
-       - The core throws its public `invalid_claim`. It is re-thrown as the non-public `subject_rejected`, because draft §3.2.2 says `invalid_grant`. The public body would also tell a caller which issuers resolve by `sub_id`.
+    1. It is parsed with the core's strict schema. If that fails, the result is `invalid_claim` (`invalid_grant`, public) with the detail `sub_id malformed (...)`. (Until 0.6.0 it was the non-public `subject_rejected`; D-063 made it `invalid_grant`, as draft -06 section 3.2.2 requires.)
        - It is never a fallback to `sub`.
     2. A transient `nameid_format` is refused, whatever the mappings say, and before any mapping is matched.
-    3. The mapping must match the `issuer` exactly, and `sp_name_qualifier` and `name_qualifier` null-safely: a value missing from the configuration must also be missing from the `sub_id`. There is no case folding and no trailing-slash normalisation. With no match: `subject_rejected` ("sub_id not authorized for this issuer").
+    3. The mapping must match the `issuer` exactly, and `sp_name_qualifier` and `name_qualifier` null-safely: a value missing from the configuration must also be missing from the `sub_id`. There is no case folding and no trailing-slash normalisation. With no match: `sub_id_rejected` (`invalid_grant`; `subject_rejected` until 0.6.0) ("sub_id not authorized for this issuer").
     4. If the mapping lists `nameIdFormats`, `nameid_format` must be present and listed.
     5. The key is (mapping.accountProviderId, `nameid`).
   - **`sub_id` absent or of another format:** with `requireSubId`, `subject_rejected` ("sub_id required: …"). Without it, the `sub` key, as before.

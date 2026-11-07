@@ -75,6 +75,16 @@ describe("path (b): saml2 → refresh token", () => {
     expect(host.idp.calls[0]).toMatchObject({ xml: a.xml, clientId: client.client_id });
   });
 
+  it("a DPoP proof here is oauth-provider's to check, not refused as ours (D-066): an invalid one is invalid_dpop_proof", async () => {
+    // D-066 refuses DPoP only for an ID-JAG; this path issues through the provider, which validates the proof itself.
+    // If an upstream change stopped that, an unbound refresh token would be issued here: this test notices.
+    const { host, client, assertion } = await world();
+    const r = await exchange(host, client, samlToken(assertion().xml), { requested_token_type: REFRESH_TOKEN_TYPE, subject_token_type: SAML2_TOKEN_TYPE, audience: undefined, scope: "openid offline_access" }, { headers: { DPoP: "any-proof" } });
+    expect(r.status, JSON.stringify(r.body)).toBe(400);
+    expect(r.body.error).toBe("invalid_dpop_proof");
+    expect(host.recorded.refreshIssued).toHaveLength(0);
+  });
+
   it("expires_in is the provider's configured refresh-token lifetime; its prefixes are honoured (and the stray access token still found)", async () => {
     const { host, client, assertion } = await world({ provider: { refreshTokenExpiresIn: 7200, prefix: { refreshToken: "rt_", opaqueAccessToken: "at_" } } });
     const r = await requestSamlRefresh(host, client, samlToken(assertion().xml));

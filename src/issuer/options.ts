@@ -205,7 +205,7 @@ export interface IdJagIssuerOptions extends AuditOptions {
 export const DEFAULT_SAML_REFRESH_SCOPES = ["openid", "offline_access", "profile", "email"] as const;
 
 export interface SamlOptions {
-  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -06 §4.3.1). Default false. */
+  /** Path (a): `subject_token_type=saml2` exchanged directly for an ID-JAG (draft -06 section 4.3). Default false. */
   subjectTokens?: boolean | undefined;
   /**
    * Path (b): `subject_token_type=saml2` with `requested_token_type=refresh_token`, exchanged for

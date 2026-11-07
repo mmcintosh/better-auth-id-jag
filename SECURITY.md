@@ -63,6 +63,6 @@ turn on `main`, and the run fails if no test notices.
   - Dependency review on every PR blocks a vulnerable or wrongly licensed runtime dependency.
   - OSV-Scanner scans the whole lockfile, development tools included, daily.
 - **Installs:** every dependency install in CI and in the release runs through **Socket Firewall** (free edition), which refuses packages Socket has confirmed as malware before they download. pnpm won't resolve a version less than a day old, and Dependabot waits 3 days before proposing one (Better Auth, tested at its newest on purpose, is exempt from the wait).
-- **Releases:** they will be published from CI with **npm provenance**, and each GitHub release carries a CycloneDX **SBOM** of the installed dependency tree.
-- **Static analysis:** CodeQL (the `security-extended` queries, over the TypeScript and the workflows) on every push and PR, and weekly; OpenSSF Scorecard weekly. Secret scanning with push protection is on.
+- **Releases:** they are published from CI with **npm provenance**, and each GitHub release carries a CycloneDX **SBOM** of the installed dependency tree.
+- **Static analysis:** CodeQL (the `security-extended` queries, over the TypeScript and the workflows) on every push to main, every pull request, and weekly; OpenSSF Scorecard on every push to main and weekly. Secret scanning with push protection is on.
 - **Other:** gitleaks scans the full history on every push.

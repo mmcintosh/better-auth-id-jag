@@ -1,6 +1,6 @@
 // The receiver end to end on mcp(): the happy path, metadata, and every reason code the handler
 // can produce, each asserted by its audit reason and by the response body.
-import { createLocalJWKSet, jwtVerify } from "jose";
+import { calculateJwkThumbprint, createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { ID_JAG_GRANT_PROFILE, JWT_BEARER_GRANT, publicDescription, REASONS, type ReasonCode } from "../../src/core";
 import type { IdJagGrantOptions } from "../../src/receiver";
@@ -407,6 +407,35 @@ describe("receiver: scopes only narrow (S7)", () => {
     const r = await redeem(s.h, s.client, await s.valid({ scope: "admin" }));
     expect(r.status, r.text).toBe(200);
     expect(r.body.scope).toBe("");
+  });
+
+  it("an ID-JAG with no scope claim is refused: the IdP granted no scope (draft -06 section 4.3.3; D-067)", async () => {
+    const s = await setup({ clientScope: "read write" });
+    await expectRefusal(s, await redeem(s.h, s.client, await s.valid({ scope: undefined })), "no_scope");
+  });
+});
+
+describe("receiver: a DPoP proof on the redemption is oauth-provider's (README, the receiver's section 9.11 row)", () => {
+  // We don't check DPoP ourselves: oauth-provider does, when it issues the access token, after our single-use and
+  // subject steps. These pin what the README promises, so a change in oauth-provider is noticed.
+  it("an invalid proof is invalid_dpop_proof and spends the ID-JAG; a valid one binds the access token (cnf.jkt)", async () => {
+    const s = await setup();
+    const spent = await s.valid();
+    const bad = await redeem(s.h, s.client, spent, {}, { DPoP: "any-proof" });
+    expect(bad.status, bad.text).toBe(400);
+    expect(bad.body.error).toBe("invalid_dpop_proof");
+    await expectRefusal(s, await redeem(s.h, s.client, spent), "replay");
+
+    const { privateKey, publicKey } = await generateKeyPair("ES256");
+    const jwk = await exportJWK(publicKey);
+    const proof = await new SignJWT({ htm: "POST", htu: `${ISSUER}/oauth2/token`, jti: crypto.randomUUID() })
+      .setProtectedHeader({ typ: "dpop+jwt", alg: "ES256", jwk })
+      .setIssuedAt()
+      .sign(privateKey);
+    const ok = await redeem(s.h, s.client, await s.valid(), {}, { DPoP: proof });
+    expect(ok.status, ok.text).toBe(200);
+    expect(ok.body.token_type).toBe("DPoP");
+    expect((decodePayload(ok.body.access_token as string).cnf as { jkt?: string } | undefined)?.jkt).toBe(await calculateJwkThumbprint(jwk));
   });
 });
 

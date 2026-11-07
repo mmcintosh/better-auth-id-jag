@@ -1461,3 +1461,37 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   and one `@better-auth/core` in the lockfile; the SAML end-to-end project on 1.7.18, 19 passed with
   better-auth-saml-idp 1.2.0 and with 1.8.0.
 
+## D-066: the issuer refuses an ID-JAG request that carries a DPoP proof (2026-11-07)
+
+- **Why:** draft -06 section 9.11.1.1: if a DPoP proof is present, the IdP MUST validate it and bind the ID-JAG to its key
+  (`cnf`). The issuer doesn't mint sender-constrained ID-JAGs (the ❌ section 9.11 row), and until now it ignored the `DPoP`
+  header, so the client got an unbound ID-JAG while the README promised that every ❌ row is "refused by name, never
+  silently ignored". A fresh-eyes review before the oauth.net listing found it (2026-11-07).
+- **Change:** an ID-JAG requested with a `DPoP` header is refused: `invalid_request`, public description "DPoP-bound
+  ID-JAGs are not supported.", audit reason `dpop_unsupported`. The SAML refresh-token path (`saml.refreshTokens`) is
+  unchanged: it goes through oauth-provider's `issueTokens`, which validates a DPoP proof itself.
+- **Who notices:** only a client that sends DPoP when it asks this issuer for an ID-JAG; before, it got an unbound one.
+  We know of none: no production client has used this issuer yet (README, Issuer). What we have observed is on the
+  other side: the ID-JAGs that Okta, xaa.dev and MCPJam sent to our receiver carried no `cnf`. A DPoP-capable client
+  may try, because oauth-provider's metadata advertises `dpop_signing_alg_values_supported` for its own tokens; the
+  README says so in the section 9.11 row. Binding ID-JAGs (`cnf.jkt` from a verified proof, with the receiver's section 9.11.1.2) is
+  possible later with Better Auth's own DPoP helpers.
+- **Release:** a patch release, under docs/versioning.md's exception for a security fix the draft requires.
+- **Evidence:** tests (`test/issuer/refusals.test.ts`; `test/issuer/saml-refresh.test.ts` pins that the refresh-token
+  path is still the provider's: an invalid proof there is `invalid_dpop_proof`) and one mutation target, caught.
+
+## D-067: an ID-JAG without `scope` stays refused; a `scopesWhenAbsent` option was not adopted (2026-11-07)
+
+- **What happened:** Claude Code's Cross App Access (`claude mcp add --xaa`), run live against the demo receiver with
+  Okta on 2026-11-06 (Eastern), asks Okta for no scope; Okta then mints an ID-JAG with no `scope` claim, and the receiver refuses
+  it (`no_scope`). A receiver option was drafted to grant such an ID-JAG the scopes the client is registered for here.
+- **Not adopted:** draft -06 section 4.3.3: "The IdP MUST include the granted values, if any, in the resource, scope, and
+  authorization_details claims." No `scope` claim means the IdP granted no scope; it does not leave the choice to the
+  receiver. The option would have turned the IdP's narrowest answer into the client's widest grant, and this package's
+  own issuer omits `scope` exactly when it granted none (`src/issuer/exchange.ts`). Other receivers refuse too
+  ([Traefik's Okta guide](https://doc.traefik.io/traefik-hub/api-gateway/guides/xaa-okta) requires at least one scope). A fresh-eyes review found it before release; Mark decided to drop
+  it (2026-11-07).
+- **So:** unchanged behaviour. An ID-JAG with no `scope` is refused (`invalid_scope`, reason `no_scope`), or gets an
+  empty-scope token with `allowEmptyScope`. The fix for Claude Code is on the client's side: ask the IdP for the scopes
+  the server advertises. docs/interop.md records the run (PR #91).
+- **Evidence:** one test pins the refusal (`test/receiver/grant.test.ts`, "an ID-JAG with no scope claim is refused").

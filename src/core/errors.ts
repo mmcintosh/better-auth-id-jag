@@ -86,6 +86,9 @@ export const REASONS = {
   unsupported_requested_token_type: { error: "invalid_request", public: true, description: "Unsupported requested_token_type." },
   unsupported_subject_token_type: { error: "invalid_request", public: true, description: "Unsupported subject_token_type." },
   actor_token_unsupported: { error: "invalid_request", public: true, description: "actor_token is not supported." },
+  // Draft -06 section 9.11.1.1: with a DPoP proof the IdP MUST validate it and bind the ID-JAG (cnf). We don't mint
+  // sender-constrained ID-JAGs, so the request is refused, never answered with an unbound one (D-066).
+  dpop_unsupported: { error: "invalid_request", public: true, description: "DPoP-bound ID-JAGs are not supported." },
   // Draft -06 §4.3.3: the IdP MUST process authorization_details; we don't, so it is refused rather than ignored.
   authorization_details_unsupported: { error: "invalid_request", public: true, description: "authorization_details is not supported." },
   invalid_audience: { error: "invalid_target", public: true, description: "audience must be an absolute https URL." },

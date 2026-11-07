@@ -95,7 +95,7 @@ export const idJagClaimsSchema = z.looseObject({
   tenant: nonEmpty.optional(),
   aud_tenant: nonEmpty.optional(),
   aud_sub: nonEmpty.optional(),
-  // RFC 9493 subject identifier. Never a source of trust (draft §8): informational only.
+  // RFC 9493 subject identifier. Never a source of trust (draft -06 section 9.8): informational only.
   sub_id: z.looseObject({ format: nonEmpty }).optional(),
   act: actSchema.optional(),
 });
