@@ -21,6 +21,8 @@ const plugins =
     : which === "tester"
       ? [jwt(), mcp({ loginPage: "/l", consentPage: "/c", resource: "https://schema.invalid/mcp" }), idJagGrant({ trustedIssuerTable: true, auditLog: { retentionDays: 1 } })]
       : [jwt(), mcp({ loginPage: "/l", consentPage: "/c", resource: "https://schema.invalid/mcp" }), idJagGrant({ trustedIssuers: [{ issuer: "https://idp.invalid", jwksUri: "https://idp.invalid/jwks" }], auditLog: { retentionDays: 1 } })];
-const auth = betterAuth({ ...base, plugins } as never);
+// The tester's users carry their provider account's creation time (examples/workers/tester/src/auth.ts).
+const user = which === "tester" ? { user: { additionalFields: { accountCreatedAt: { type: "date", required: false, input: false } } } } : {};
+const auth = betterAuth({ ...base, ...user, plugins } as never);
 const { compileMigrations } = await getMigrations((await (auth as { $context: Promise<{ options: never }> }).$context).options);
 process.stdout.write(await compileMigrations());

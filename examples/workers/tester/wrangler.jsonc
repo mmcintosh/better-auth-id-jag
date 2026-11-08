@@ -22,8 +22,10 @@
     "PUBLIC_ORIGIN": "",
     // Cloudflare's Turnstile test key (always passes); a real deployment uses its own widget's site key.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
-    "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID"
+    "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID",
+    // Optional: GitLab (gitlab.com) sign-in, with the GITLAB_CLIENT_SECRET secret. Empty: GitHub only.
+    "GITLAB_CLIENT_ID": ""
   }
-  // Secrets: BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET, TURNSTILE_SECRET_KEY, ADMIN_STATS_KEY, ADMIN_CLOSE_KEY,
-  // ADMIN_OPEN_KEY (each admin key at least 32 characters).
+  // Secrets: BETTER_AUTH_SECRET, GITHUB_CLIENT_SECRET, GITLAB_CLIENT_SECRET (with GitLab), TURNSTILE_SECRET_KEY,
+  // ADMIN_STATS_KEY, ADMIN_CLOSE_KEY, ADMIN_OPEN_KEY (each admin key at least 32 characters).
 }

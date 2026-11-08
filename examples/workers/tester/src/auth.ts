@@ -1,5 +1,11 @@
 // The tester's authorization server: the published receiver (idJagGrant) behind mcp(), trusting only issuers that
-// testers registered (the idJagTrustedIssuer table), each limited to its own client. Testers sign in with GitHub.
+// testers registered (the idJagTrustedIssuer table), each limited to its own client. Testers sign in with GitHub or
+// GitLab (gitlab.com).
+//
+// What sign-in keeps about a tester (docs/test-your-idp.md, "Privacy"): their public login as the name, the
+// provider's account id (on the account row), and when the account was created (for the 30-day rule). Not their
+// email: a made-up address stands in, at a domain that receives no mail. Not their picture. Not the provider's
+// tokens: they are stripped before anything is written. GitHub is asked only for read:user, GitLab for read_user.
 //
 // Isolation: every ID-JAG's user is a sandbox user made by resolveSubject below, keyed by the registration and a
 // hash of `sub`. The receiver's other ways of finding a user (linked accounts, email, JIT) never run, so an ID-JAG
@@ -11,6 +17,7 @@ import { mcp } from "@better-auth/mcp";
 import { idJagGrant, type ResolveSubjectInput, type SubjectResolution } from "better-auth-id-jag";
 import { backgroundTasks } from "../../background";
 import { guardedFetch } from "./guard";
+import { TESTER_EMAIL_DOMAIN } from "./privacy";
 import { activeByClient } from "./store";
 
 export interface Env {
@@ -18,6 +25,9 @@ export interface Env {
   BETTER_AUTH_SECRET: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  /** Optional: GitLab (gitlab.com) sign-in, when both are set. */
+  GITLAB_CLIENT_ID?: string;
+  GITLAB_CLIENT_SECRET?: string;
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET_KEY: string;
   /** Must be "true" for anything to work: the deploy-level kill switch. */
@@ -43,6 +53,21 @@ const sha256hex = async (s: string) => [...new Uint8Array(await crypto.subtle.di
 
 /** The sandbox user's email: unique per registration and subject, at a name that never receives mail. */
 export const sandboxEmail = async (registrationId: string, sub: string) => `${(await sha256hex(sub)).slice(0, 32)}@${registrationId}.sandbox.invalid`;
+
+/** Sign-in providers this deployment offers. */
+export const providers = (env: Env): ("github" | "gitlab")[] => ["github" as const, ...(env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET ? ["gitlab" as const] : [])];
+
+/** What a provider's profile becomes: the public login and the account's creation time, nothing else. */
+const testerUser = (provider: "github" | "gitlab", id: unknown, login: unknown, createdAt: unknown) => ({
+  email: `${provider}-${String(id).replace(/[^0-9A-Za-z_-]/g, "")}@${TESTER_EMAIL_DOMAIN}`,
+  name: typeof login === "string" ? login.slice(0, 100) : "",
+  image: undefined,
+  emailVerified: false,
+  accountCreatedAt: typeof createdAt === "string" && Number.isFinite(Date.parse(createdAt)) ? new Date(createdAt) : null,
+});
+
+/** The provider's tokens, never stored: the tester needs nothing from the provider after sign-in. */
+const withoutTokens = <T extends Record<string, unknown>>(data: T): T => ({ ...data, accessToken: null, refreshToken: null, idToken: null });
 
 export function createAuth(env: Env, origin: string) {
   const resolveSubject = async ({ ctx, sub, clientId, trustedIssuer }: ResolveSubjectInput): Promise<SubjectResolution> => {
@@ -70,9 +95,27 @@ export function createAuth(env: Env, origin: string) {
     telemetry: { enabled: false },
     database: env.DB as never,
     advanced: { backgroundTasks, ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
-    socialProviders: { github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET } },
-    // A tester's session lasts a day, like a registration.
-    session: { expiresIn: 86_400, updateAge: 3_600 },
+    socialProviders: {
+      github: {
+        clientId: env.GITHUB_CLIENT_ID,
+        clientSecret: env.GITHUB_CLIENT_SECRET,
+        disableDefaultScope: true,
+        scope: ["read:user"],
+        mapProfileToUser: (p) => testerUser("github", p.id, p.login, (p as { created_at?: unknown }).created_at),
+      },
+      ...(env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET
+        ? { gitlab: { clientId: env.GITLAB_CLIENT_ID, clientSecret: env.GITLAB_CLIENT_SECRET, mapProfileToUser: (p: { id: unknown; username: unknown; created_at?: unknown }) => testerUser("gitlab", p.id, p.username, p.created_at) } }
+        : {}),
+    },
+    user: { additionalFields: { accountCreatedAt: { type: "date", required: false, input: false } } },
+    databaseHooks: {
+      account: {
+        create: { before: async (account) => ({ data: withoutTokens(account) }) },
+        update: { before: async (account) => ({ data: withoutTokens(account) }) },
+      },
+    },
+    // A tester's session lasts a day, like a registration; then the tester's records are deleted (store.purge).
+    session: { expiresIn: 86_400, disableSessionRefresh: true },
     plugins: [
       jwt({ jwks: { keyPairConfig: { alg: "ES256" } } }),
       mcp({

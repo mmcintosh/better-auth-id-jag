@@ -1,27 +1,28 @@
 // "Test your IdP": a public, locked-down ID-JAG receiver for people building an ID-JAG issuer. A tester signs in
-// with GitHub, registers their issuer, gets a client here for 24 hours, redeems ID-JAGs at the token endpoint, and
+// with GitHub or GitLab, registers their issuer, gets a client here for 24 hours, redeems ID-JAGs at the token endpoint, and
 // reads a rule-by-rule report next to what the real receiver (this package) decided. docs/test-your-idp.md.
 //
-// Routes: / (home), POST /signin, POST /signout, /register, /results, POST /api/auth/oauth2/token (the receiver,
-// wrapped), /mcp, the Better Auth paths a GitHub sign-in and a client need (nothing else under /api/auth), /admin/*
+// Routes: / (home), POST /signin, POST /signout, /register, /results, POST /delete, POST /api/auth/oauth2/token (the
+// receiver, wrapped), /mcp, the Better Auth paths a sign-in and a client need (nothing else under /api/auth), /admin/*
 // (bearer keys). Every route but / and /admin is closed while the tester is. Limits are in LIMITS.
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import pkg from "../../../../package.json";
 import { withExecutionContext } from "../../background";
-import { createAuth, type Env, INTERNAL_KEY, SCOPES } from "./auth";
+import { createAuth, type Env, INTERNAL_KEY, providers, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
 import { landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
+import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
 import * as store from "./store";
 
 /** Every limit in one place. The rate-limit bindings (wrangler.jsonc) add per-minute limits on top. */
 export const LIMITS = {
   registrationHours: 24,
   registrationsPerDay: 3,
-  registrationsPerUserPerDay: 2,
+  registrationsPerAccountPerDay: 2,
   registrationsPerIpPerDay: 3,
-  githubAccountMinAgeDays: 30,
+  accountMinAgeDays: 30,
   redemptionsPerRegistrationPerDay: 50,
   /** Past this, across everyone, redemptions stop until 00:00 UTC: far more than real testing needs. */
   redemptionsPerDay: 300,
@@ -90,7 +91,11 @@ const sameOrigin = (request: Request, origin: string) => request.headers.get("or
 
 async function signIn(request: Request, env: Env, origin: string): Promise<Response> {
   if (!sameOrigin(request, origin)) return message("Not allowed", "Sign in from this site's own page.", 403);
-  const { headers, response } = await authFor(env, origin).api.signInSocial({ body: { provider: "github", callbackURL: "/register" }, headers: request.headers, returnHeaders: true });
+  const body = await readBody(request);
+  const provider = new URLSearchParams(body ?? "").get("provider");
+  if (provider !== "github" && provider !== "gitlab") return message("Not allowed", "Sign in with GitHub or GitLab.", 400);
+  if (!providers(env).includes(provider)) return message("Not available", "That sign-in isn't offered here.", 400);
+  const { headers, response } = await authFor(env, origin).api.signInSocial({ body: { provider, callbackURL: "/register" }, headers: request.headers, returnHeaders: true });
   const out = redirect((response as { url: string }).url);
   for (const c of headers.getSetCookie()) out.headers.append("set-cookie", c);
   return out;
@@ -108,25 +113,11 @@ async function signOut(request: Request, env: Env, origin: string): Promise<Resp
   return out;
 }
 
-/**
- * The GitHub account behind a session: its login and age, from GitHub with the user's own token. The token is needed
- * for nothing else, so it is deleted right after (the next registration needs a fresh sign-in).
- */
-async function githubAccount(env: Env, origin: string, userId: string): Promise<{ login: string; createdAt: number } | null> {
+/** The provider account behind a session: which provider, and its account id there (for the fingerprints). */
+async function testerAccount(env: Env, origin: string, userId: string): Promise<{ provider: "github" | "gitlab"; accountId: string } | null> {
   const ctx = await authFor(env, origin).$context;
-  const account = (await ctx.internalAdapter.findAccounts(userId)).find((a) => a.providerId === "github");
-  if (!account?.accessToken) return null;
-  try {
-    const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${account.accessToken}`, accept: "application/vnd.github+json", "user-agent": "idjag-tester" }, signal: AbortSignal.timeout(5_000) });
-    if (!r.ok) return null;
-    const u = (await r.json()) as { login?: unknown; created_at?: unknown };
-    const createdAt = typeof u.created_at === "string" ? Date.parse(u.created_at) : Number.NaN;
-    return typeof u.login === "string" && Number.isFinite(createdAt) ? { login: u.login.slice(0, 100), createdAt } : null;
-  } catch {
-    return null;
-  } finally {
-    await env.DB.prepare(`update "account" set accessToken = null, refreshToken = null, idToken = null where userId = ? and providerId = 'github'`).bind(userId).run();
-  }
+  const account = (await ctx.internalAdapter.findAccounts(userId)).find((a) => a.providerId === "github" || a.providerId === "gitlab");
+  return account ? { provider: account.providerId as "github" | "gitlab", accountId: account.accountId } : null;
 }
 
 async function verifyTurnstile(env: Env, token: string | null, ip: string): Promise<boolean> {
@@ -157,11 +148,22 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
 
   const now = Date.now();
   if (await store.activeByUser(env.DB, s.user.id, now)) return registerForm(env.TURNSTILE_SITE_KEY, "You already have an active registration: one at a time. See your results.");
-  const gh = await githubAccount(env, origin, s.user.id);
-  if (!gh) return registerForm(env.TURNSTILE_SITE_KEY, "Couldn't read your GitHub account. Sign out and sign in again.");
-  if (now - gh.createdAt < LIMITS.githubAccountMinAgeDays * store.DAY_MS) {
-    store.bump("register.young_github_account");
-    return registerForm(env.TURNSTILE_SITE_KEY, `GitHub accounts must be at least ${LIMITS.githubAccountMinAgeDays} days old.`);
+  const account = await testerAccount(env, origin, s.user.id);
+  const createdRaw = (s.user as { accountCreatedAt?: unknown }).accountCreatedAt;
+  const accountCreatedAt = createdRaw instanceof Date ? createdRaw.getTime() : typeof createdRaw === "string" || typeof createdRaw === "number" ? new Date(createdRaw).getTime() : Number.NaN;
+  if (!account || !Number.isFinite(accountCreatedAt)) return registerForm(env.TURNSTILE_SITE_KEY, "Couldn't read your account's details. Sign out and sign in again.");
+  if (now - accountCreatedAt < LIMITS.accountMinAgeDays * store.DAY_MS) {
+    store.bump("register.young_account");
+    return registerForm(env.TURNSTILE_SITE_KEY, `Accounts must be at least ${LIMITS.accountMinAgeDays} days old.`);
+  }
+  // The blocklist, by fingerprint: an account or network caught abusing the tester stays out for 30 days.
+  const accountRef = `${account.provider}:${account.accountId}`;
+  const blockKey = await fingerprintKey(env.DB, BLOCK_KEY_ID, now);
+  const blockAccountFp = await fingerprint(blockKey, accountRef);
+  const blockNetFp = await fingerprint(blockKey, network(ip));
+  if (await store.isBlocked(env.DB, [blockAccountFp, blockNetFp], now)) {
+    store.bump("register.blocked");
+    return registerForm(env.TURNSTILE_SITE_KEY, "This account or network can't register here for now.");
   }
 
   const issuer = (form.get("issuer") ?? "").trim();
@@ -169,9 +171,8 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   const urlCheck = checkPublicHttpsUrl(issuer);
   if (!urlCheck.ok) return registerForm(env.TURNSTILE_SITE_KEY, `The issuer ${urlCheck.why}.`);
   if (urlCheck.url.search) return registerForm(env.TURNSTILE_SITE_KEY, "An issuer identifier has no query string (RFC 8414 section 2).");
-  // An ended registration of this issuer whose leftovers aren't purged yet would leave two trust rows: purge it now.
-  await store.purge(env.DB, now, issuer);
-  if (await store.unpurgedByIssuer(env.DB, issuer)) return registerForm(env.TURNSTILE_SITE_KEY, "That issuer is registered by someone else right now. Registrations last 24 hours.");
+  // Only a registration that proved the issuer (its first ID-JAG signed with the issuer's key) holds it.
+  if (await store.confirmedByIssuer(env.DB, issuer, now)) return registerForm(env.TURNSTILE_SITE_KEY, "Another tester has proven that issuer (with an ID-JAG signed by its key) and holds it for now. Registrations last 24 hours.");
 
   // The issuer's metadata: RFC 8414's location first, then OpenID Connect Discovery's. Nothing is written before this.
   let source: "oauth-authorization-server" | "openid-configuration" = "oauth-authorization-server";
@@ -188,40 +189,49 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 7.1", outcome: "fail", message: `Your JWKS ${jwks.why}.` });
   if (check.blocking.length > 0 || !jwks.ok) return registerForm(env.TURNSTILE_SITE_KEY, `Not registered: ${check.results.filter((r) => r.outcome === "fail").map((r) => r.message).join(" ")}`);
 
-  // Reserve the registration first, in one statement that checks every limit: two requests at once can't both pass.
+  // Reserve the registration (pending) and its abuse record first, in one transaction that checks every limit: two
+  // requests at once can't both pass. The abuse record holds fingerprints under this week's key, never the account
+  // or the address.
   const id = newId();
   const expiresAt = now + LIMITS.registrationHours * 3_600_000;
-  const reserved = await store.reserve(env.DB, { id, userId: s.user.id, githubLogin: gh.login, issuer, jwksUri, jwks: JSON.stringify(jwks.json), jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod, metadataReport: JSON.stringify(check.results), ip, createdAt: now, expiresAt, revokedAt: null, revokedReason: null, purgedAt: null }, { day: store.utcDayStart(now), perDay: LIMITS.registrationsPerDay, perUser: LIMITS.registrationsPerUserPerDay, perIp: LIMITS.registrationsPerIpPerDay });
+  const keyId = weekKeyId(now);
+  const weekKey = await fingerprintKey(env.DB, keyId, now);
+  const abuse = { id, at: now, keyId, provider: account.provider, accountFp: await fingerprint(weekKey, accountRef), ipFp: await fingerprint(weekKey, ip), netFp: await fingerprint(weekKey, network(ip)), accountAge: ageBucket(accountCreatedAt, now), issuerHost: urlCheck.url.host };
+  const reserved = await store.reserve(env.DB, { id, userId: s.user.id, issuer, jwksUri, jwks: JSON.stringify(jwks.json), jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod, metadataReport: JSON.stringify(check.results), blockAccountFp, blockNetFp, createdAt: now, expiresAt, confirmedAt: null, revokedAt: null, revokedReason: null }, abuse, { day: store.utcDayStart(now), perDay: LIMITS.registrationsPerDay, perAccount: LIMITS.registrationsPerAccountPerDay, perIp: LIMITS.registrationsPerIpPerDay });
   if (!reserved) {
     store.bump("register.limit");
-    return registerForm(env.TURNSTILE_SITE_KEY, "Not registered: you already have one, the issuer is taken, or today's registrations are used up (they reset at 00:00 UTC).");
+    return registerForm(env.TURNSTILE_SITE_KEY, "Not registered: you already have one, another tester has proven the issuer, or today's registrations are used up (they reset at 00:00 UTC).");
   }
 
-  // The client here, owned by the tester's GitHub user, only for redeeming ID-JAGs; then the trust row for it alone.
+  // The client here, owned by the tester's user, only for redeeming ID-JAGs. The trust row comes when the registration
+  // is confirmed (token endpoint).
   const auth = authFor(env, origin);
   let clientId: string | undefined;
-  let trustRowId: string | undefined;
   try {
     const headers = new Headers({ cookie: request.headers.get("cookie") ?? "", "x-tester-internal": INTERNAL_KEY });
     const api = auth.api as unknown as { adminCreateOAuthClient(o: { headers: Headers; body: Record<string, unknown> }): Promise<{ client_id: string; client_secret: string }> };
     const client = await api.adminCreateOAuthClient({
       headers,
-      body: { client_name: `Tester: ${gh.login}`, grant_types: [JWT_BEARER_GRANT], response_types: [], token_endpoint_auth_method: authMethod, scope: SCOPES.join(" ") },
+      body: { client_name: `Tester registration ${id}`, grant_types: [JWT_BEARER_GRANT], response_types: [], token_endpoint_auth_method: authMethod, scope: SCOPES.join(" ") },
     });
     clientId = client.client_id;
-    const ctx = await auth.$context;
-    const trust = await ctx.adapter.create<Record<string, unknown>, { id: string }>({
-      model: TRUSTED_ISSUER_MODEL,
-      data: { issuer, jwksUri, allowedClientIds: JSON.stringify([clientId]), jitProvisioning: false, jitTrustEmailVerified: false, enabled: true, createdAt: new Date(now), updatedAt: new Date(now) },
-    });
-    trustRowId = trust.id;
-    await store.complete(env.DB, id, clientId, trustRowId);
-    console.log(JSON.stringify({ event: "tester.registered", id, github: gh.login, issuer, ip }));
+    await store.setClient(env.DB, id, clientId);
+    console.log(JSON.stringify({ event: "tester.registered", id, issuerHost: urlCheck.url.host }));
     return registered({ origin, clientId, clientSecret: client.client_secret, authMethod, issuer, expiresAt, report: check.results });
   } catch (e) {
-    await store.abandon(env.DB, id, clientId, trustRowId);
+    await store.abandon(env.DB, id, clientId);
     throw e;
   }
+}
+
+/** The trust row for a confirmed registration: its issuer, its JWKS, its client alone. */
+async function createTrustRow(env: Env, origin: string, reg: store.Registration, now: number): Promise<string> {
+  const ctx = await authFor(env, origin).$context;
+  const trust = await ctx.adapter.create<Record<string, unknown>, { id: string }>({
+    model: TRUSTED_ISSUER_MODEL,
+    data: { issuer: reg.issuer, jwksUri: reg.jwksUri, allowedClientIds: JSON.stringify([reg.clientId]), jitProvisioning: false, jitTrustEmailVerified: false, enabled: true, createdAt: new Date(now), updatedAt: new Date(now) },
+  });
+  return trust.id;
 }
 
 /** The client a token request names: HTTP Basic (RFC 6749 section 2.3.1, form-encoded) or the body. Never both. */
@@ -309,24 +319,53 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   // The real decision: the published receiver, unchanged.
   const headers = new Headers(request.headers);
   headers.delete("content-length");
-  const response = await authFor(env, origin).handler(new Request(request.url, { method: "POST", headers, body }));
-  const answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+  const forward = () => authFor(env, origin).handler(new Request(request.url, { method: "POST", headers, body }));
+  let response = await forward();
+  let answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
   if (response.status === 401 || answer?.error === "invalid_client") {
     store.bump("token.auth_failed");
     ctx.waitUntil(store.flushCounters(env.DB, Date.now()));
     return response;
   }
   const jti = typeof report.claims?.jti === "string" ? report.claims.jti.replace(/[^\x20-\x7e]/g, "").slice(0, 200) : null;
-  ctx.waitUntil(
-    (async () => {
-      await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: response.status, error: typeof answer?.error === "string" ? answer.error.slice(0, 64) : null, results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
-      if (response.status >= 500 && (await store.countServerErrors(env.DB, now - 600_000)) >= LIMITS.serverErrorsPer10Min) {
-        await store.setClosed(env.DB, true, `${LIMITS.serverErrorsPer10Min} server errors in 10 minutes`, "worker", Date.now());
-        console.log(JSON.stringify({ event: "tester.closed", by: "worker", reason: "server errors" }));
-      }
-      await store.flushCounters(env.DB, Date.now());
-    })(),
-  );
+  const record = (status: number, error: string | null) =>
+    ctx.waitUntil(
+      (async () => {
+        await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: status, error, results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
+        if (status >= 500 && (await store.countServerErrors(env.DB, now - 600_000)) >= LIMITS.serverErrorsPer10Min) {
+          await store.setClosed(env.DB, true, `${LIMITS.serverErrorsPer10Min} server errors in 10 minutes`, "worker", Date.now());
+          console.log(JSON.stringify({ event: "tester.closed", by: "worker", reason: "server errors" }));
+        }
+        await store.flushCounters(env.DB, Date.now());
+      })(),
+    );
+
+  // A pending registration has no trust row, so the receiver refused it (after authenticating the client, which is
+  // why it was asked). It is confirmed by an ID-JAG signed with a key from the issuer's own JWKS: proof that the
+  // tester runs the issuer. Then the trust row is made and the same request goes to the receiver again.
+  if (reg.confirmedAt === null) {
+    const proven = ["signature", "claim.iss", "claim.client_id"].every((id) => report.results.find((r) => r.id === id)?.outcome === "pass");
+    if (!proven) {
+      record(400, "not_confirmed");
+      return oauthError(400, "invalid_grant", "This registration is pending: it is confirmed by an ID-JAG signed with a key from your issuer's published JWKS, with your issuer as iss and this client as client_id. See your results for what this one got wrong.");
+    }
+    await store.purge(env.DB, now, reg.issuer);
+    if (!(await store.confirm(env.DB, reg.id, now))) {
+      record(400, "issuer_taken");
+      return oauthError(400, "invalid_grant", "Another tester has proven this issuer first and holds it for now. Registrations last 24 hours.");
+    }
+    try {
+      const trustRowId = await createTrustRow(env, origin, { ...reg, confirmedAt: now }, now);
+      await store.setTrustRow(env.DB, reg.id, trustRowId);
+    } catch (e) {
+      await store.unconfirm(env.DB, reg.id);
+      throw e;
+    }
+    console.log(JSON.stringify({ event: "tester.confirmed", id: reg.id }));
+    response = await forward();
+    answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+  }
+  record(response.status, typeof answer?.error === "string" ? answer.error.slice(0, 64) : null);
   return response;
 }
 
@@ -394,19 +433,37 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
   if (!s) return redirect("/");
   const now = Date.now();
   const views: ResultView[] = [];
-  for (const reg of await store.unpurgedByUser(env.DB, s.user.id)) {
+  for (const reg of await store.byUser(env.DB, s.user.id)) {
     if (!reg.clientId) continue;
     const decisions = await store.receiverDecisions(env.DB, reg.clientId);
     views.push({
       issuer: reg.issuer,
       clientId: reg.clientId,
       expiresAt: reg.expiresAt,
+      pending: reg.confirmedAt === null,
       ended: reg.revokedAt ? `revoked (${reg.revokedReason ?? "no reason given"})` : reg.expiresAt <= now ? "expired; deleted within minutes" : null,
       metadata: JSON.parse(reg.metadataReport) as RuleResult[],
       checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: c.jti ? (decisions.get(c.jti) ?? null) : null })),
     });
   }
-  return results(views);
+  return results(views, s.user.name);
+}
+
+/** "Delete my data now": the tester's registrations, everything they made, and the tester's own records, at once. */
+async function deleteMyData(request: Request, env: Env, origin: string): Promise<Response> {
+  if (!sameOrigin(request, origin)) return message("Not allowed", "Use the button on this site's own page.", 403);
+  const s = await session(env, origin, request);
+  if (!s) return redirect("/");
+  const out = message("Deleted", "Your registrations, their results, and your sign-in record are deleted. Only the anonymous abuse record remains, for up to 7 days.", 200);
+  try {
+    const { headers } = await authFor(env, origin).api.signOut({ headers: request.headers, returnHeaders: true });
+    for (const c of headers.getSetCookie()) out.headers.append("set-cookie", c);
+  } catch {
+    // The session is deleted below either way.
+  }
+  await store.deleteTester(env.DB, s.user.id, Date.now());
+  console.log(JSON.stringify({ event: "tester.deleted_own_data" }));
+  return out;
 }
 
 /** Constant-time comparison of a bearer key against a configured one; an unset or short key never matches. */
@@ -427,14 +484,14 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
   const route = `${request.method} ${url.pathname}`;
   const allowed =
     route === "GET /admin/stats" ? await keyMatches(request, env.ADMIN_STATS_KEY)
-    : route === "POST /admin/close" || route === "POST /admin/revoke" ? (await keyMatches(request, env.ADMIN_CLOSE_KEY)) || (await keyMatches(request, env.ADMIN_OPEN_KEY))
+    : route === "POST /admin/close" || route === "POST /admin/revoke" || route === "POST /admin/block" ? (await keyMatches(request, env.ADMIN_CLOSE_KEY)) || (await keyMatches(request, env.ADMIN_OPEN_KEY))
     : route === "POST /admin/open" ? await keyMatches(request, env.ADMIN_OPEN_KEY)
     : null;
   if (allowed === null) return new Response("not found", { status: 404 });
   if (!allowed) return new Response("forbidden", { status: 403 });
   if (route === "GET /admin/stats") return Response.json(await store.stats(env.DB, now), { headers: { "cache-control": "no-store" } });
   const raw = await readBody(request);
-  let body: { reason?: unknown; registrationId?: unknown } = {};
+  let body: { reason?: unknown; registrationId?: unknown; kinds?: unknown } = {};
   try {
     body = raw ? JSON.parse(raw) : {};
   } catch {
@@ -445,6 +502,18 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
     await store.setClosed(env.DB, true, reason, "admin", now);
     console.log(JSON.stringify({ event: "tester.closed", by: "admin", reason }));
     return Response.json({ closed: true });
+  }
+  if (route === "POST /admin/block") {
+    // Blocks the registration's account and/or network for 30 days and ends the registration. Needs the registration
+    // to still exist: its blocklist fingerprints go with it.
+    if (typeof body.registrationId !== "string") return new Response("registrationId required", { status: 400 });
+    const reg = await store.byId(env.DB, body.registrationId);
+    if (!reg) return new Response("no such registration (already ended and purged?)", { status: 404 });
+    const kinds = Array.isArray(body.kinds) ? body.kinds.filter((k): k is "account" | "network" => k === "account" || k === "network") : ["account" as const];
+    if (kinds.length === 0) return new Response("kinds: account and/or network", { status: 400 });
+    await store.block(env.DB, reg, kinds, reason, now);
+    console.log(JSON.stringify({ event: "tester.blocked", registrationId: reg.id, kinds, reason }));
+    return Response.json({ blocked: kinds, revoked: true });
   }
   if (route === "POST /admin/revoke") {
     if (typeof body.registrationId !== "string") return new Response("registrationId required", { status: 400 });
@@ -457,8 +526,8 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
   return Response.json({ closed: false });
 }
 
-/** Better Auth paths the tester needs, and only those: a GitHub sign-in, keys and metadata. (The token endpoint is wrapped.) */
-const AUTH_GET = /^\/api\/auth\/(callback\/github|jwks|\.well-known\/[a-z-]+(\/.*)?)$/;
+/** Better Auth paths the tester needs, and only those: a GitHub or GitLab sign-in, keys and metadata. (The token endpoint is wrapped.) */
+const AUTH_GET = /^\/api\/auth\/(callback\/(github|gitlab)|jwks|\.well-known\/[a-z-]+(\/.*)?)$/;
 
 async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   // One public origin: requests to any other host name (workers.dev, a preview) are not served.
@@ -471,13 +540,14 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
     return new Response("Too many requests from your address. Try again in a minute.", { status: 429 });
   }
   const state = await openState(env);
-  if (path === "/" && request.method === "GET") return landing(state.open && !!(await session(env, origin, request)), !state.open);
+  if (path === "/" && request.method === "GET") return landing(state.open && !!(await session(env, origin, request)), !state.open, providers(env));
   // Everything else is closed while the tester is.
   if (!state.open) return path.startsWith("/api/") ? oauthError(503, "temporarily_unavailable", "The tester is closed for now.") : message("Closed", "The tester is closed for now.", 503);
   if (path === "/signin" && request.method === "POST") return signIn(request, env, origin);
   if (path === "/signout" && request.method === "POST") return signOut(request, env, origin);
   if (path === "/register" && (request.method === "GET" || request.method === "POST")) return register(request, env, origin);
   if (path === "/results" && request.method === "GET") return resultsPage(request, env, origin);
+  if (path === "/delete" && request.method === "POST") return deleteMyData(request, env, origin);
   if (path === "/mcp") return mcpEndpoint(request, env, origin);
   if (path === "/api/auth/oauth2/token" && request.method === "POST") return token(request, env, origin, ctx);
   if (request.method === "GET" && (AUTH_GET.test(path) || path.startsWith("/.well-known/"))) return authFor(env, origin).handler(request);

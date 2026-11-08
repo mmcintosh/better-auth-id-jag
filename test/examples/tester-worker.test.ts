@@ -1,7 +1,8 @@
-// The "test your IdP" Worker end to end, in workerd on D1 (examples/workers/tester): register an issuer, redeem
-// ID-JAGs at the real receiver, read the report, and the lockdown: one registration at a time, issuers isolated from
-// each other, the admin keys, the kill switch, revocation, expiry and the purge. GitHub, Turnstile and the issuers'
-// metadata are stubbed at fetch; everything else is the Worker as deployed.
+// The "test your IdP" Worker end to end, in workerd on D1 (examples/workers/tester): register an issuer (pending),
+// confirm it with an ID-JAG signed by the issuer's key, redeem at the real receiver, read the report; and the
+// lockdown: squatters, limits, isolation, the admin keys and blocklist, both kill switches, revocation, "delete my
+// data", what is (not) stored about testers, expiry and the purge. Turnstile and the issuers' metadata are stubbed at
+// fetch; sign-in is reproduced from what Better Auth's GitHub sign-in leaves behind; the rest is the Worker as deployed.
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import init0001 from "../../examples/workers/tester/migrations/0001_init.sql?raw";
@@ -12,9 +13,10 @@ const ORIGIN = "https://tester.example.net";
 const AUD = `${ORIGIN}/api/auth`;
 const SECRET = "tester-test-secret-that-is-at-least-32-characters";
 const KEYS = { stats: "s".repeat(40), close: "c".repeat(40), open: "o".repeat(40) };
-// The third is never registered: it stands for a trust row someone added by hand, without a client restriction.
-// The last two are for the same-moment registration test.
-const ISSUERS = ["https://idp-one.example.org", "https://idp-two.example.org", "https://idp-three.example.org", "https://idp-four.example.org", "https://idp-five.example.org"] as const;
+const IP = "198.51.100.7";
+// [2] is never registered at first: it stands for a trust row someone added by hand. [3] and [4]: one user, two
+// issuers at once. [5]: two users confirming the same issuer at once.
+const ISSUERS = ["https://idp-one.example.org", "https://idp-two.example.org", "https://idp-three.example.org", "https://idp-four.example.org", "https://idp-five.example.org", "https://idp-six.example.org"] as const;
 
 describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   /** The Worker's Env, assembled for the test. */
@@ -26,54 +28,59 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   const jwks: Record<string, unknown> = {};
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
-  const call = async (path: string, init: RequestInit & { cookie?: string } = {}) => {
+  const call = async (path: string, init: RequestInit & { cookie?: string; ip?: string } = {}) => {
     const headers = new Headers(init.headers);
     if (init.cookie) headers.set("cookie", init.cookie);
+    headers.set("cf-connecting-ip", init.ip ?? IP);
     const ctx = cf.createExecutionContext();
     const response = await worker.fetch(new Request(`${ORIGIN}${path}`, { ...init, headers }), env, ctx);
     await cf.waitOnExecutionContext(ctx);
     return response;
   };
 
-  /** A GitHub user signed in to the tester: what Better Auth's GitHub sign-in leaves behind, and the session cookie. */
-  const signedIn = async (login: string) => {
+  let nextAccountId = 1000;
+  /** A tester signed in: what Better Auth's GitHub sign-in leaves behind (through the Worker's own hooks), and the cookie. */
+  const signedIn = async (login: string, o: { ageDays?: number } = {}) => {
     const { createAuth } = await import("../../examples/workers/tester/src/auth");
     const ctx = await createAuth(env as never, ORIGIN).$context;
-    const user = await ctx.internalAdapter.createUser({ email: `${login}@users.example.org`, name: login, emailVerified: true }, { method: "test" });
-    await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: "github", accountId: `gh-${login}`, accessToken: `token-${login}` });
+    const id = nextAccountId++;
+    const user = await ctx.internalAdapter.createUser({ email: `github-${id}@testers.invalid`, name: login, emailVerified: false, accountCreatedAt: new Date(Date.now() - (o.ageDays ?? 2000) * 86_400_000) }, { method: "test" });
+    await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: "github", accountId: String(id), accessToken: `token-${login}`, refreshToken: "r" });
     const s = await ctx.internalAdapter.createSession(user.id);
     const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
     const sig = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(s.token)))));
-    return `${ctx.authCookies.sessionToken.name}=${encodeURIComponent(`${s.token}.${sig}`)}`;
+    return { cookie: `${ctx.authCookies.sessionToken.name}=${encodeURIComponent(`${s.token}.${sig}`)}`, userId: user.id };
   };
 
-  const register = async (cookie: string, issuer: string, origin = ORIGIN) =>
-    call("/register", { method: "POST", cookie, headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ issuer, authMethod: "client_secret_basic", "cf-turnstile-response": "ok" }).toString() });
+  const register = async (cookie: string, issuer: string, o: { origin?: string; ip?: string } = {}) =>
+    call("/register", { method: "POST", cookie, ip: o.ip ?? IP, headers: { origin: o.origin ?? ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ issuer, authMethod: "client_secret_basic", "cf-turnstile-response": "ok" }).toString() });
 
-  const credentials = async (page: Response) => {
-    const html = await page.text();
+  const credentials = async (page: Response | string) => {
+    const html = typeof page === "string" ? page : await page.text();
     const secret = html.match(/shown once:<\/strong> copy it now\.<\/p><pre>([^<]+)<\/pre>/)?.[1];
     const clientId = html.match(/<td><code>client_id<\/code><\/td><td><code>([^<]+)<\/code>/)?.[1];
     if (!secret || !clientId) throw new Error(`no credentials in: ${html.slice(0, 400)}`);
     return { clientId, secret };
   };
 
-  const idJag = (issuer: string, clientId: string, claims: Record<string, unknown> = {}, header: Record<string, unknown> = {}) => {
+  const idJag = (issuer: string, clientId: string, claims: Record<string, unknown> = {}, header: Record<string, unknown> = {}, signer: string = issuer) => {
     const now = Math.floor(Date.now() / 1000);
     return new SignJWT({ iss: issuer, sub: "u1", aud: AUD, client_id: clientId, jti: crypto.randomUUID(), iat: now, exp: now + 300, resource: `${ORIGIN}/mcp`, scope: "read", ...claims })
       .setProtectedHeader({ alg: "RS256", typ: "oauth-id-jag+jwt", kid: "k1", ...header })
-      .sign(signers[issuer] as CryptoKey);
+      .sign(signers[signer] as CryptoKey);
   };
 
   const redeem = (c: { clientId: string; secret: string }, assertion: string) =>
     call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${c.clientId}:${c.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() });
 
   const rows = async <T>(sql: string, ...binds: unknown[]) => (await env.DB.prepare(sql).bind(...binds).all()).results as T[];
+  const lastCheck = async () => (await rows<{ results: string; error: string | null; httpStatus: number; checkedAgainst: string }>(`select results, error, httpStatus, checkedAgainst from testerCheck order by at desc, rowid desc limit 1`))[0];
+  const failed = (check: { results: string } | undefined) => (JSON.parse(check?.results ?? "[]") as { id: string; outcome: string }[]).filter((r) => r.outcome === "fail").map((r) => r.id);
 
   beforeAll(async () => {
     cf = await import("cloudflare:test");
     const ok = { limit: async () => ({ success: true }) };
-    env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", ADMIN_STATS_KEY: KEYS.stats, ADMIN_CLOSE_KEY: KEYS.close, ADMIN_OPEN_KEY: KEYS.open, TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
+    env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", GITLAB_CLIENT_ID: "gl", GITLAB_CLIENT_SECRET: "gl-secret", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", ADMIN_STATS_KEY: KEYS.stats, ADMIN_CLOSE_KEY: KEYS.close, ADMIN_OPEN_KEY: KEYS.open, TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
     for (const sql of [init0001, init0002]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     for (const issuer of ISSUERS) {
       const pair = await generateKeyPair("RS256", { extractable: true });
@@ -87,10 +94,6 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
         if (url === `${new URL(issuer).origin}/.well-known/oauth-authorization-server`) return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"] });
         if (url === `${issuer}/jwks`) return Response.json(jwks[issuer]);
       }
-      if (url === "https://api.github.com/user") {
-        const login = String(new Headers(init?.headers).get("authorization")).replace("Bearer token-", "");
-        return Response.json({ login, created_at: login === "newbie" ? new Date().toISOString() : "2019-05-01T00:00:00Z" });
-      }
       if (url === "https://challenges.cloudflare.com/turnstile/v0/siteverify") return Response.json({ success: (init?.body as URLSearchParams | undefined)?.get?.("response") === "ok" });
       if (url.startsWith(ORIGIN)) return real(input, init);
       return new Response("not found", { status: 404 });
@@ -101,72 +104,132 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     // Room for every registration these tests make; the daily caps are tested on their own.
     LIMITS.registrationsPerDay = 100;
     LIMITS.registrationsPerIpPerDay = 100;
-    // Five RSA keys and the schema: slow on a loaded runner, so the whole test timeout, not a hook's 10 s.
+    // Six RSA keys and the schema: slow on a loaded runner, so the whole test timeout, not a hook's 10 s.
   }, 60_000);
 
   afterAll(() => fetchSpy?.mockRestore());
 
-  let alice: string;
+  let alice: { cookie: string; userId: string };
   let aliceClient: { clientId: string; secret: string };
+  let mallory: { cookie: string; userId: string };
+  let malloryClient: { clientId: string; secret: string };
 
-  it("a tester registers an issuer and gets a client; the page shows the values to mint with", async () => {
+  it("sign-in keeps the login and account age, never the email, picture or provider tokens", async () => {
+    const { createAuth } = await import("../../examples/workers/tester/src/auth");
+    const options = createAuth(env as never, ORIGIN).options as unknown as { socialProviders: Record<string, { mapProfileToUser(p: unknown): Record<string, unknown>; scope?: string[]; disableDefaultScope?: boolean }> };
+    const gh = options.socialProviders.github;
+    expect(gh?.disableDefaultScope).toBe(true);
+    expect(gh?.scope).toEqual(["read:user"]);
+    expect(gh?.mapProfileToUser({ id: 42, login: "octo", email: "octo@example.com", avatar_url: "https://x/a.png", created_at: "2015-01-01T00:00:00Z" })).toEqual({ email: "github-42@testers.invalid", name: "octo", image: undefined, emailVerified: false, accountCreatedAt: new Date("2015-01-01T00:00:00Z") });
+    expect(options.socialProviders.gitlab?.mapProfileToUser({ id: 7, username: "tanuki", email: "t@example.com", created_at: "2016-01-01T00:00:00Z" })).toMatchObject({ email: "gitlab-7@testers.invalid", name: "tanuki" });
     alice = await signedIn("alice");
-    const page = await register(alice, ISSUERS[0]);
-    expect(page.status).toBe(200);
-    aliceClient = await credentials(page.clone());
-    expect(await page.text()).toContain(AUD);
-    const [trust] = await rows<{ issuer: string; allowedClientIds: string; jitProvisioning: number }>(`select issuer, allowedClientIds, jitProvisioning from "idJagTrustedIssuer"`);
-    expect(trust).toMatchObject({ issuer: ISSUERS[0], allowedClientIds: JSON.stringify([aliceClient.clientId]), jitProvisioning: 0 });
+    expect(await rows(`select accessToken, refreshToken, idToken from "account" where userId = ?`, alice.userId)).toEqual([{ accessToken: null, refreshToken: null, idToken: null }]);
+    const home = await (await call("/")).text();
+    expect(home).toContain("Sign in with GitHub");
+    expect(home).toContain("Sign in with GitLab");
   });
 
-  it("a correct ID-JAG is accepted, every rule passes, and the MCP tools answer", async () => {
+  it("a tester registers an issuer: pending, a client, no trust row yet; the abuse record holds fingerprints only", async () => {
+    const page = await register(alice.cookie, ISSUERS[0]);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+    expect(html).toContain("Registered, pending");
+    expect(html).toContain(AUD);
+    aliceClient = await credentials(html);
+    expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
+    const abuse = await rows<Record<string, unknown>>(`select * from testerAbuse`);
+    expect(abuse).toHaveLength(1);
+    const text = JSON.stringify(abuse);
+    for (const personal of ["alice", IP, "198.51.100", alice.userId]) expect(text).not.toContain(personal);
+    expect(abuse[0]).toMatchObject({ provider: "github", accountAge: "over 5 years", issuerHost: "idp-one.example.org", confirmed: 0 });
+    // Nothing anywhere stores the address itself.
+    for (const table of ["testerRegistration", "testerCheck", "testerAbuse", "testerKey", "testerBlock"]) expect(JSON.stringify(await rows(`select * from ${table}`))).not.toContain("198.51.100");
+  });
+
+  it("a pending issuer can be registered by others too; only the issuer's key confirms", async () => {
+    mallory = await signedIn("mallory");
+    malloryClient = await credentials(await register(mallory.cookie, ISSUERS[0]));
+    // Mallory doesn't have the issuer's key: the ID-JAG is refused, nothing is confirmed, and the report says why.
+    expect((await redeem(malloryClient, await idJag(ISSUERS[0], malloryClient.clientId, {}, {}, ISSUERS[1]))).status).toBe(400);
+    const check = await lastCheck();
+    expect(check?.error).toBe("not_confirmed");
+    expect(failed(check)).toContain("signature");
+    expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
+  });
+
+  it("the first correctly signed ID-JAG confirms the registration and is redeemed; the MCP tools answer", async () => {
     const response = await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
     const body = (await response.json()) as { access_token?: string; scope?: string };
     expect(response.status, JSON.stringify(body)).toBe(200);
     expect(body.scope).toBe("read");
-    const [check] = await rows<{ httpStatus: number; results: string }>(`select httpStatus, results from testerCheck order by at desc limit 1`);
+    const [trust] = await rows<{ allowedClientIds: string }>(`select allowedClientIds from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[0]);
+    expect(trust?.allowedClientIds).toBe(JSON.stringify([aliceClient.clientId]));
+    const check = await lastCheck();
     expect(check?.httpStatus).toBe(200);
-    expect((await rows<{ checkedAgainst: string }>(`select checkedAgainst from testerCheck`))[0]?.checkedAgainst).toMatch(/^draft-ietf-oauth-identity-assertion-authz-grant-06; better-auth-id-jag \d+\.\d+\.\d+/);
-    expect((JSON.parse(check?.results ?? "[]") as { outcome: string }[]).filter((r) => r.outcome === "fail")).toEqual([]);
+    expect(failed(check)).toEqual([]);
+    expect(check?.checkedAgainst).toMatch(/^draft-ietf-oauth-identity-assertion-authz-grant-06; better-auth-id-jag \d+\.\d+\.\d+/);
+    expect(await rows(`select confirmed from testerAbuse where confirmed = 1`)).toHaveLength(1);
 
     const mcp = (method: string, params: unknown = {}) => call("/mcp", { method: "POST", headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
     const whoami = (await (await mcp("tools/call", { name: "whoami" })).json()) as { result: { content: { text: string }[] } };
     expect(JSON.parse(whoami.result.content[0]?.text ?? "{}")).toMatchObject({ scope: "read" });
     const checks = (await (await mcp("tools/call", { name: "checks" })).json()) as { result: { content: { text: string }[] } };
-    expect(JSON.parse(checks.result.content[0]?.text ?? "[]")).toHaveLength(1);
+    expect(JSON.parse(checks.result.content[0]?.text ?? "[]")[0]).toMatchObject({ httpStatus: 200 });
+  });
+
+  it("once proven, the issuer is held: the squatter can't take it, and nobody else can register it", async () => {
+    expect((await redeem(malloryClient, await idJag(ISSUERS[0], malloryClient.clientId))).status).toBe(400);
+    expect((await lastCheck())?.error).toBe("issuer_taken");
+    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[0])).toHaveLength(1);
+    expect(await (await register((await signedIn("trent")).cookie, ISSUERS[0])).text()).toContain("Another tester has proven that issuer");
+  });
+
+  it("the reservation itself refuses an issuer someone has proven, whatever got past the page's own check", async () => {
+    const store = await import("../../examples/workers/tester/src/store");
+    const now = Date.now();
+    const reg = { id: "direct", userId: "nobody", issuer: ISSUERS[0], jwksUri: "", jwks: "{}", jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod: "client_secret_basic", metadataReport: "[]", blockAccountFp: "a", blockNetFp: "n", createdAt: now, expiresAt: now + 3_600_000, confirmedAt: null, revokedAt: null, revokedReason: null };
+    const abuse = { id: "direct", at: now, keyId: "w0", provider: "github", accountFp: "x", ipFp: "y", netFp: "z", accountAge: "over 5 years", issuerHost: "idp-one.example.org" };
+    expect(await store.reserve(env.DB as never, reg, abuse, { day: 0, perDay: 100, perAccount: 100, perIp: 100 })).toBe(false);
+    expect(await rows(`select id from testerAbuse where id = 'direct'`)).toEqual([]);
+  });
+
+  it("an unknown client is refused before the receiver; only jwt-bearer is accepted; other Better Auth paths are closed", async () => {
+    expect((await redeem({ clientId: "nobody", secret: "x" }, "a.b.c")).status).toBe(401);
+    expect((await call("/api/auth/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials" })).status).toBe(400);
+    for (const path of ["/api/auth/sign-up/email", "/api/auth/oauth2/register", "/api/auth/sign-in/email", "/api/auth/admin/oauth2/create-client"]) expect((await call(path, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status, path).toBe(404);
+    expect((await call("/api/auth/oauth2/authorize?client_id=x")).status).toBe(404);
   });
 
   it("a bad ID-JAG is refused by the receiver and the report names every rule it broke", async () => {
     const response = await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId, { scope: undefined, aud: [AUD, "https://x.example"] }, { typ: "JWT" }));
     expect(response.status).toBe(400);
-    const [check] = await rows<{ results: string; error: string }>(`select results, error from testerCheck order by at desc limit 1`);
-    const failed = (JSON.parse(check?.results ?? "[]") as { id: string; outcome: string }[]).filter((r) => r.outcome === "fail").map((r) => r.id);
-    expect(failed).toEqual(expect.arrayContaining(["header.typ", "claim.aud", "claim.scope"]));
+    const check = await lastCheck();
+    expect(failed(check)).toEqual(expect.arrayContaining(["header.typ", "claim.aud", "claim.scope"]));
     expect(check?.error).toBe("invalid_grant");
   });
 
-  it("the results page shows the reports, escaped", async () => {
+  it("the results page shows the reports, escaped, with the registration's state and the delete button", async () => {
     await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId, { aud: "<script>alert(1)</script>", jti: "<img src=x onerror=alert(1)>" }));
-    const html = await (await call("/results", { cookie: alice })).text();
+    const html = await (await call("/results", { cookie: alice.cookie })).text();
     expect(html).toContain(ISSUERS[0]);
     expect(html).toContain("every rule passed");
+    expect(html).toContain("Confirmed.");
+    expect(html).toContain("Delete my data now");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("<img src=x");
+    expect(await (await call("/results", { cookie: mallory.cookie })).text()).toContain("Pending");
   });
 
-  it("one active registration per tester, one tester per issuer, accounts at least 30 days old, same-origin forms only", async () => {
-    expect(await (await register(alice, ISSUERS[1])).text()).toContain("one at a time");
-    const bob = await signedIn("bob");
-    expect(await (await register(bob, ISSUERS[0])).text()).toContain("registered by someone else");
-    expect(await (await register(await signedIn("newbie"), ISSUERS[1])).text()).toContain("at least 30 days old");
-    expect((await register(bob, ISSUERS[1], "https://evil.example")).status).toBe(403);
+  it("one active registration per tester, accounts at least 30 days old, same-origin forms only", async () => {
+    expect(await (await register(alice.cookie, ISSUERS[1])).text()).toContain("one at a time");
+    expect(await (await register((await signedIn("newbie", { ageDays: 3 })).cookie, ISSUERS[1])).text()).toContain("at least 30 days old");
+    expect((await register((await signedIn("bob")).cookie, ISSUERS[1], { origin: "https://evil.example" })).status).toBe(403);
   });
 
-  it("issuers are isolated: the same sub at two issuers is two sandbox users, and neither is a GitHub user", async () => {
-    const bobClient = await credentials(await register(await signedIn("bob2"), ISSUERS[1]));
+  it("issuers are isolated: the same sub at two issuers is two sandbox users, and neither is a tester", async () => {
+    const bobClient = await credentials(await register((await signedIn("bob2")).cookie, ISSUERS[1]));
     expect((await redeem(bobClient, await idJag(ISSUERS[1], bobClient.clientId))).status).toBe(200);
-    // Alice's client can't redeem the other issuer's ID-JAG, nor Bob's its own issuer's.
     expect((await redeem(aliceClient, await idJag(ISSUERS[1], aliceClient.clientId))).status).toBe(400);
     expect((await redeem(bobClient, await idJag(ISSUERS[0], bobClient.clientId))).status).toBe(400);
     expect(await rows(`select reason from "idJagAudit" where reason = 'client_mismatch' and clientId in (?, ?)`, aliceClient.clientId, bobClient.clientId)).toHaveLength(2);
@@ -188,37 +251,31 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     }
   });
 
-  it("an unknown client is refused before the receiver; only jwt-bearer is accepted; other Better Auth paths are closed", async () => {
-    expect((await redeem({ clientId: "nobody", secret: "x" }, "a.b.c")).status).toBe(401);
-    const cc = await call("/api/auth/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=client_credentials" });
-    expect(cc.status).toBe(400);
-    expect((await call("/api/auth/sign-up/email", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(404);
-    expect((await call("/api/auth/oauth2/register", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(404);
+  it("at the same moment: one user gets one registration; two users proving one issuer get one trust row", async () => {
+    const carol = await signedIn("carol");
+    const both = await Promise.all([register(carol.cookie, ISSUERS[3]), register(carol.cookie, ISSUERS[4])]);
+    expect((await Promise.all(both.map((r) => r.text()))).filter((t) => t.includes("shown once"))).toHaveLength(1);
+    const [erin, frank] = await Promise.all([signedIn("erin"), signedIn("frank")]);
+    const clients = [await credentials(await register(erin.cookie, ISSUERS[5])), await credentials(await register(frank.cookie, ISSUERS[5]))];
+    const answers = await Promise.all(clients.map(async (c) => redeem(c, await idJag(ISSUERS[5], c.clientId))));
+    expect(answers.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[5])).toHaveLength(1);
   });
 
-  it("registrations at the same moment can't get past the limits", async () => {
-    // One user, two issuers at once: one registration.
-    const carol = await signedIn("carol");
-    const both = await Promise.all([register(carol, ISSUERS[3]), register(carol, ISSUERS[4])]);
-    expect((await Promise.all(both.map((r) => r.text()))).filter((t) => t.includes("shown once"))).toHaveLength(1);
-    // Two users, one issuer at once: one registration, one trust row.
-    const [dave, erin] = await Promise.all([signedIn("dave"), signedIn("erin")]);
-    // Alice's registration of that issuer has just ended and the scheduled purge hasn't run: registering must still work.
+  it("an issuer whose registration just ended can be proven again before the purge runs", async () => {
     await env.DB.prepare(`update testerRegistration set revokedAt = ? where clientId = ?`).bind(Date.now(), aliceClient.clientId).run();
-    const race = await Promise.all([register(dave, ISSUERS[0]), register(erin, ISSUERS[0])]);
-    const won = (await Promise.all(race.map((r) => r.text()))).filter((t) => t.includes("shown once"));
-    expect(won).toHaveLength(1);
-    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[0])).toHaveLength(1);
-    // The winner's client works: a fresh registration of an issuer whose old one was ended and purged.
-    aliceClient = await credentials(new Response(won[0]));
+    const grace = await signedIn("grace");
+    aliceClient = await credentials(await register(grace.cookie, ISSUERS[0]));
+    alice = grace;
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
+    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[0])).toHaveLength(1);
   });
 
   it("the daily registration cap holds", async () => {
     const before = LIMITS.registrationsPerDay;
-    LIMITS.registrationsPerDay = (await rows(`select id from testerRegistration`)).length;
+    LIMITS.registrationsPerDay = (await rows(`select id from testerAbuse`)).length;
     try {
-      expect(await (await register(await signedIn("frank"), ISSUERS[2])).text()).toContain("used up");
+      expect(await (await register((await signedIn("heidi")).cookie, ISSUERS[2])).text()).toContain("used up");
     } finally {
       LIMITS.registrationsPerDay = before as number;
     }
@@ -237,8 +294,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   it("a stored JWKS that isn't one is refetched, never a 500", async () => {
     await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0 where clientId = ?`).bind(aliceClient.clientId).run();
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
-    const [check] = await rows<{ results: string }>(`select results from testerCheck order by at desc limit 1`);
-    expect((JSON.parse(check?.results ?? "[]") as { id: string; outcome: string }[]).find((r) => r.id === "signature")?.outcome).toBe("pass");
+    expect(failed(await lastCheck())).toEqual([]);
   });
 
   it("the daily redemption budget stops redemptions until 00:00 UTC without closing the tester", async () => {
@@ -261,11 +317,14 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     }
   });
 
-  it("admin keys: stats reads, close closes, only the open key reopens", async () => {
-    const admin = (path: string, key: string, method = "POST") => call(path, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify({ reason: "test" }) } : {}) });
+  it("admin keys: stats reads fingerprints and counts only; close closes; only the open key reopens", async () => {
+    const admin = (path: string, key: string, method = "POST", body: unknown = { reason: "test" }) => call(path, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify(body) } : {}) });
     expect((await admin("/admin/stats", "wrong", "GET")).status).toBe(403);
-    const stats = (await (await admin("/admin/stats", KEYS.stats, "GET")).json()) as { checksToday: number; state: { closed: boolean } };
+    const statsText = await (await admin("/admin/stats", KEYS.stats, "GET")).text();
+    const stats = JSON.parse(statsText) as { checksToday: number; abuseRecord: unknown[] };
     expect(stats.checksToday).toBeGreaterThan(0);
+    expect(stats.abuseRecord.length).toBeGreaterThan(0);
+    for (const personal of ["alice", "mallory", IP, "testers.invalid"]) expect(statsText).not.toContain(personal);
     expect((await admin("/admin/close", KEYS.stats)).status).toBe(403);
     expect((await admin("/admin/close", KEYS.close)).status).toBe(200);
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(503);
@@ -274,12 +333,23 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
   });
 
-  it("the deploy-level switch closes everything but the admin endpoints", async () => {
+  it("blocking: the account and its network stay out, by fingerprint, and the registration ends", async () => {
+    const [reg] = await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, malloryClient.clientId);
+    const block = await call("/admin/block", { method: "POST", headers: { authorization: `Bearer ${KEYS.close}`, "content-type": "application/json" }, body: JSON.stringify({ registrationId: reg?.id, kinds: ["account", "network"], reason: "test" }) });
+    expect(await block.json()).toEqual({ blocked: ["account", "network"], revoked: true });
+    await worker.scheduled({}, env);
+    expect(await (await register(mallory.cookie, ISSUERS[2], { ip: "203.0.113.9" })).text()).toContain("register here for now");
+    // Someone else from Mallory's network (the next address) is kept out too.
+    expect(await (await register((await signedIn("mallory2")).cookie, ISSUERS[2], { ip: "198.51.100.8" })).text()).toContain("register here for now");
+    expect(JSON.stringify(await rows(`select * from testerBlock`))).not.toContain("198.51.100");
+  });
+
+  it("the deploy-level switch closes everything but the home page and the admin endpoints", async () => {
     env.TESTER_ENABLED = "false";
     try {
       expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(503);
       expect((await call("/signin", { method: "POST", headers: { origin: ORIGIN } })).status).toBe(503);
-      expect((await call("/results", { cookie: alice })).status).toBe(503);
+      expect((await call("/results", { cookie: alice.cookie })).status).toBe(503);
       expect((await call("/api/auth/callback/github?code=x&state=y")).status).toBe(503);
       expect((await call("/mcp", { method: "POST" })).status).toBe(503);
       expect((await call("/")).status).toBe(200);
@@ -289,7 +359,26 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     }
   });
 
-  it("revoking a registration stops its client at once; expiry and the purge remove everything it left", async () => {
+  it("delete my data now: the registration, its results and the tester's records go at once; the abuse record stays", async () => {
+    const ivan = await signedIn("ivan");
+    // From another network: the blocklist test above blocked this file's usual one.
+    const ivanClient = await credentials(await register(ivan.cookie, ISSUERS[2], { ip: "192.0.2.10" }));
+    expect((await redeem(ivanClient, await idJag(ISSUERS[2], ivanClient.clientId))).status).toBe(200);
+    const [reg] = await rows<{ id: string }>(`select id from testerRegistration where userId = ?`, ivan.userId);
+    expect((await call("/delete", { method: "POST", cookie: ivan.cookie, headers: { origin: "https://evil.example" } })).status).toBe(403);
+    const done = await call("/delete", { method: "POST", cookie: ivan.cookie, headers: { origin: ORIGIN } });
+    expect(done.status).toBe(200);
+    expect(await rows(`select id from "user" where id = ?`, ivan.userId)).toEqual([]);
+    expect(await rows(`select id from "session" where userId = ?`, ivan.userId)).toEqual([]);
+    expect(await rows(`select id from "account" where userId = ?`, ivan.userId)).toEqual([]);
+    expect(await rows(`select id from testerRegistration where userId = ?`, ivan.userId)).toEqual([]);
+    expect(await rows(`select id from "oauthClient" where clientId = ?`, ivanClient.clientId)).toEqual([]);
+    expect(await rows(`select id from testerCheck where registrationId = ?`, reg?.id)).toEqual([]);
+    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[2])).toEqual([]);
+    expect(await rows(`select ended from testerAbuse where id = ?`, reg?.id)).toEqual([{ ended: "deleted by the tester" }]);
+  });
+
+  it("revoking a registration stops its client and tokens at once; expiry and the purge remove everything, testers included", async () => {
     const issued = (await (await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).json()) as { access_token: string };
     const [reg] = await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId);
     const revoke = await call("/admin/revoke", { method: "POST", headers: { authorization: `Bearer ${KEYS.close}`, "content-type": "application/json" }, body: JSON.stringify({ registrationId: reg?.id, reason: "test" }) });
@@ -299,13 +388,16 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(mcp.status).toBe(401);
     expect(await rows(`select id from "idJagTrustedIssuer" where enabled = 1 and allowedClientIds like ?`, `%${aliceClient.clientId}%`)).toEqual([]);
 
+    // Every registration ends; every sign-in ends; a week passes for the abuse record and two for the keys.
     await env.DB.prepare(`update testerRegistration set expiresAt = ?`).bind(Date.now() - 1).run();
+    await env.DB.prepare(`update "session" set expiresAt = ?`).bind(new Date(Date.now() - 1000).toISOString()).run();
+    for (let i = 0; i < 3; i++) await worker.scheduled({}, env);
+    for (const table of ["oauthClient", "idJagTrustedIssuer", "testerRegistration", "testerCheck", "idJagAudit", "idJagJti", "session", "account", "user"]) expect(await rows(`select * from "${table}"`), table).toEqual([]);
+    expect((await rows(`select id from testerAbuse`)).length).toBeGreaterThan(0);
+    await env.DB.prepare(`update testerAbuse set at = ?`).bind(Date.now() - 8 * 86_400_000).run();
+    await env.DB.prepare(`update testerKey set createdAt = ? where id <> 'block'`).bind(Date.now() - 15 * 86_400_000).run();
+    await env.DB.prepare(`update testerBlock set expiresAt = ?`).bind(Date.now() - 1).run();
     await worker.scheduled({}, env);
-    expect(await rows(`select id from "oauthClient"`)).toEqual([]);
-    expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
-    expect(await rows(`select id from "user" where email like '%.sandbox.invalid'`)).toEqual([]);
-    expect(await rows(`select id from testerCheck`)).toEqual([]);
-    expect(await rows(`select id from "idJagAudit"`)).toEqual([]);
-    expect((await rows<{ purgedAt: number | null }>(`select purgedAt from testerRegistration`)).every((r) => r.purgedAt !== null)).toBe(true);
+    for (const table of ["testerAbuse", "testerKey", "testerBlock"]) expect(await rows(`select * from "${table}"`), table).toEqual([]);
   });
 });

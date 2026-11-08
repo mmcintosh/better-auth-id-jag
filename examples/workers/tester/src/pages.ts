@@ -33,14 +33,18 @@ export function page(title: string, body: string, { turnstile = false, status = 
 
 const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it (<a href="https://github.com/mmcintosh/better-auth-id-jag/tree/main/examples/workers/tester">the rules' code</a>). A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
 
-export function landing(signedIn: boolean, closed: boolean): Response {
+const PROVIDER_NAMES = { github: "GitHub", gitlab: "GitLab" } as const;
+
+export function landing(signedIn: boolean, closed: boolean, providers: (keyof typeof PROVIDER_NAMES)[]): Response {
+  const names = providers.map((p) => PROVIDER_NAMES[p]).join(" or ");
+  const signIn = providers.map((p) => `<form method="post" action="/signin" style="display:inline-block;margin-right:8px"><input type="hidden" name="provider" value="${p}"><button>Sign in with ${PROVIDER_NAMES[p]}</button></form>`).join("");
   return page(
     "Test your IdP",
     `<h1>Test your IdP</h1>
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
-<ol><li>Sign in with GitHub (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint.</li><li>Read the report.</li></ol>
-${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : '<form method="post" action="/signin"><button>Sign in with GitHub</button></form>'}
+<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint. The first one signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
 ${FOOTER}`,
   );
 }
@@ -57,7 +61,7 @@ ${error ? `<p class="fail">${esc(error)}</p>` : ""}
 <div class="cf-turnstile" data-sitekey="${esc(siteKey)}"></div>
 <p><button>Register</button></p>
 </form>
-<p class="muted">One active IdP per GitHub account. Registering again later is fine.</p>
+<p class="muted">One active IdP per account. Registering again later is fine.</p>
 ${FOOTER}`,
     { turnstile: true, status: error ? 400 : 200 },
   );
@@ -71,8 +75,8 @@ export function registered(o: { origin: string; clientId: string; clientSecret: 
   const auth = o.authMethod === "client_secret_post" ? `-d client_id=${o.clientId} -d client_secret=YOUR_SECRET` : `-u ${o.clientId}:YOUR_SECRET`;
   return page(
     "Registered",
-    `<h1>Registered</h1>
-<p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.</p>
+    `<h1>Registered, pending</h1>
+<p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer) and is redeemed as usual. Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
 <div class="box"><p><strong>Client secret, shown once:</strong> copy it now.</p><pre>${esc(o.clientSecret)}</pre></div>
 <h2>Mint your ID-JAG with</h2>
 <table><tr><td><code>iss</code></td><td><code>${esc(o.issuer)}</code></td></tr>
@@ -97,17 +101,18 @@ export interface ResultView {
   issuer: string;
   clientId: string;
   expiresAt: number;
+  pending: boolean;
   ended: string | null;
   metadata: RuleResult[];
   checks: { at: number; checkedAgainst: string; jti: string | null; httpStatus: number; error: string | null; results: RuleResult[]; receiver: { type: string; reason: string | null } | null }[];
 }
 
-export function results(views: ResultView[]): Response {
+export function results(views: ResultView[], name: string): Response {
   const body = views.length
     ? views
         .map(
           (v) => `<div class="box"><h2 style="margin-top:0">${esc(v.issuer)}</h2>
-<p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`}</p>
+<p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
 <details><summary>Metadata and keys</summary><div class="wrap"><table>${ruleRows(v.metadata)}</table></div></details>
 ${
   v.checks.length
@@ -125,7 +130,8 @@ ${
         )
         .join("")
     : '<p class="muted">No registrations. <a href="/register">Register an IdP</a>.</p>';
-  return page("Your results", `<h1>Your results</h1><p><a href="/">Home</a> &middot; <a href="/register">Register</a></p>${body}${FOOTER}`);
+  const deleteForm = `<div class="box"><p><strong>Delete my data now.</strong> Ends your registrations and deletes them, their results, and your sign-in record at once. Only the anonymous abuse record remains, for up to 7 days.</p><form method="post" action="/delete"><button>Delete my data now</button></form></div>`;
+  return page("Your results", `<h1>Your results</h1><p class="muted">Signed in as ${esc(name)}.</p><p><a href="/">Home</a> &middot; <a href="/register">Register</a></p>${body}${deleteForm}${FOOTER}`);
 }
 
 export function message(title: string, text: string, status: number): Response {
