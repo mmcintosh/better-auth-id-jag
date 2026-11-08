@@ -30,6 +30,15 @@
   tool calls. What a server needs to know about each, including that a refusal for any reason other than a missing scope
   belongs in an MCP tool error, not a 403 `insufficient_scope`, which made both clients sign in again.
 
+### Example
+
+- **A public "test your IdP" receiver** (`examples/workers/tester`, `docs/test-your-idp.md`): someone building an
+  ID-JAG issuer signs in with GitHub, registers their issuer for 24 hours, redeems ID-JAGs at this package's
+  receiver, and reads every rule each one passed or failed, with the draft -06 section, beside the receiver's own
+  decision. Locked down: one registration per account and per issuer, each issuer's subjects in their own sandbox,
+  rate limits and daily budgets, a stored and a deploy-level kill switch, admin keys that can close but not reopen,
+  and a purge of everything a registration left. Not deployed yet.
+
 ## [0.6.0] - 2026-11-04
 
 ### Breaking

@@ -5,5 +5,5 @@
     "skipLibCheck": true, "noEmit": true,
     "paths": { "better-auth-id-jag": ["../../dist/index.d.ts"] }
   },
-  "include": ["background.ts", "enterprise-idp/src", "mcp-server/src"]
+  "include": ["background.ts", "enterprise-idp/src", "mcp-server/src", "tester/src"]
 }
