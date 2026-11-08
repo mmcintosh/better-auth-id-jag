@@ -18,6 +18,8 @@
   "triggers": { "crons": ["*/5 * * * *"] },
   "vars": {
     "TESTER_ENABLED": "true",
+    // The one origin served, e.g. "https://idjag-tester.example.org" (set it in a deployment; empty serves any).
+    "PUBLIC_ORIGIN": "",
     // Cloudflare's Turnstile test key (always passes); a real deployment uses its own widget's site key.
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_APP_CLIENT_ID"

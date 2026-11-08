@@ -3,8 +3,8 @@
 // never a gate: the tester still sends the request to the real receiver, whose decision is what counts.
 //
 // Pure: no network, no clock of its own. The caller passes the issuer's JWKS and the time.
-import { compactVerify, createLocalJWKSet, decodeProtectedHeader, type JSONWebKeySet } from "jose";
-import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TOKEN_TYPE, ID_JAG_TYP, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, MAX_LIFETIME_SECONDS } from "better-auth-id-jag";
+import { compactVerify, importJWK, type JSONWebKeySet, type JWK } from "jose";
+import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TOKEN_TYPE, ID_JAG_TYP, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, MAX_LIFETIME_SECONDS, parseIdJag } from "better-auth-id-jag";
 
 /** MUST and friends from the draft; POLICY is this receiver's own choice, which the draft allows. */
 export type Level = "MUST" | "SHOULD" | "RECOMMENDED" | "OPTIONAL" | "POLICY";
@@ -86,26 +86,40 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   add("jwt.structure", "MUST", "RFC 7519 section 7.2", "pass", "A compact JWT with a JSON header and claims.");
 
   // Header.
-  add("header.typ", "MUST", D("4.4.1, 3.1"), header.typ === ID_JAG_TYP ? "pass" : "fail", header.typ === ID_JAG_TYP ? `typ is ${ID_JAG_TYP}.` : `typ must be ${ID_JAG_TYP}; it is ${show(header.typ)}.`);
+  // typ is a media type (RFC 7515 section 4.1.9): any letter case, "application/" optional. The receiver accepts both forms.
+  const typ = typeof header.typ === "string" ? header.typ.toLowerCase() : undefined;
+  const typOk = typ === ID_JAG_TYP || typ === `application/${ID_JAG_TYP}`;
+  add("header.typ", "MUST", D("4.4.1, 3.1") + "; RFC 7515 section 4.1.9", typOk ? "pass" : "fail", typOk ? (header.typ === ID_JAG_TYP ? `typ is ${ID_JAG_TYP}.` : `typ ${show(header.typ)} is accepted (a media type: any case, application/ optional); ${ID_JAG_TYP} is the usual form.`) : `typ must be ${ID_JAG_TYP}; it is ${show(header.typ)}.`);
   const alg = header.alg;
   const algAllowed = typeof alg === "string" && (ALLOWED_ALGORITHMS as readonly string[]).includes(alg);
   add("header.alg", "POLICY", D("3, 4.4.1"), algAllowed ? "pass" : "fail", algAllowed ? `alg ${alg}, which this receiver accepts (${ALLOWED_ALGORITHMS.join(", ")}).` : `alg ${show(alg)} is not accepted here (${ALLOWED_ALGORITHMS.join(", ")}); never none or HS*.`);
   if (algAllowed && alg !== "RS256") add("header.alg.rs256", "MUST", D("3"), "info", "RS256 is mandatory to implement for IdPs and receivers; this ID-JAG uses another algorithm, which receivers SHOULD (ES256) or may accept.");
-  add("header.kid", "OPTIONAL", "RFC 7515 section 4.1.4", isNonEmptyString(header.kid) ? "pass" : "warn", isNonEmptyString(header.kid) ? "kid names the signing key." : "No kid: a receiver has to try every key in your JWKS. Name the key, so key rotation works.");
+  // The receiver needs the key named: a kid, or else a certificate thumbprint (PingFederate sends x5t, never a kid).
+  const thumbprintOk = (name: "x5t" | "x5t#S256") => header[name] === undefined || (typeof header[name] === "string" && (name === "x5t" ? /^[A-Za-z0-9_-]{27}$/ : /^[A-Za-z0-9_-]{43}$/).test(header[name] as string));
+  const hasThumbprint = header.x5t !== undefined || header["x5t#S256"] !== undefined;
+  if (!thumbprintOk("x5t") || !thumbprintOk("x5t#S256")) add("header.kid", "MUST", "RFC 7515 sections 4.1.7, 4.1.8", "fail", "x5t or x5t#S256 is present but isn't a base64url SHA-1 or SHA-256 thumbprint.");
+  else if (header.kid !== undefined && !isNonEmptyString(header.kid)) add("header.kid", "POLICY", "RFC 7515 section 4.1.4", "fail", "kid must be a non-empty string.");
+  else if (isNonEmptyString(header.kid)) add("header.kid", "POLICY", "RFC 7515 section 4.1.4", "pass", "kid names the signing key.");
+  else if (hasThumbprint) add("header.kid", "POLICY", "RFC 7515 sections 4.1.7, 4.1.8", "warn", "No kid; the key is named by certificate thumbprint, which this receiver accepts. Some receivers look only at kid.");
+  else add("header.kid", "POLICY", "RFC 7515 section 4.1.4", "fail", "Neither kid nor x5t: this receiver refuses an ID-JAG that doesn't name its key (missing_kid). Name the key, so key rotation works.");
+  if (header.crit !== undefined) add("header.crit", "MUST", "RFC 7515 section 4.1.11", "fail", "crit lists header parameters a receiver must understand; this receiver understands none, so it refuses.");
 
   // Signature, with the issuer's published keys.
   if (!input.jwks) add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "skip", "Your JWKS couldn't be fetched, so the signature wasn't checked.");
   else if (!algAllowed) add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "fail", "Not checked: the algorithm isn't accepted.");
   else {
-    try {
-      decodeProtectedHeader(token);
-      await compactVerify(token, createLocalJWKSet(input.jwks), { algorithms: [...ALLOWED_ALGORITHMS] });
-      add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "pass", "The signature verifies with a key from your JWKS.");
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      const why = code === "ERR_JWKS_NO_MATCHING_KEY" ? "no key in your JWKS matches (kid, alg and key type)" : code === "ERR_JWKS_MULTIPLE_MATCHING_KEYS" ? "several keys match and none verifies" : "it doesn't verify with the matching key";
-      add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "fail", `The signature fails: ${why}.`);
+    const candidates = await signingKeys(input.jwks, header);
+    let verified = false;
+    for (const k of candidates) {
+      try {
+        await compactVerify(token, await importJWK(k, alg as string), { algorithms: [alg as string] });
+        verified = true;
+        break;
+      } catch {
+        // the next candidate
+      }
     }
+    add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", verified ? "pass" : "fail", verified ? "The signature verifies with a key from your JWKS." : candidates.length === 0 ? "No signing key in your JWKS matches the header's kid (or x5t). Publish the key, or name it correctly." : "The signature doesn't verify with the matching key.");
   }
 
   // Claims (section 3.1), and the receiver's processing rules (section 4.4.1).
@@ -124,8 +138,10 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
 
   const skew = DEFAULT_CLOCK_SKEW_SECONDS;
   if (!isNumericDate(claims.exp)) add("claim.exp", "MUST", D("3.1") + "; RFC 7519 section 4.1.4", "fail", "exp is REQUIRED: a NumericDate (seconds).");
+  else if (!Number.isInteger(claims.exp)) add("claim.exp", "POLICY", "RFC 7519 section 2", "fail", "exp has a fraction: this receiver requires whole seconds.");
   else add("claim.exp", "MUST", D("3.1") + "; RFC 7519 section 4.1.4", claims.exp > input.now - skew ? "pass" : "fail", claims.exp > input.now - skew ? `Not expired (${Math.round(claims.exp - input.now)} s left).` : `Expired ${Math.round(input.now - claims.exp)} s ago.`);
   if (!isNumericDate(claims.iat)) add("claim.iat", "MUST", D("3.1") + "; RFC 7519 section 4.1.6", "fail", "iat is REQUIRED: a NumericDate (seconds).");
+  else if (!Number.isInteger(claims.iat)) add("claim.iat", "POLICY", "RFC 7519 section 2", "fail", "iat has a fraction: this receiver requires whole seconds.");
   else add("claim.iat", "MUST", D("3.1") + "; RFC 7519 section 4.1.6", claims.iat <= input.now + skew ? "pass" : "fail", claims.iat <= input.now + skew ? "iat is not in the future." : `iat is ${Math.round(claims.iat - input.now)} s in the future: check your clock.`);
   if (isNumericDate(claims.exp) && isNumericDate(claims.iat)) {
     const life = claims.exp - claims.iat;
@@ -158,14 +174,43 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   if (claims.tenant !== undefined) add("claim.tenant", "OPTIONAL", D("3.1, 6.1"), typeof claims.tenant === "string" ? "info" : "fail", typeof claims.tenant === "string" ? "tenant is present: your issuer is multi-tenant. This tester registers single-tenant issuers." : "tenant must be a JSON string.");
   if (claims.act !== undefined) add("claim.act", "OPTIONAL", D("9.10") + "; RFC 8693 section 4.1", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? "info" : "fail", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? `act names an actor (${show(claims.act.sub)}): the receiver carries it into the access token.` : "act must be an object with a sub.");
   if (claims.sub_id !== undefined) add("claim.sub_id", "OPTIONAL", D("3.2") + "; RFC 9493", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? "info" : "fail", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? `sub_id (format ${show(claims.sub_id.format)}): this tester resolves users by sub only.` : "sub_id must be an object with a format (RFC 9493).");
-  if (claims.cnf !== undefined) add("claim.cnf", "OPTIONAL", D("9.11"), "info", "cnf: the ID-JAG is sender-constrained, so the redemption needs proof of possession (DPoP).");
+  if (claims.cnf !== undefined) add("claim.cnf", "POLICY", D("9.11.1.2"), "fail", "cnf (a sender-constrained ID-JAG): this receiver doesn't support proof of possession at redemption, so it refuses.");
   if (claims.email === undefined && claims.aud_sub === undefined) add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "warn", "Neither email nor aud_sub: RECOMMENDED, so a receiver can find or create the user. (This tester doesn't need them.)");
   else add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "pass", "email or aud_sub is present.");
   if (claims.auth_time !== undefined && !isNumericDate(claims.auth_time)) add("claim.auth_time", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "auth_time must be a NumericDate.");
   if (claims.acr !== undefined && typeof claims.acr !== "string") add("claim.acr", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "acr must be a string.");
   if (claims.amr !== undefined && !(Array.isArray(claims.amr) && claims.amr.every((a) => typeof a === "string"))) add("claim.amr", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "amr must be an array of strings.");
 
+  // The receiver's own parser, as a last check: whatever it refuses on shape, the report says so even if no rule
+  // above caught it.
+  try {
+    parseIdJag(token);
+    add("receiver.parse", "MUST", "this receiver", "pass", "The receiver's parser accepts the header and claims.");
+  } catch (e) {
+    const reason = (e as { reason?: unknown }).reason;
+    add("receiver.parse", "MUST", "this receiver", "fail", `The receiver's parser refuses it: ${typeof reason === "string" ? reason : "malformed"}.`);
+  }
+
   return { header, claims, results };
+}
+
+/**
+ * The keys the receiver would try, as it chooses them: signing keys only (no "use": "enc", key_ops allowing verify),
+ * by kid when the header names one, else by certificate thumbprint.
+ */
+async function signingKeys(jwks: JSONWebKeySet, header: Record<string, unknown>): Promise<JWK[]> {
+  const keys = (Array.isArray(jwks.keys) ? jwks.keys : []).filter((k) => isObject(k) && (k.use === undefined || k.use === "sig") && (k.key_ops === undefined || (Array.isArray(k.key_ops) && k.key_ops.includes("verify")))).map((k) => (k.key_ops === undefined ? k : { ...k, key_ops: ["verify"] })) as JWK[];
+  if (isNonEmptyString(header.kid)) return keys.filter((k) => k.kid === header.kid);
+  const out: JWK[] = [];
+  for (const k of keys) {
+    const cert = Array.isArray(k.x5c) && typeof k.x5c[0] === "string" ? k.x5c[0] : undefined;
+    const der = cert ? Uint8Array.from(atob(cert), (c) => c.charCodeAt(0)) : undefined;
+    const b64url = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const x5t = (k as { x5t?: string }).x5t ?? (der ? b64url(await crypto.subtle.digest("SHA-1", der)) : undefined);
+    const x5tS256 = (k as { "x5t#S256"?: string })["x5t#S256"] ?? (der ? b64url(await crypto.subtle.digest("SHA-256", der)) : undefined);
+    if ((header["x5t#S256"] !== undefined && x5tS256 === header["x5t#S256"]) || (header.x5t !== undefined && x5t === header.x5t)) out.push(k);
+  }
+  return out;
 }
 
 /** What a registration found at the issuer: its metadata document and its JWKS. */
@@ -186,7 +231,7 @@ export function checkIssuerMetadata(input: MetadataCheckInput): { results: RuleR
   add("metadata.location", "SHOULD", D("7.1") + "; RFC 8414 section 3", input.source === "oauth-authorization-server" ? "pass" : "warn", input.source === "oauth-authorization-server" ? "Found at RFC 8414's location." : "Found only at OpenID Connect Discovery's location: allowed as a fallback (MAY), but RFC 8414's is what receivers SHOULD use.");
   add("metadata.issuer", "MUST", "RFC 8414 section 3.3", m.issuer === input.issuer ? "pass" : "fail", m.issuer === input.issuer ? "The metadata's issuer is exactly the issuer you entered." : `The metadata's issuer must be exactly ${show(input.issuer)}; it is ${show(m.issuer)}.`);
   const jwksUri = m.jwks_uri;
-  add("metadata.jwks_uri", "SHOULD", D("7.1"), typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "pass" : "fail", typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "jwks_uri is an https URL." : `jwks_uri must be an https URL; it is ${show(jwksUri)}.`);
+  add("metadata.jwks_uri", "POLICY", D("7.1"), typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "pass" : "fail", typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "jwks_uri is an https URL." : `jwks_uri must be an https URL; it is ${show(jwksUri)}.`);
   const chaining = m[ISSUER_METADATA_FIELD];
   add("metadata.token_types", "SHOULD", D("7.1"), Array.isArray(chaining) && chaining.includes(ID_JAG_TOKEN_TYPE) ? "pass" : "warn", Array.isArray(chaining) && chaining.includes(ID_JAG_TOKEN_TYPE) ? `${ISSUER_METADATA_FIELD} lists ${ID_JAG_TOKEN_TYPE}.` : `${ISSUER_METADATA_FIELD} SHOULD list ${ID_JAG_TOKEN_TYPE}, so clients can tell you issue ID-JAGs.`);
   const algs = m[ISSUER_SIGNING_ALG_METADATA_FIELD];

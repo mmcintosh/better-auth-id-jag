@@ -6,6 +6,9 @@ Register your issuer, redeem an ID-JAG, and see every rule it passed or failed, 
 from, next to what a real receiver decided. The receiver is this package's `idJagGrant()`, unchanged; the code is
 [`examples/workers/tester`](../examples/workers/tester).
 
+It is a testing aid: the rules as this package reads draft -06, with the code to show for each. It is not a
+conformance or certification test, and its results are visible only to the account that registered.
+
 > **Status:** built, not yet deployed. This page gives its address once it is.
 
 ## What it checks
@@ -62,10 +65,15 @@ email from your ID-JAGs is stored.
 - **One registration per issuer at a time.** If someone else has registered your issuer, wait for it to expire, at
   most 24 hours.
 - **Redemptions:**
-  - 10 a minute and 50 a day per registration;
-  - 30 requests a minute from one address.
-- **The tester closes itself** if it sees far more use than testing needs, or a run of server errors. An operator
-  watches it and can close it, or end one registration, at any time.
+  - 10 a minute per registration from one address, and 50 a day per registration;
+  - 300 a day across everyone, after which redemptions stop until 00:00 UTC.
+  Only requests your client authenticated count, so nobody else can use up your allowance.
+- **Requests:** 30 a minute from one address, to any page.
+- **The tester closes itself** after a run of server errors, until an operator reopens it. An operator watches it
+  and can close it, or end one registration, at any time.
+
+Anyone can register any public issuer: there is no proof that you run it. If someone else has registered yours,
+wait for their registration to end (at most 24 hours), or ask for it to be ended.
 
 ## What is kept, and for how long
 
@@ -75,10 +83,16 @@ email from your ID-JAGs is stored.
 - the sandbox users;
 - each redemption's report and the receiver's audit rows.
 
-All of it is deleted within minutes after the registration ends. A short record of the registration itself (GitHub
-login, issuer, address, times) is kept a week, for the daily limits, then deleted.
+All of it is deleted within minutes after the registration ends. A short record of the registration itself is kept
+a week, for the daily limits, then deleted: your GitHub login, the issuer and its `jwks_uri`, the client id and how
+it authenticates, your address, and the times.
 
-**Your GitHub account** (login, email, the sign-in token) stays while you have registrations, and is deleted about a week after your last one ends.
+**Your GitHub account:**
+- Your login, name and email stay while you have registrations, and are deleted about a week after your last one
+  ends.
+- GitHub's sign-in token is used once, to check the account's age, and deleted right after.
+
+**Workers Logs** (Cloudflare's request logs, kept 7 days) record each registration's GitHub login, issuer and address, and when the tester closes or ends a registration.
 
 Test data only: use test users, never real ones. There is no uptime promise.
 
@@ -96,4 +110,6 @@ Each admin key must be at least 32 characters:
 - **`ADMIN_CLOSE_KEY`** can close the tester (`POST /admin/close`) or end one registration (`POST /admin/revoke`), and never reopen it.
 - **`ADMIN_OPEN_KEY`** reopens it (`POST /admin/open`).
 
-Setting `TESTER_ENABLED` to anything but `true` closes everything except `/admin`.
+Setting `TESTER_ENABLED` to anything but `true`, or `POST /admin/close`, closes everything except the home page and
+`/admin`. Set `PUBLIC_ORIGIN` to the tester's address so that no other host name (such as its workers.dev one) is
+served.

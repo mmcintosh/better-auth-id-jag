@@ -20,6 +20,8 @@ describe("tester: checkPublicHttpsUrl", () => {
     ["https://idp.localhost/", "public"],
     ["https://metadata.internal/", "public"],
     ["https://x.local/", "public"],
+    ["https://localhost./", "dot"],
+    ["https://metadata.internal./x", "dot"],
     ["https://idp.example.org:8443/", "port"],
     ["https://user:pw@idp.example.org/", "user name"],
     ["https://idp.example.org/#x", "fragment"],

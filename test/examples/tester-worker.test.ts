@@ -13,12 +13,14 @@ const AUD = `${ORIGIN}/api/auth`;
 const SECRET = "tester-test-secret-that-is-at-least-32-characters";
 const KEYS = { stats: "s".repeat(40), close: "c".repeat(40), open: "o".repeat(40) };
 // The third is never registered: it stands for a trust row someone added by hand, without a client restriction.
-const ISSUERS = ["https://idp-one.example.org", "https://idp-two.example.org", "https://idp-three.example.org"] as const;
+// The last two are for the same-moment registration test.
+const ISSUERS = ["https://idp-one.example.org", "https://idp-two.example.org", "https://idp-three.example.org", "https://idp-four.example.org", "https://idp-five.example.org"] as const;
 
 describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   /** The Worker's Env, assembled for the test. */
   let env: Record<string, unknown> & { DB: Cloudflare.Env["DB"]; TESTER_ENABLED: string };
   let worker: { fetch(r: Request, e: unknown, c: unknown): Promise<Response>; scheduled(e: unknown, env: unknown): Promise<void> };
+  let LIMITS: Record<string, number>;
   let cf: typeof import("cloudflare:test");
   const signers: Record<string, CryptoKey> = {};
   const jwks: Record<string, unknown> = {};
@@ -93,8 +95,14 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
       if (url.startsWith(ORIGIN)) return real(input, init);
       return new Response("not found", { status: 404 });
     });
-    worker = (await import("../../examples/workers/tester/src/index")).default as never;
-  });
+    const mod = await import("../../examples/workers/tester/src/index");
+    worker = mod.default as never;
+    LIMITS = mod.LIMITS as never;
+    // Room for every registration these tests make; the daily caps are tested on their own.
+    LIMITS.registrationsPerDay = 100;
+    LIMITS.registrationsPerIpPerDay = 100;
+    // Five RSA keys and the schema: slow on a loaded runner, so the whole test timeout, not a hook's 10 s.
+  }, 60_000);
 
   afterAll(() => fetchSpy?.mockRestore());
 
@@ -137,10 +145,11 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   });
 
   it("the results page shows the reports, escaped", async () => {
-    await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId, { sub: "<script>alert(1)</script>", jti: "<img src=x onerror=alert(1)>" }));
+    await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId, { aud: "<script>alert(1)</script>", jti: "<img src=x onerror=alert(1)>" }));
     const html = await (await call("/results", { cookie: alice })).text();
     expect(html).toContain(ISSUERS[0]);
     expect(html).toContain("every rule passed");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("<img src=x");
   });
@@ -159,6 +168,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     // Alice's client can't redeem the other issuer's ID-JAG, nor Bob's its own issuer's.
     expect((await redeem(aliceClient, await idJag(ISSUERS[1], aliceClient.clientId))).status).toBe(400);
     expect((await redeem(bobClient, await idJag(ISSUERS[0], bobClient.clientId))).status).toBe(400);
+    expect(await rows(`select reason from "idJagAudit" where reason = 'client_mismatch' and clientId in (?, ?)`, aliceClient.clientId, bobClient.clientId)).toHaveLength(2);
     const sandbox = await rows<{ email: string }>(`select email from "user" where email like '%.sandbox.invalid'`);
     expect(new Set(sandbox.map((u) => u.email.split("@")[1])).size).toBe(2);
     expect(await rows(`select id from "account" where userId in (select id from "user" where email like '%.sandbox.invalid')`)).toEqual([]);
@@ -185,6 +195,71 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect((await call("/api/auth/oauth2/register", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(404);
   });
 
+  it("registrations at the same moment can't get past the limits", async () => {
+    // One user, two issuers at once: one registration.
+    const carol = await signedIn("carol");
+    const both = await Promise.all([register(carol, ISSUERS[3]), register(carol, ISSUERS[4])]);
+    expect((await Promise.all(both.map((r) => r.text()))).filter((t) => t.includes("shown once"))).toHaveLength(1);
+    // Two users, one issuer at once: one registration, one trust row.
+    const [dave, erin] = await Promise.all([signedIn("dave"), signedIn("erin")]);
+    // Alice's registration of that issuer has just ended and the scheduled purge hasn't run: registering must still work.
+    await env.DB.prepare(`update testerRegistration set revokedAt = ? where clientId = ?`).bind(Date.now(), aliceClient.clientId).run();
+    const race = await Promise.all([register(dave, ISSUERS[0]), register(erin, ISSUERS[0])]);
+    const won = (await Promise.all(race.map((r) => r.text()))).filter((t) => t.includes("shown once"));
+    expect(won).toHaveLength(1);
+    expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[0])).toHaveLength(1);
+    // The winner's client works: a fresh registration of an issuer whose old one was ended and purged.
+    aliceClient = await credentials(new Response(won[0]));
+    expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
+  });
+
+  it("the daily registration cap holds", async () => {
+    const before = LIMITS.registrationsPerDay;
+    LIMITS.registrationsPerDay = (await rows(`select id from testerRegistration`)).length;
+    try {
+      expect(await (await register(await signedIn("frank"), ISSUERS[2])).text()).toContain("used up");
+    } finally {
+      LIMITS.registrationsPerDay = before as number;
+    }
+  });
+
+  it("only requests the receiver authenticated are counted or shown; one client authentication method at a time", async () => {
+    const count = async () => (await rows(`select id from testerCheck`)).length;
+    const before = await count();
+    expect((await redeem({ clientId: aliceClient.clientId, secret: "wrong" }, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(401);
+    expect(await count()).toBe(before);
+    const mixed = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${aliceClient.clientId}:wrong`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: "a.b.c", client_id: "other", client_secret: "x" }).toString() });
+    expect(mixed.status).toBe(400);
+    expect(await count()).toBe(before);
+  });
+
+  it("a stored JWKS that isn't one is refetched, never a 500", async () => {
+    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0 where clientId = ?`).bind(aliceClient.clientId).run();
+    expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
+    const [check] = await rows<{ results: string }>(`select results from testerCheck order by at desc limit 1`);
+    expect((JSON.parse(check?.results ?? "[]") as { id: string; outcome: string }[]).find((r) => r.id === "signature")?.outcome).toBe("pass");
+  });
+
+  it("the daily redemption budget stops redemptions until 00:00 UTC without closing the tester", async () => {
+    const before = LIMITS.redemptionsPerDay;
+    LIMITS.redemptionsPerDay = (await rows(`select id from testerCheck`)).length;
+    try {
+      expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(503);
+      expect(await rows(`select closed from testerState where closed = 1`)).toEqual([]);
+    } finally {
+      LIMITS.redemptionsPerDay = before as number;
+    }
+  });
+
+  it("only the configured public origin is served", async () => {
+    env.PUBLIC_ORIGIN = "https://elsewhere.example.net";
+    try {
+      expect((await call("/")).status).toBe(404);
+    } finally {
+      env.PUBLIC_ORIGIN = "";
+    }
+  });
+
   it("admin keys: stats reads, close closes, only the open key reopens", async () => {
     const admin = (path: string, key: string, method = "POST") => call(path, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify({ reason: "test" }) } : {}) });
     expect((await admin("/admin/stats", "wrong", "GET")).status).toBe(403);
@@ -202,6 +277,11 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     env.TESTER_ENABLED = "false";
     try {
       expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(503);
+      expect((await call("/signin", { method: "POST", headers: { origin: ORIGIN } })).status).toBe(503);
+      expect((await call("/results", { cookie: alice })).status).toBe(503);
+      expect((await call("/api/auth/callback/github?code=x&state=y")).status).toBe(503);
+      expect((await call("/mcp", { method: "POST" })).status).toBe(503);
+      expect((await call("/")).status).toBe(200);
       expect((await call("/admin/stats", { headers: { authorization: `Bearer ${KEYS.stats}` } })).status).toBe(200);
     } finally {
       env.TESTER_ENABLED = "true";
@@ -209,10 +289,14 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   });
 
   it("revoking a registration stops its client at once; expiry and the purge remove everything it left", async () => {
+    const issued = (await (await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).json()) as { access_token: string };
     const [reg] = await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId);
     const revoke = await call("/admin/revoke", { method: "POST", headers: { authorization: `Bearer ${KEYS.close}`, "content-type": "application/json" }, body: JSON.stringify({ registrationId: reg?.id, reason: "test" }) });
     expect(await revoke.json()).toEqual({ revoked: true });
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(401);
+    const mcp = await call("/mcp", { method: "POST", headers: { authorization: `Bearer ${issued.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "whoami" } }) });
+    expect(mcp.status).toBe(401);
+    expect(await rows(`select id from "idJagTrustedIssuer" where enabled = 1 and allowedClientIds like ?`, `%${aliceClient.clientId}%`)).toEqual([]);
 
     await env.DB.prepare(`update testerRegistration set expiresAt = ?`).bind(Date.now() - 1).run();
     await worker.scheduled({}, env);

@@ -22,6 +22,8 @@ export function checkPublicHttpsUrl(raw: string): UrlCheck {
   if (url.hash) return { ok: false, why: "must not contain a fragment (#)" };
   if (url.port !== "" && url.port !== "443") return { ok: false, why: "must use the default https port" };
   const host = url.hostname.toLowerCase();
+  // "localhost." and "metadata.internal." are the same names as without the dot: refuse the form outright.
+  if (host.endsWith(".")) return { ok: false, why: "must not end with a dot" };
   if (host.startsWith("[") || host.includes(":")) return { ok: false, why: "must use a DNS name, not an IP address" };
   if (/^[0-9.]+$/.test(host) || /^0x/i.test(host)) return { ok: false, why: "must use a DNS name, not an IP address" };
   if (!host.includes(".")) return { ok: false, why: "must use a fully qualified DNS name" };

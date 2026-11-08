@@ -77,6 +77,33 @@ describe("tester: checkIdJag", () => {
     expect(outcome(junk.results, "jwt.structure")).toBe("fail");
   });
 
+  it("matches the receiver: typ in any case or with application/, a key named by x5t, crit, whole seconds, cnf", async () => {
+    for (const typ of ["OAUTH-ID-JAG+JWT", "application/oauth-id-jag+jwt"]) {
+      const r = (await checkIdJag(await sign(good, { typ }), input())).results;
+      expect(outcome(r, "header.typ"), typ).toBe("pass");
+      expect(outcome(r, "receiver.parse"), typ).toBe("pass");
+    }
+    const thumb = "A".repeat(27);
+    const byThumb = { keys: [{ ...jwks.keys[0], kid: undefined, x5t: thumb }, { ...jwks.keys[0], kid: undefined, x5t: "B".repeat(27), n: "AQAB" }] };
+    const x5tOnly = await new SignJWT(good).setProtectedHeader({ alg: "RS256", typ: "oauth-id-jag+jwt", x5t: thumb }).sign(key);
+    const r1 = (await checkIdJag(x5tOnly, input({ jwks: byThumb as never }))).results;
+    expect(outcome(r1, "header.kid")).toBe("warn");
+    expect(outcome(r1, "signature")).toBe("pass");
+    const unnamed = (await checkIdJag(await new SignJWT(good).setProtectedHeader({ alg: "RS256", typ: "oauth-id-jag+jwt" }).sign(key), input())).results;
+    expect(outcome(unnamed, "header.kid")).toBe("fail");
+    expect(outcome(unnamed, "receiver.parse")).toBe("fail");
+    expect(outcome((await checkIdJag(await sign(good, { crit: ["b64"], b64: true }), input())).results, "header.crit")).toBe("fail");
+    expect(outcome((await checkIdJag(await sign({ ...good, exp: now + 290.5 }), input())).results, "claim.exp")).toBe("fail");
+    const cnf = (await checkIdJag(await sign({ ...good, cnf: { jkt: "x" } }), input())).results;
+    expect(outcome(cnf, "claim.cnf")).toBe("fail");
+    expect(outcome(cnf, "receiver.parse")).toBe("fail");
+  });
+
+  it("an encryption key never verifies, as at the receiver", async () => {
+    const enc = { keys: [{ ...jwks.keys[0], use: "enc" }] };
+    expect(outcome((await checkIdJag(await sign(good), input({ jwks: enc as never }))).results, "signature")).toBe("fail");
+  });
+
   it("never throws, whatever it is given", async () => {
     for (const t of ["", "a.b.c", "....", "x".repeat(20_000), `${btoa("[]")}.${btoa("{}")}.x`]) await expect(checkIdJag(t, input())).resolves.toBeDefined();
   });

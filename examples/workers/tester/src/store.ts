@@ -65,21 +65,58 @@ export async function countRegistrations(db: D1Database, since: number, by?: { i
   return (await db.prepare(`select count(*) as n from testerRegistration where createdAt >= ?${where}`).bind(...binds).first<{ n: number }>())?.n ?? 0;
 }
 
-export async function insertRegistration(db: D1Database, r: Registration): Promise<void> {
-  await db
-    .prepare(`insert into testerRegistration (id, userId, githubLogin, issuer, jwksUri, jwks, jwksFetchedAt, clientId, trustRowId, authMethod, metadataReport, ip, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(r.id, r.userId, r.githubLogin, r.issuer, r.jwksUri, r.jwks, r.jwksFetchedAt, r.clientId, r.trustRowId, r.authMethod, r.metadataReport, r.ip, r.createdAt, r.expiresAt)
+/** Any registration of this issuer whose data still exists, active or not: a new one would make a second trust row. */
+export const unpurgedByIssuer = (db: D1Database, issuer: string) => db.prepare(`select id from testerRegistration where issuer = ? and purgedAt is null`).bind(issuer).first<{ id: string }>();
+
+/**
+ * Reserves a registration in one statement that checks every limit at once (SQLite runs it atomically), so two
+ * requests together can't both get past them: no other unpurged registration of the issuer, no active one for the
+ * user, and the daily counts overall, per user and per address. The client and trust row come after (complete()).
+ */
+export async function reserve(db: D1Database, r: Registration, l: { day: number; perDay: number; perUser: number; perIp: number }): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `insert into testerRegistration (id, userId, githubLogin, issuer, jwksUri, jwks, jwksFetchedAt, clientId, trustRowId, authMethod, metadataReport, ip, createdAt, expiresAt)
+       select ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?
+       where not exists (select 1 from testerRegistration where issuer = ? and purgedAt is null)
+         and not exists (select 1 from testerRegistration where userId = ? and ${ACTIVE})
+         and (select count(*) from testerRegistration where createdAt >= ?) < ?
+         and (select count(*) from testerRegistration where createdAt >= ? and userId = ?) < ?
+         and (select count(*) from testerRegistration where createdAt >= ? and ip = ?) < ?`,
+    )
+    .bind(r.id, r.userId, r.githubLogin, r.issuer, r.jwksUri, r.jwks, r.jwksFetchedAt, r.authMethod, r.metadataReport, r.ip, r.createdAt, r.expiresAt, r.issuer, r.userId, r.createdAt, l.day, l.perDay, l.day, r.userId, l.perUser, l.day, r.ip, l.perIp)
     .run();
+  return (result.meta.changes ?? 0) === 1;
+}
+
+/** The reservation gets its client and trust row: from now on the client works. */
+export async function complete(db: D1Database, id: string, clientId: string, trustRowId: string): Promise<void> {
+  await db.prepare(`update testerRegistration set clientId = ?, trustRowId = ? where id = ?`).bind(clientId, trustRowId, id).run();
+}
+
+/** A registration that failed half-way: everything it made is removed, so nothing is left to block its issuer. */
+export async function abandon(db: D1Database, id: string, clientId: string | undefined, trustRowId: string | undefined): Promise<void> {
+  await db.batch([
+    ...(trustRowId ? [db.prepare(`delete from "idJagTrustedIssuer" where id = ?`).bind(trustRowId)] : []),
+    ...(clientId ? [db.prepare(`delete from "oauthClient" where clientId = ?`).bind(clientId)] : []),
+    db.prepare(`delete from testerRegistration where id = ?`).bind(id),
+  ]);
 }
 
 export async function updateJwks(db: D1Database, id: string, jwks: string, now: number): Promise<void> {
   await db.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ? where id = ?`).bind(jwks, now, id).run();
 }
 
-/** Ends a registration at once (the watcher's or Mark's decision). Its client and trust row stop working now; the purge removes them. */
+/**
+ * Ends a registration at once (the watcher's or Mark's decision): its client is refused by the token endpoint and its
+ * access tokens by /mcp from now on, and its trust row is disabled. The purge removes them.
+ */
 export async function revoke(db: D1Database, id: string, reason: string, now: number): Promise<boolean> {
-  const r = await db.prepare(`update testerRegistration set revokedAt = ?, revokedReason = ? where id = ? and revokedAt is null`).bind(now, reason.slice(0, 300), id).run();
-  return (r.meta.changes ?? 0) > 0;
+  const [r] = await db.batch([
+    db.prepare(`update testerRegistration set revokedAt = ?, revokedReason = ? where id = ? and revokedAt is null`).bind(now, reason.slice(0, 300), id),
+    db.prepare(`update "idJagTrustedIssuer" set enabled = 0 where id = (select trustRowId from testerRegistration where id = ?)`).bind(id),
+  ]);
+  return (r?.meta.changes ?? 0) > 0;
 }
 
 export async function countChecks(db: D1Database, since: number, registrationId?: string): Promise<number> {
@@ -141,8 +178,12 @@ export async function stats(db: D1Database, now: number) {
  * Deletes what ended registrations left behind: the client (its tokens and resources cascade), the trust row, the
  * sandbox users, the receiver's audit and replay rows, and the check reports. Then old bookkeeping. Idempotent.
  */
-export async function purge(db: D1Database, now: number): Promise<number> {
-  const ended = (await db.prepare(`select id, clientId, trustRowId from testerRegistration where purgedAt is null and (revokedAt is not null or expiresAt <= ?) limit 20`).bind(now).all<Pick<Registration, "id" | "clientId" | "trustRowId">>()).results;
+export async function purge(db: D1Database, now: number, issuer?: string): Promise<number> {
+  const ended = (
+    issuer === undefined
+      ? await db.prepare(`select id, clientId, trustRowId from testerRegistration where purgedAt is null and (revokedAt is not null or expiresAt <= ?) limit 20`).bind(now).all<Pick<Registration, "id" | "clientId" | "trustRowId">>()
+      : await db.prepare(`select id, clientId, trustRowId from testerRegistration where issuer = ? and purgedAt is null and (revokedAt is not null or expiresAt <= ?)`).bind(issuer, now).all<Pick<Registration, "id" | "clientId" | "trustRowId">>()
+  ).results;
   for (const r of ended) {
     const sandbox = `%@${r.id}.sandbox.invalid`;
     await db.batch([
@@ -157,9 +198,12 @@ export async function purge(db: D1Database, now: number): Promise<number> {
       db.prepare(`update testerRegistration set purgedAt = ?, jwks = '{}', metadataReport = '[]' where id = ?`).bind(now, r.id),
     ]);
   }
-  // Bookkeeping kept a week (for the daily limits and the watcher), then gone; so are testers who stopped coming.
+  if (issuer !== undefined) return ended.length;
+  // Bookkeeping kept a week (for the daily limits and the watcher), then gone; so are testers who stopped coming, and
+  // the sign-in state Better Auth keeps for each GitHub sign-in started.
   const weekAgo = now - 7 * DAY_MS;
   await db.batch([
+    db.prepare(`delete from "verification" where expiresAt < ?`).bind(new Date(now).toISOString()),
     db.prepare(`delete from testerRegistration where purgedAt is not null and purgedAt < ?`).bind(weekAgo),
     db.prepare(`delete from testerCounter where bucket < ?`).bind(new Date(weekAgo).toISOString().slice(0, 13)),
     db.prepare(`delete from "session" where userId in (select u.id from "user" u where u.email not like '%.sandbox.invalid' and u.createdAt < ? and not exists (select 1 from testerRegistration r where r.userId = u.id))`).bind(new Date(weekAgo).toISOString()),

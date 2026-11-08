@@ -1,5 +1,6 @@
 // The tester's pages, server-rendered. Everything a tester or their IdP sent is escaped; the only script is
 // Cloudflare Turnstile's, and the Content-Security-Policy allows nothing else.
+import { SUPPORTED_DRAFT } from "better-auth-id-jag";
 import type { RuleResult } from "./checks";
 
 export const esc = (v: unknown): string =>
@@ -30,7 +31,7 @@ export function page(title: string, body: string, { turnstile = false, status = 
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CSP, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store", ...headers } });
 }
 
-const FOOTER = `<p class="muted" style="margin-top:48px">Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. No uptime promise: the tester may close at any time. Built on <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a>, draft -06.</p>`;
+const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it (<a href="https://github.com/mmcintosh/better-auth-id-jag/tree/main/examples/workers/tester">the rules' code</a>). A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
 
 export function landing(signedIn: boolean, closed: boolean): Response {
   return page(
@@ -39,7 +40,7 @@ export function landing(signedIn: boolean, closed: boolean): Response {
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
 <ol><li>Sign in with GitHub (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint.</li><li>Read the report.</li></ol>
-${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a> &middot; <a href="/signout">Sign out</a></p>' : '<form method="post" action="/signin"><button>Sign in with GitHub</button></form>'}
+${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : '<form method="post" action="/signin"><button>Sign in with GitHub</button></form>'}
 ${FOOTER}`,
   );
 }

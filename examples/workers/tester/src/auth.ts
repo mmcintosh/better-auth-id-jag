@@ -22,6 +22,8 @@ export interface Env {
   TURNSTILE_SECRET_KEY: string;
   /** Must be "true" for anything to work: the deploy-level kill switch. */
   TESTER_ENABLED: string;
+  /** The one origin the tester serves (for example https://idjag-tester.example.org); other host names get 404. */
+  PUBLIC_ORIGIN?: string;
   /** Bearer keys for /admin: STATS (read-only), CLOSE (close or revoke only), OPEN (reopen: Mark's alone). */
   ADMIN_STATS_KEY: string;
   ADMIN_CLOSE_KEY: string;
