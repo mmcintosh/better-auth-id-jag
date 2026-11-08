@@ -75,6 +75,17 @@ email from your ID-JAGs is stored.
 Anyone can register any public issuer: there is no proof that you run it. If someone else has registered yours,
 wait for their registration to end (at most 24 hours), or ask for it to be ended.
 
+## Privacy
+
+To keep the tester open without letting it be abused, it holds a little about the people who use it:
+- your GitHub account (login, name, email), to know who registered what and to apply the per-account limits;
+- the address each registration came from, for the per-address limits;
+- what your IdP sends: its metadata, its keys, and the ID-JAGs you redeem, to show you the report.
+
+None of it is shared or used for anything else. The site shows your results only to you; the operator can see the
+records below while they exist. Everything is deleted on the schedule below. To have it deleted sooner, ask in an
+issue on the repository (no personal details needed: your GitHub login is enough).
+
 ## What is kept, and for how long
 
 **For a registration:**

@@ -8,7 +8,8 @@ create index "testerRegistration_userId_idx" on "testerRegistration" ("userId");
 create index "testerRegistration_createdAt_idx" on "testerRegistration" ("createdAt");
 
 -- One row per redemption: the rule-by-rule report and the HTTP answer.
-create table "testerCheck" ("id" text not null primary key, "registrationId" text not null, "at" integer not null, "jti" text, "httpStatus" integer not null, "error" text, "results" text not null);
+-- checkedAgainst: the draft and package version the rules came from, so a later draft doesn't make old results look wrong.
+create table "testerCheck" ("id" text not null primary key, "registrationId" text not null, "at" integer not null, "jti" text, "httpStatus" integer not null, "error" text, "results" text not null, "checkedAgainst" text not null);
 create index "testerCheck_registrationId_at_idx" on "testerCheck" ("registrationId", "at");
 create index "testerCheck_at_idx" on "testerCheck" ("at");
 

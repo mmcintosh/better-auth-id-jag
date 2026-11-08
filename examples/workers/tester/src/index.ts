@@ -6,7 +6,8 @@
 // wrapped), /mcp, the Better Auth paths a GitHub sign-in and a client need (nothing else under /api/auth), /admin/*
 // (bearer keys). Every route but / and /admin is closed while the tester is. Limits are in LIMITS.
 import { createLocalJWKSet, jwtVerify } from "jose";
-import { JWT_BEARER_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
+import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
+import pkg from "../../../../package.json";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env, INTERNAL_KEY, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
@@ -28,6 +29,9 @@ export const LIMITS = {
   serverErrorsPer10Min: 10,
   maxBodyBytes: 20_000,
 };
+
+/** What every report was checked against: a later draft or release may judge the same ID-JAG differently. */
+export const CHECKED_AGAINST = `${SUPPORTED_DRAFT}; better-auth-id-jag ${pkg.version}`;
 
 const cache = new Map<string, ReturnType<typeof createAuth>>();
 const authFor = (env: Env, origin: string) => {
@@ -315,7 +319,7 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   const jti = typeof report.claims?.jti === "string" ? report.claims.jti.replace(/[^\x20-\x7e]/g, "").slice(0, 200) : null;
   ctx.waitUntil(
     (async () => {
-      await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: response.status, error: typeof answer?.error === "string" ? answer.error.slice(0, 64) : null, results: JSON.stringify(report.results) });
+      await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: response.status, error: typeof answer?.error === "string" ? answer.error.slice(0, 64) : null, results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
       if (response.status >= 500 && (await store.countServerErrors(env.DB, now - 600_000)) >= LIMITS.serverErrorsPer10Min) {
         await store.setClosed(env.DB, true, `${LIMITS.serverErrorsPer10Min} server errors in 10 minutes`, "worker", Date.now());
         console.log(JSON.stringify({ event: "tester.closed", by: "worker", reason: "server errors" }));
@@ -376,7 +380,7 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
       if (rpc.params?.name === "whoami") return reply(text({ sub: claims.sub, scope: claims.scope, act: claims.act ?? null, aud: claims.aud, idjag: claims.idjag ?? null, exp: claims.exp }));
       if (rpc.params?.name === "checks") {
         const rows = await store.recentChecks(env.DB, reg.id, 5);
-        return reply(text(rows.map((c) => ({ at: new Date(c.at).toISOString(), jti: c.jti, httpStatus: c.httpStatus, error: c.error, failed: (JSON.parse(c.results) as RuleResult[]).filter((r) => r.outcome === "fail").map((r) => ({ id: r.id, cite: r.cite, message: r.message })) }))));
+        return reply(text(rows.map((c) => ({ at: new Date(c.at).toISOString(), checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, failed: (JSON.parse(c.results) as RuleResult[]).filter((r) => r.outcome === "fail").map((r) => ({ id: r.id, cite: r.cite, message: r.message })) }))));
       }
       return Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32602, message: "unknown tool" } });
     }
@@ -399,7 +403,7 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
       expiresAt: reg.expiresAt,
       ended: reg.revokedAt ? `revoked (${reg.revokedReason ?? "no reason given"})` : reg.expiresAt <= now ? "expired; deleted within minutes" : null,
       metadata: JSON.parse(reg.metadataReport) as RuleResult[],
-      checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: c.jti ? (decisions.get(c.jti) ?? null) : null })),
+      checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: c.jti ? (decisions.get(c.jti) ?? null) : null })),
     });
   }
   return results(views);

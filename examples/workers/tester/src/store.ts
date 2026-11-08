@@ -30,6 +30,7 @@ export interface CheckRow {
   httpStatus: number;
   error: string | null;
   results: string;
+  checkedAgainst: string;
 }
 
 export const DAY_MS = 86_400_000;
@@ -129,7 +130,7 @@ export async function countServerErrors(db: D1Database, since: number): Promise<
 }
 
 export async function insertCheck(db: D1Database, c: CheckRow): Promise<void> {
-  await db.prepare(`insert into testerCheck (id, registrationId, at, jti, httpStatus, error, results) values (?, ?, ?, ?, ?, ?, ?)`).bind(c.id, c.registrationId, c.at, c.jti, c.httpStatus, c.error, c.results).run();
+  await db.prepare(`insert into testerCheck (id, registrationId, at, jti, httpStatus, error, results, checkedAgainst) values (?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.id, c.registrationId, c.at, c.jti, c.httpStatus, c.error, c.results, c.checkedAgainst).run();
 }
 
 export async function recentChecks(db: D1Database, registrationId: string, limit = 50): Promise<CheckRow[]> {

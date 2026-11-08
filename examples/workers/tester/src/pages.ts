@@ -99,7 +99,7 @@ export interface ResultView {
   expiresAt: number;
   ended: string | null;
   metadata: RuleResult[];
-  checks: { at: number; jti: string | null; httpStatus: number; error: string | null; results: RuleResult[]; receiver: { type: string; reason: string | null } | null }[];
+  checks: { at: number; checkedAgainst: string; jti: string | null; httpStatus: number; error: string | null; results: RuleResult[]; receiver: { type: string; reason: string | null } | null }[];
 }
 
 export function results(views: ResultView[]): Response {
@@ -116,7 +116,7 @@ ${
           const decision = c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
           const fails = c.results.filter((r) => r.outcome === "fail").length;
           return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>
-<p class="muted">jti <code>${esc(c.jti ?? "(none)")}</code></p>
+<p class="muted">jti <code>${esc(c.jti ?? "(none)")}</code> &middot; checked against ${esc(c.checkedAgainst)}</p>
 <details${fails ? " open" : ""}><summary>Rules</summary><div class="wrap"><table>${ruleRows(c.results)}</table></div></details>`;
         })
         .join("")

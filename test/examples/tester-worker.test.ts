@@ -126,6 +126,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(body.scope).toBe("read");
     const [check] = await rows<{ httpStatus: number; results: string }>(`select httpStatus, results from testerCheck order by at desc limit 1`);
     expect(check?.httpStatus).toBe(200);
+    expect((await rows<{ checkedAgainst: string }>(`select checkedAgainst from testerCheck`))[0]?.checkedAgainst).toMatch(/^draft-ietf-oauth-identity-assertion-authz-grant-06; better-auth-id-jag \d+\.\d+\.\d+/);
     expect((JSON.parse(check?.results ?? "[]") as { outcome: string }[]).filter((r) => r.outcome === "fail")).toEqual([]);
 
     const mcp = (method: string, params: unknown = {}) => call("/mcp", { method: "POST", headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
