@@ -38,7 +38,8 @@ nothing (section 4.3.3: the IdP includes "the granted values, if any").
 1. **Sign in with GitHub or GitLab** (gitlab.com). The account must be at least 30 days old.
 2. **Register your issuer.** Enter your issuer identifier exactly as your ID-JAGs' `iss`, and how your client will
    authenticate (`client_secret_basic` or `client_secret_post`). The tester reads your metadata and JWKS and shows the
-   results. You get a client id and a secret, shown once, valid for 24 hours. The registration starts **pending**.
+   results. You get a client id and a secret, shown once, valid until your sign-in ends (24 hours after you signed
+   in). The registration starts **pending**.
 3. **Mint an ID-JAG** with the values the registration page shows: `aud` this receiver's issuer (`<tester>/api/auth`),
    `client_id` the client id you got here (not your IdP's own), `scope` `read`, and optionally `resource`
    `<tester>/mcp`.
@@ -52,8 +53,9 @@ nothing (section 4.3.3: the IdP includes "the granted values, if any").
 
    The first ID-JAG signed with a key from your issuer's published JWKS, with your issuer as `iss` and this client as
    `client_id`, **confirms** the registration: proof that you run the issuer. It is then redeemed as usual. Until
-   then, others may register the same issuer too, and the first to confirm holds it for the registration's 24 hours.
-   So nobody can hold an issuer they don't run.
+   then, others may register the same issuer too, and the first to confirm holds it while the registration lasts.
+   So nobody can hold an issuer they don't run, unless the issuer signs ID-JAGs for anyone who asks (an open
+   playground IdP); then anyone can confirm it.
 5. **Read the report** at `<tester>/results`. Optionally call the MCP server at `<tester>/mcp` with the access token:
    `whoami` shows what the receiver made of your ID-JAG, `checks` the latest reports.
 
@@ -83,17 +85,19 @@ The tester keeps what it needs to show you your results and to keep it open with
 **About you, for 24 hours at most:**
 - your public login and when your account was created (for the 30-day rule);
 - your provider's account id;
-- your sign-in, which lasts a day.
+- your sign-in, which lasts 24 hours. A registration ends when your sign-in does, and everything about you is deleted
+  within minutes after both have ended.
 
 **Never stored:**
 - your email (a made-up address that receives no mail stands in);
 - your picture;
 - your provider's tokens;
-- your IP address.
+- your IP address;
+- your browser's user agent.
 
 GitHub is asked only for `read:user`, GitLab for `read_user`.
 
-**About your IdP, for the registration's 24 hours:**
+**About your IdP, while the registration lasts:**
 - its metadata report, its keys, and the client here;
 - the sandbox users;
 - each redemption's report and the receiver's logs of it.
@@ -106,25 +110,34 @@ be turned back into the account or the address. With them it keeps:
 - the counts of redemptions and refusals;
 - how the registration ended.
 
-The fingerprint key changes every week and is deleted a week later. Until then the fingerprints count as
-pseudonymous data: whoever holds the key could check whether a given account made one. They are kept to enforce the
-daily limits and to spot abuse. Once the key is deleted, and the restore history below has dropped it too (30 days),
-nobody, the operator included, can tell whose a fingerprint was.
+The record also holds the account's and network's fingerprints under the blocklist's key (below), so that someone
+caught abusing the tester can be blocked during those 7 days, even after their registration and their own data are
+gone.
+
+The weekly fingerprint key is deleted two weeks after it was made; the blocklist key, once nothing is blocked and
+no abuse record uses it. Until then the fingerprints count as pseudonymous data: whoever holds the key could check
+whether a given account made one. They are kept to enforce the daily limits and to spot abuse. Once a key is
+deleted, and the restore history below has dropped it too (30 days), nobody, the operator included, can tell whose
+its fingerprints were.
 
 **A blocklist, for 30 days, only for accounts and networks caught abusing the tester.** It holds fingerprints under
-its own key, which is deleted when nothing is blocked.
+the blocklist key.
 
-**Delete my data now:** a button on your results page. It ends your registration and deletes everything about you
-and your IdP at once, your sign-in included. Only the abuse record remains, for the rest of its 7 days: it holds no
-login, email or address, and the limits must still count.
+**Delete my data now:** a button on your results page, which works even while the tester is closed. It ends your
+registration and deletes everything about you and your IdP at once, your sign-in included. Only the abuse record
+remains, for the rest of its 7 days: it holds no login, email or address, and the limits and the blocklist must
+still work.
 
 **Cloudflare:**
-- Its request logs (Workers Logs, kept 7 days) record registration ids and IdP host names, never logins or addresses.
+- Its request logs (Workers Logs, kept 7 days) hold only the tester's own log lines: registration ids, IdP host
+  names, and when the tester closes or ends a registration. Never logins or addresses. Cloudflare's automatic
+  per-request logs are turned off.
 - Its database keeps a restore history (D1 Time Travel) that can't be turned off: anything deleted can still be
   restored from it for 30 days, by the operator only. Because no email, token or address is ever stored, that
   history holds little more than the above.
 
-Nothing is shared or used for anything else. The site shows your results only to you.
+Nothing is shared or used for anything else. The site shows your results only to you. The services involved see
+what they always see: GitHub or GitLab, your sign-in; Cloudflare, your request and its bot check (Turnstile).
 
 Test data only: use test users, never real ones. There is no uptime promise.
 
@@ -142,11 +155,11 @@ Each admin key must be at least 32 characters:
 - **`ADMIN_STATS_KEY`** reads `/admin/stats`: counts, registration states and the abuse record (fingerprints, no
   personal data).
 - **`ADMIN_CLOSE_KEY`** can close the tester (`POST /admin/close`), end one registration (`POST /admin/revoke`), or
-  block a registration's account and/or network for 30 days and end it (`POST /admin/block`, while the registration
-  exists). It can never reopen anything.
+  block a registration's account and/or network for 30 days and end it (`POST /admin/block`, by registration id,
+  for 7 days after the registration was made). It can never reopen anything.
 - **`ADMIN_OPEN_KEY`** reopens it (`POST /admin/open`).
 
-Setting `TESTER_ENABLED` to anything but `true`, or `POST /admin/close`, closes everything except the home page and
-`/admin`. Set `PUBLIC_ORIGIN` to the tester's address so that no other host name (such as its workers.dev one) is
+Setting `TESTER_ENABLED` to anything but `true`, or `POST /admin/close`, closes everything except the home page,
+`/admin`, signing out and "Delete my data now". Set `PUBLIC_ORIGIN` to the tester's address so that no other host name (such as its workers.dev one) is
 served. Host the tester on its own domain, not a subdomain of a site with sign-ins of its own: its pages show what
 testers' IdPs send, and browsers treat subdomains of one domain as the same site for cookies.

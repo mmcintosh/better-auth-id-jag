@@ -6,7 +6,10 @@ import type { RuleResult } from "./checks";
 export const esc = (v: unknown): string =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+// form-action also applies to where a form's answer redirects (Chrome checks it): the sign-in form posts here and is
+// redirected to GitHub or GitLab, so those two are allowed, on the home page only.
+const csp = (formAction: string) => `default-src 'none'; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`;
+const SIGN_IN_FORM_ACTION = "'self' https://github.com https://gitlab.com";
 
 const STYLE = `
 :root { --bg: #fbfbf9; --fg: #1d1d1b; --muted: #5d5d58; --line: #ddddd6; --pass: #1f7a3a; --fail: #b3261e; --warn: #8a5a00; --code: #f0f0eb; }
@@ -26,16 +29,16 @@ button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid
 .wrap { overflow-x: auto; }
 `;
 
-export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string> } = {}): Response {
+export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string>, formAction = "'self'" } = {}): Response {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CSP, "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store", ...headers } });
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store", ...headers } });
 }
 
 const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it (<a href="https://github.com/mmcintosh/better-auth-id-jag/tree/main/examples/workers/tester">the rules' code</a>). A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
 
 const PROVIDER_NAMES = { github: "GitHub", gitlab: "GitLab" } as const;
 
-export function landing(signedIn: boolean, closed: boolean, providers: (keyof typeof PROVIDER_NAMES)[]): Response {
+export function landing(signedIn: boolean, closed: boolean, providers: (keyof typeof PROVIDER_NAMES)[], signInFailed = false): Response {
   const names = providers.map((p) => PROVIDER_NAMES[p]).join(" or ");
   const signIn = providers.map((p) => `<form method="post" action="/signin" style="display:inline-block;margin-right:8px"><input type="hidden" name="provider" value="${p}"><button>Sign in with ${PROVIDER_NAMES[p]}</button></form>`).join("");
   return page(
@@ -44,8 +47,10 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
 <ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint. The first one signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+${signInFailed ? '<p class="fail">The sign-in didn\'t complete. Try again.</p>' : ""}
 ${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
 ${FOOTER}`,
+    { formAction: SIGN_IN_FORM_ACTION },
   );
 }
 

@@ -20,8 +20,6 @@ export interface Registration {
   trustRowId: string;
   authMethod: string;
   metadataReport: string;
-  blockAccountFp: string;
-  blockNetFp: string;
   createdAt: number;
   expiresAt: number;
   confirmedAt: number | null;
@@ -37,6 +35,8 @@ export interface AbuseRow {
   accountFp: string;
   ipFp: string;
   netFp: string;
+  blockAccountFp: string;
+  blockNetFp: string;
   accountAge: string;
   issuerHost: string;
 }
@@ -97,18 +97,18 @@ export async function reserve(db: D1Database, r: Registration, a: AbuseRow, l: {
   const [reg] = await db.batch([
     db
       .prepare(
-        `insert into testerRegistration (id, userId, issuer, jwksUri, jwks, jwksFetchedAt, clientId, trustRowId, authMethod, metadataReport, blockAccountFp, blockNetFp, createdAt, expiresAt)
-         select ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?, ?
+        `insert into testerRegistration (id, userId, issuer, jwksUri, jwks, jwksFetchedAt, clientId, trustRowId, authMethod, metadataReport, createdAt, expiresAt)
+         select ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?
          where not exists (select 1 from testerRegistration where userId = ? and ${ACTIVE})
            and not exists (select 1 from testerRegistration where issuer = ? and confirmedAt is not null and ${ACTIVE})
            and (select count(*) from testerAbuse where at >= ?) < ?
            and (select count(*) from testerAbuse where at >= ? and accountFp = ?) < ?
            and (select count(*) from testerAbuse where at >= ? and ipFp = ?) < ?`,
       )
-      .bind(r.id, r.userId, r.issuer, r.jwksUri, r.jwks, r.jwksFetchedAt, r.authMethod, r.metadataReport, r.blockAccountFp, r.blockNetFp, r.createdAt, r.expiresAt, r.userId, r.createdAt, r.issuer, r.createdAt, l.day, l.perDay, l.day, a.accountFp, l.perAccount, l.day, a.ipFp, l.perIp),
+      .bind(r.id, r.userId, r.issuer, r.jwksUri, r.jwks, r.jwksFetchedAt, r.authMethod, r.metadataReport, r.createdAt, r.expiresAt, r.userId, r.createdAt, r.issuer, r.createdAt, l.day, l.perDay, l.day, a.accountFp, l.perAccount, l.day, a.ipFp, l.perIp),
     db
-      .prepare(`insert into testerAbuse (id, at, keyId, provider, accountFp, ipFp, netFp, accountAge, issuerHost) select ?, ?, ?, ?, ?, ?, ?, ?, ? where exists (select 1 from testerRegistration where id = ?)`)
-      .bind(a.id, a.at, a.keyId, a.provider, a.accountFp, a.ipFp, a.netFp, a.accountAge, a.issuerHost, r.id),
+      .prepare(`insert into testerAbuse (id, at, keyId, provider, accountFp, ipFp, netFp, blockAccountFp, blockNetFp, accountAge, issuerHost) select ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? where exists (select 1 from testerRegistration where id = ?)`)
+      .bind(a.id, a.at, a.keyId, a.provider, a.accountFp, a.ipFp, a.netFp, a.blockAccountFp, a.blockNetFp, a.accountAge, a.issuerHost, r.id),
   ]);
   return (reg?.meta.changes ?? 0) === 1;
 }
@@ -136,8 +136,13 @@ export async function setTrustRow(db: D1Database, id: string, trustRowId: string
   await db.prepare(`update testerRegistration set trustRowId = ? where id = ?`).bind(trustRowId, id).run();
 }
 
-export async function unconfirm(db: D1Database, id: string): Promise<void> {
-  await db.batch([db.prepare(`update testerRegistration set confirmedAt = null where id = ?`).bind(id), db.prepare(`update testerAbuse set confirmed = 0 where id = ?`).bind(id)]);
+/** A confirmation that failed half-way: back to pending, and the trust row (if it was made) removed. */
+export async function unconfirm(db: D1Database, id: string, trustRowId?: string): Promise<void> {
+  await db.batch([
+    ...(trustRowId ? [db.prepare(`delete from "idJagTrustedIssuer" where id = ?`).bind(trustRowId)] : []),
+    db.prepare(`update testerRegistration set confirmedAt = null, trustRowId = '' where id = ?`).bind(id),
+    db.prepare(`update testerAbuse set confirmed = 0 where id = ?`).bind(id),
+  ]);
 }
 
 /** A registration that failed half-way: everything it made is removed (its abuse record stays: it still counts). */
@@ -161,14 +166,20 @@ export async function revoke(db: D1Database, id: string, reason: string, now: nu
   return (r?.meta.changes ?? 0) > 0;
 }
 
-/** Blocks the registration's account and/or network for 30 days (blocklist-key fingerprints), and ends it. */
-export async function block(db: D1Database, reg: Registration, kinds: ("account" | "network")[], reason: string, now: number): Promise<void> {
+export const abuseById = (db: D1Database, id: string) => db.prepare(`select * from testerAbuse where id = ?`).bind(id).first<AbuseRow>();
+
+/**
+ * Blocks the account and/or network behind an abuse record for 30 days (blocklist-key fingerprints), and ends its
+ * registration if it still exists. Works for the record's 7 days, after the registration and the tester's own data
+ * are gone.
+ */
+export async function block(db: D1Database, abuse: AbuseRow, kinds: ("account" | "network")[], reason: string, now: number): Promise<void> {
   await db.batch(
     kinds.map((kind) =>
-      db.prepare(`insert into testerBlock (fp, kind, reason, createdAt, expiresAt) values (?, ?, ?, ?, ?) on conflict (fp) do update set reason = excluded.reason, expiresAt = excluded.expiresAt`).bind(kind === "account" ? reg.blockAccountFp : reg.blockNetFp, kind, reason.slice(0, 300), now, now + 30 * DAY_MS),
+      db.prepare(`insert into testerBlock (fp, kind, reason, createdAt, expiresAt) values (?, ?, ?, ?, ?) on conflict (fp) do update set reason = excluded.reason, expiresAt = excluded.expiresAt`).bind(kind === "account" ? abuse.blockAccountFp : abuse.blockNetFp, kind, reason.slice(0, 300), now, now + 30 * DAY_MS),
     ),
   );
-  await revoke(db, reg.id, `blocked: ${reason}`, now);
+  await revoke(db, abuse.id, `blocked: ${reason}`, now);
 }
 
 export async function countChecks(db: D1Database, since: number, registrationId?: string): Promise<number> {
@@ -246,7 +257,7 @@ async function purgeRegistration(db: D1Database, r: Pick<Registration, "id" | "c
 }
 
 /**
- * The purge (every 5 minutes, and for one issuer before it is registered or confirmed again): ended registrations
+ * The purge (every 5 minutes, and for one issuer before a registration of it is confirmed): ended registrations
  * and all they made; testers whose sign-in and registrations have both ended; expired sign-in state; abuse records
  * older than 7 days; fingerprint keys nothing uses; expired blocks; old counters. Idempotent.
  */
@@ -257,7 +268,12 @@ export async function purge(db: D1Database, now: number, issuer?: string): Promi
       : await db.prepare(`select id, clientId, trustRowId, revokedReason from testerRegistration where issuer = ? and (revokedAt is not null or expiresAt <= ?)`).bind(issuer, now).all<Registration>()
   ).results;
   for (const r of ended) await purgeRegistration(db, r);
-  if (issuer !== undefined) return ended.length;
+  if (issuer !== undefined) {
+    // Any trust row for the issuer that no active registration holds (left by a failure half-way): the receiver
+    // refuses an issuer with two rows as ambiguous, so none may linger. The table belongs to the tester alone.
+    await db.prepare(`delete from "idJagTrustedIssuer" where issuer = ? and id not in (select trustRowId from testerRegistration where trustRowId <> '' and ${ACTIVE})`).bind(issuer, now).run();
+    return ended.length;
+  }
 
   const testers = `select u.id from "user" u where u.email like '%@${TESTER_EMAIL_DOMAIN}' and not exists (select 1 from testerRegistration r where r.userId = u.id) and not exists (select 1 from "session" s where s.userId = u.id and s.expiresAt > ?)`;
   await db.batch([
@@ -269,8 +285,9 @@ export async function purge(db: D1Database, now: number, issuer?: string): Promi
     db.prepare(`delete from testerAbuse where at < ?`).bind(now - WEEK_MS),
     db.prepare(`delete from testerKey where id <> ? and createdAt < ?`).bind(BLOCK_KEY_ID, now - 2 * WEEK_MS),
     db.prepare(`delete from testerBlock where expiresAt <= ?`).bind(now),
-    // The blocklist key goes when nothing is blocked and no registration holds a fingerprint made with it.
-    db.prepare(`delete from testerKey where id = ? and not exists (select 1 from testerBlock) and not exists (select 1 from testerRegistration)`).bind(BLOCK_KEY_ID),
+    // The blocklist key goes when nothing is blocked and no abuse record holds a fingerprint made with it; never within
+    // an hour of being made, so a registration being reserved right now can't lose the key it just used.
+    db.prepare(`delete from testerKey where id = ? and createdAt < ? and not exists (select 1 from testerBlock) and not exists (select 1 from testerAbuse)`).bind(BLOCK_KEY_ID, now - 3_600_000),
     db.prepare(`delete from testerCounter where bucket < ?`).bind(iso(now - WEEK_MS).slice(0, 13)),
   ]);
   return ended.length;

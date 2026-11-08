@@ -2,9 +2,7 @@
 
 -- One row per registration, deleted (with everything it made) within minutes of the registration ending. Pending
 -- until its first ID-JAG signed with the issuer's own key (confirmedAt); only a confirmed one has a trust row.
--- blockAccountFp and blockNetFp: the tester's account and address network under the blocklist key, so the watcher
--- can block them while the registration lasts; never kept after it.
-create table "testerRegistration" ("id" text not null primary key, "userId" text not null, "issuer" text not null, "jwksUri" text not null, "jwks" text not null, "jwksFetchedAt" integer not null, "clientId" text not null, "trustRowId" text not null, "authMethod" text not null, "metadataReport" text not null, "blockAccountFp" text not null, "blockNetFp" text not null, "createdAt" integer not null, "expiresAt" integer not null, "confirmedAt" integer, "revokedAt" integer, "revokedReason" text);
+create table "testerRegistration" ("id" text not null primary key, "userId" text not null, "issuer" text not null, "jwksUri" text not null, "jwks" text not null, "jwksFetchedAt" integer not null, "clientId" text not null, "trustRowId" text not null, "authMethod" text not null, "metadataReport" text not null, "createdAt" integer not null, "expiresAt" integer not null, "confirmedAt" integer, "revokedAt" integer, "revokedReason" text);
 create index "testerRegistration_clientId_idx" on "testerRegistration" ("clientId");
 create index "testerRegistration_issuer_idx" on "testerRegistration" ("issuer");
 create index "testerRegistration_userId_idx" on "testerRegistration" ("userId");
@@ -16,11 +14,14 @@ create index "testerCheck_registrationId_at_idx" on "testerCheck" ("registration
 create index "testerCheck_at_idx" on "testerCheck" ("at");
 
 -- The abuse record, kept 7 days: fingerprints (keyed hashes) of the account, address and network, never the account
--- or address; the key's id (keyId) is deleted a week after its week ends, and with it any way to link a row to anyone.
-create table "testerAbuse" ("id" text not null primary key, "at" integer not null, "keyId" text not null, "provider" text not null, "accountFp" text not null, "ipFp" text not null, "netFp" text not null, "accountAge" text not null, "issuerHost" text not null, "confirmed" integer not null default 0, "redemptions" integer not null default 0, "refusals" integer not null default 0, "ended" text);
+-- or address. accountFp, ipFp and netFp use the weekly key (keyId), deleted two weeks after it was made, and with it
+-- any way to link them to anyone. blockAccountFp and blockNetFp use the blocklist key, so that an account or network
+-- can be blocked for the 7 days the row lasts, even after its registration and the tester's data are gone.
+create table "testerAbuse" ("id" text not null primary key, "at" integer not null, "keyId" text not null, "provider" text not null, "accountFp" text not null, "ipFp" text not null, "netFp" text not null, "blockAccountFp" text not null, "blockNetFp" text not null, "accountAge" text not null, "issuerHost" text not null, "confirmed" integer not null default 0, "redemptions" integer not null default 0, "refusals" integer not null default 0, "ended" text);
 create index "testerAbuse_at_idx" on "testerAbuse" ("at");
 
--- Fingerprint keys: one per week ("w<n>"), and the blocklist's ("block"), kept only while something is blocked.
+-- Fingerprint keys: one per week ("w<n>"), and the blocklist's ("block"), kept while something is blocked or an
+-- abuse record holds a fingerprint made with it.
 create table "testerKey" ("id" text not null primary key, "key" text not null, "createdAt" integer not null);
 
 -- Accounts and networks the watcher or Mark blocked, as blocklist-key fingerprints, for 30 days.

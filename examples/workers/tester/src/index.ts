@@ -4,7 +4,8 @@
 //
 // Routes: / (home), POST /signin, POST /signout, /register, /results, POST /delete, POST /api/auth/oauth2/token (the
 // receiver, wrapped), /mcp, the Better Auth paths a sign-in and a client need (nothing else under /api/auth), /admin/*
-// (bearer keys). Every route but / and /admin is closed while the tester is. Limits are in LIMITS.
+// (bearer keys). While the tester is closed, only /, /admin, sign-out and /delete answer. Limits are in LIMITS.
+import { decodeBasicCredentials } from "@better-auth/core/oauth2";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import pkg from "../../../../package.json";
@@ -95,7 +96,7 @@ async function signIn(request: Request, env: Env, origin: string): Promise<Respo
   const provider = new URLSearchParams(body ?? "").get("provider");
   if (provider !== "github" && provider !== "gitlab") return message("Not allowed", "Sign in with GitHub or GitLab.", 400);
   if (!providers(env).includes(provider)) return message("Not available", "That sign-in isn't offered here.", 400);
-  const { headers, response } = await authFor(env, origin).api.signInSocial({ body: { provider, callbackURL: "/register" }, headers: request.headers, returnHeaders: true });
+  const { headers, response } = await authFor(env, origin).api.signInSocial({ body: { provider, callbackURL: "/register", errorCallbackURL: "/?signin=failed" }, headers: request.headers, returnHeaders: true });
   const out = redirect((response as { url: string }).url);
   for (const c of headers.getSetCookie()) out.headers.append("set-cookie", c);
   return out;
@@ -120,10 +121,10 @@ async function testerAccount(env: Env, origin: string, userId: string): Promise<
   return account ? { provider: account.providerId as "github" | "gitlab", accountId: account.accountId } : null;
 }
 
-async function verifyTurnstile(env: Env, token: string | null, ip: string): Promise<boolean> {
+async function verifyTurnstile(env: Env, token: string | null): Promise<boolean> {
   if (!token) return false;
   try {
-    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: new URLSearchParams({ secret: env.TURNSTILE_SECRET_KEY, response: token.slice(0, 2048), remoteip: ip }), signal: AbortSignal.timeout(5_000) });
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: new URLSearchParams({ secret: env.TURNSTILE_SECRET_KEY, response: token.slice(0, 2048) }), signal: AbortSignal.timeout(5_000) });
     return r.ok && ((await r.json()) as { success?: boolean }).success === true;
   } catch {
     return false;
@@ -141,7 +142,7 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   if (body === null) return registerForm(env.TURNSTILE_SITE_KEY, "The form is too large.");
   const form = new URLSearchParams(body);
   const ip = clientIp(request);
-  if (!(await verifyTurnstile(env, form.get("cf-turnstile-response"), ip))) {
+  if (!(await verifyTurnstile(env, form.get("cf-turnstile-response")))) {
     store.bump("register.turnstile_failed");
     return registerForm(env.TURNSTILE_SITE_KEY, "The bot check failed. Try again.");
   }
@@ -193,11 +194,12 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   // requests at once can't both pass. The abuse record holds fingerprints under this week's key, never the account
   // or the address.
   const id = newId();
-  const expiresAt = now + LIMITS.registrationHours * 3_600_000;
+  // A registration ends when the sign-in does (at most 24 hours), so nothing about the tester outlives their day.
+  const expiresAt = Math.min(now + LIMITS.registrationHours * 3_600_000, new Date(s.session.expiresAt).getTime());
   const keyId = weekKeyId(now);
   const weekKey = await fingerprintKey(env.DB, keyId, now);
-  const abuse = { id, at: now, keyId, provider: account.provider, accountFp: await fingerprint(weekKey, accountRef), ipFp: await fingerprint(weekKey, ip), netFp: await fingerprint(weekKey, network(ip)), accountAge: ageBucket(accountCreatedAt, now), issuerHost: urlCheck.url.host };
-  const reserved = await store.reserve(env.DB, { id, userId: s.user.id, issuer, jwksUri, jwks: JSON.stringify(jwks.json), jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod, metadataReport: JSON.stringify(check.results), blockAccountFp, blockNetFp, createdAt: now, expiresAt, confirmedAt: null, revokedAt: null, revokedReason: null }, abuse, { day: store.utcDayStart(now), perDay: LIMITS.registrationsPerDay, perAccount: LIMITS.registrationsPerAccountPerDay, perIp: LIMITS.registrationsPerIpPerDay });
+  const abuse = { id, at: now, keyId, provider: account.provider, accountFp: await fingerprint(weekKey, accountRef), ipFp: await fingerprint(weekKey, ip), netFp: await fingerprint(weekKey, network(ip)), blockAccountFp, blockNetFp, accountAge: ageBucket(accountCreatedAt, now), issuerHost: urlCheck.url.host };
+  const reserved = await store.reserve(env.DB, { id, userId: s.user.id, issuer, jwksUri, jwks: JSON.stringify(jwks.json), jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod, metadataReport: JSON.stringify(check.results), createdAt: now, expiresAt, confirmedAt: null, revokedAt: null, revokedReason: null }, abuse, { day: store.utcDayStart(now), perDay: LIMITS.registrationsPerDay, perAccount: LIMITS.registrationsPerAccountPerDay, perIp: LIMITS.registrationsPerIpPerDay });
   if (!reserved) {
     store.bump("register.limit");
     return registerForm(env.TURNSTILE_SITE_KEY, "Not registered: you already have one, another tester has proven the issuer, or today's registrations are used up (they reset at 00:00 UTC).");
@@ -234,16 +236,18 @@ async function createTrustRow(env: Env, origin: string, reg: store.Registration,
   return trust.id;
 }
 
-/** The client a token request names: HTTP Basic (RFC 6749 section 2.3.1, form-encoded) or the body. Never both. */
+/**
+ * The client a token request names, read exactly as the receiver reads it (Better Auth's own decodeBasicCredentials),
+ * so the request the tester charges is the request the receiver authenticates. An Authorization header together with
+ * client fields in the body is refused (RFC 6749 section 2.3: one method), whatever the header's scheme.
+ */
 function requestClientId(request: Request, form: URLSearchParams): { clientId?: string; both: boolean } {
-  const basic = request.headers.get("authorization")?.match(/^Basic ([A-Za-z0-9+/=]+)$/i)?.[1];
-  const inBody = form.has("client_id") || form.has("client_secret");
-  if (basic) {
+  const authorization = request.headers.get("authorization");
+  const inBody = form.has("client_id") || form.has("client_secret") || form.has("client_assertion");
+  if (authorization) {
     if (inBody) return { both: true };
     try {
-      const decoded = atob(basic);
-      const colon = decoded.indexOf(":");
-      return colon > 0 ? { clientId: decodeURIComponent(decoded.slice(0, colon).replace(/\+/g, " ")), both: false } : { both: false };
+      return { clientId: decodeBasicCredentials(authorization).clientId, both: false };
     } catch {
       return { both: false };
     }
@@ -319,6 +323,8 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   // The real decision: the published receiver, unchanged.
   const headers = new Headers(request.headers);
   headers.delete("content-length");
+  // The receiver's audit would keep the caller's user agent: it isn't needed, so it isn't sent.
+  headers.delete("user-agent");
   const forward = () => authFor(env, origin).handler(new Request(request.url, { method: "POST", headers, body }));
   let response = await forward();
   let answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
@@ -350,18 +356,27 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
       return oauthError(400, "invalid_grant", "This registration is pending: it is confirmed by an ID-JAG signed with a key from your issuer's published JWKS, with your issuer as iss and this client as client_id. See your results for what this one got wrong.");
     }
     await store.purge(env.DB, now, reg.issuer);
-    if (!(await store.confirm(env.DB, reg.id, now))) {
-      record(400, "issuer_taken");
-      return oauthError(400, "invalid_grant", "Another tester has proven this issuer first and holds it for now. Registrations last 24 hours.");
+    if (await store.confirm(env.DB, reg.id, now)) {
+      let trustRowId: string | undefined;
+      try {
+        trustRowId = await createTrustRow(env, origin, { ...reg, confirmedAt: now }, now);
+        await store.setTrustRow(env.DB, reg.id, trustRowId);
+      } catch (e) {
+        await store.unconfirm(env.DB, reg.id, trustRowId);
+        throw e;
+      }
+      console.log(JSON.stringify({ event: "tester.confirmed", id: reg.id }));
+    } else {
+      // Not confirmed by this request: either another tester proved the issuer first, or another request of this same
+      // registration just did (then this one is redeemed like any other once the trust row exists).
+      const fresh = await store.byId(env.DB, reg.id);
+      if (!fresh?.confirmedAt || !fresh.trustRowId) {
+        record(400, fresh?.confirmedAt ? "confirming" : "issuer_taken");
+        return fresh?.confirmedAt
+          ? oauthError(400, "invalid_grant", "Your registration is being confirmed by another request right now: try this one again.")
+          : oauthError(400, "invalid_grant", "Another tester has proven this issuer first and holds it for now. Registrations last 24 hours.");
+      }
     }
-    try {
-      const trustRowId = await createTrustRow(env, origin, { ...reg, confirmedAt: now }, now);
-      await store.setTrustRow(env.DB, reg.id, trustRowId);
-    } catch (e) {
-      await store.unconfirm(env.DB, reg.id);
-      throw e;
-    }
-    console.log(JSON.stringify({ event: "tester.confirmed", id: reg.id }));
     response = await forward();
     answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
   }
@@ -504,11 +519,11 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
     return Response.json({ closed: true });
   }
   if (route === "POST /admin/block") {
-    // Blocks the registration's account and/or network for 30 days and ends the registration. Needs the registration
-    // to still exist: its blocklist fingerprints go with it.
+    // Blocks the account and/or network behind a registration (by its id, which is also its abuse record's) for 30
+    // days, and ends the registration if it still exists. Works for the abuse record's 7 days.
     if (typeof body.registrationId !== "string") return new Response("registrationId required", { status: 400 });
-    const reg = await store.byId(env.DB, body.registrationId);
-    if (!reg) return new Response("no such registration (already ended and purged?)", { status: 404 });
+    const reg = await store.abuseById(env.DB, body.registrationId);
+    if (!reg) return new Response("no such registration in the last 7 days", { status: 404 });
     const kinds = Array.isArray(body.kinds) ? body.kinds.filter((k): k is "account" | "network" => k === "account" || k === "network") : ["account" as const];
     if (kinds.length === 0) return new Response("kinds: account and/or network", { status: 400 });
     await store.block(env.DB, reg, kinds, reason, now);
@@ -539,15 +554,16 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
     store.bump("ratelimited.ip");
     return new Response("Too many requests from your address. Try again in a minute.", { status: 429 });
   }
+  // Leaving works even while the tester is closed: signing out, and deleting your data.
+  if (path === "/signout" && request.method === "POST") return signOut(request, env, origin);
+  if (path === "/delete" && request.method === "POST") return deleteMyData(request, env, origin);
   const state = await openState(env);
-  if (path === "/" && request.method === "GET") return landing(state.open && !!(await session(env, origin, request)), !state.open, providers(env));
+  if (path === "/" && request.method === "GET") return landing(state.open && !!(await session(env, origin, request)), !state.open, providers(env), url.searchParams.get("signin") === "failed");
   // Everything else is closed while the tester is.
   if (!state.open) return path.startsWith("/api/") ? oauthError(503, "temporarily_unavailable", "The tester is closed for now.") : message("Closed", "The tester is closed for now.", 503);
   if (path === "/signin" && request.method === "POST") return signIn(request, env, origin);
-  if (path === "/signout" && request.method === "POST") return signOut(request, env, origin);
   if (path === "/register" && (request.method === "GET" || request.method === "POST")) return register(request, env, origin);
   if (path === "/results" && request.method === "GET") return resultsPage(request, env, origin);
-  if (path === "/delete" && request.method === "POST") return deleteMyData(request, env, origin);
   if (path === "/mcp") return mcpEndpoint(request, env, origin);
   if (path === "/api/auth/oauth2/token" && request.method === "POST") return token(request, env, origin, ctx);
   if (request.method === "GET" && (AUTH_GET.test(path) || path.startsWith("/.well-known/"))) return authFor(env, origin).handler(request);

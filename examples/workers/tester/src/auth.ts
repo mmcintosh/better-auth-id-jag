@@ -94,7 +94,9 @@ export function createAuth(env: Env, origin: string) {
     secret: env.BETTER_AUTH_SECRET,
     telemetry: { enabled: false },
     database: env.DB as never,
-    advanced: { backgroundTasks, ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
+    // No IP addresses in Better Auth's rows (sessions) or the receiver's audit: both honour disableIpTracking. The
+    // tester's own rate limits read the address from the request and never store it.
+    advanced: { backgroundTasks, ipAddress: { disableIpTracking: true } },
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,
@@ -107,8 +109,12 @@ export function createAuth(env: Env, origin: string) {
         ? { gitlab: { clientId: env.GITLAB_CLIENT_ID, clientSecret: env.GITLAB_CLIENT_SECRET, mapProfileToUser: (p: { id: unknown; username: unknown; created_at?: unknown }) => testerUser("gitlab", p.id, p.username, p.created_at) } }
         : {}),
     },
-    user: { additionalFields: { accountCreatedAt: { type: "date", required: false, input: false } } },
+    // Not `input: false`: Better Auth would then drop it from the mapped profile at sign-in. No route that lets a user
+    // edit their own fields is served (index.ts serves only the sign-in callback, keys and metadata).
+    user: { additionalFields: { accountCreatedAt: { type: "date", required: false } } },
     databaseHooks: {
+      // A session row keeps neither the address nor the browser's user agent.
+      session: { create: { before: async (session) => ({ data: { ...session, ipAddress: null, userAgent: null } }) } },
       account: {
         create: { before: async (account) => ({ data: withoutTokens(account) }) },
         update: { before: async (account) => ({ data: withoutTokens(account) }) },

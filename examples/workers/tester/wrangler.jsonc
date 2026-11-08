@@ -5,7 +5,9 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
-  "observability": { "enabled": true },
+  // Workers Logs: only the tester's own log lines (no logins or addresses in them), not the automatic per-request
+  // logs, which would record URLs such as the sign-in callback's.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
   "alias": { "better-auth-id-jag": "../../../src/index.ts" },
   "d1_databases": [{ "binding": "DB", "database_name": "idjag-tester", "database_id": "REPLACE_WITH_YOUR_DATABASE_ID", "migrations_dir": "migrations" }],
   // Per-minute limits, per Cloudflare location (approximate). The daily limits are in src/index.ts (LIMITS).

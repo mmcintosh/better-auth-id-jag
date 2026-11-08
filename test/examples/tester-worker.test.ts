@@ -40,10 +40,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
 
   let nextAccountId = 1000;
   /** A tester signed in: what Better Auth's GitHub sign-in leaves behind (through the Worker's own hooks), and the cookie. */
-  const signedIn = async (login: string, o: { ageDays?: number } = {}) => {
+  const signedIn = async (login: string, o: { ageDays?: number; accountId?: number } = {}) => {
     const { createAuth } = await import("../../examples/workers/tester/src/auth");
     const ctx = await createAuth(env as never, ORIGIN).$context;
-    const id = nextAccountId++;
+    const id = o.accountId ?? nextAccountId++;
     const user = await ctx.internalAdapter.createUser({ email: `github-${id}@testers.invalid`, name: login, emailVerified: false, accountCreatedAt: new Date(Date.now() - (o.ageDays ?? 2000) * 86_400_000) }, { method: "test" });
     await ctx.internalAdapter.linkAccount({ userId: user.id, providerId: "github", accountId: String(id), accessToken: `token-${login}`, refreshToken: "r" });
     const s = await ctx.internalAdapter.createSession(user.id);
@@ -71,7 +71,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   };
 
   const redeem = (c: { clientId: string; secret: string }, assertion: string) =>
-    call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${c.clientId}:${c.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() });
+    call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${c.clientId}:${c.secret}`)}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "curl/8.0" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() });
 
   const rows = async <T>(sql: string, ...binds: unknown[]) => (await env.DB.prepare(sql).bind(...binds).all()).results as T[];
   const lastCheck = async () => (await rows<{ results: string; error: string | null; httpStatus: number; checkedAgainst: string }>(`select results, error, httpStatus, checkedAgainst from testerCheck order by at desc, rowid desc limit 1`))[0];
@@ -94,6 +94,9 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
         if (url === `${new URL(issuer).origin}/.well-known/oauth-authorization-server`) return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"] });
         if (url === `${issuer}/jwks`) return Response.json(jwks[issuer]);
       }
+      if (url === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "gho_test", token_type: "bearer", scope: "read:user" });
+      if (url === "https://api.github.com/user") return Response.json({ id: 555, login: "octo", email: "octo@example.com", avatar_url: "https://avatars.example/octo.png", created_at: "2015-01-01T00:00:00Z" });
+      if (url === "https://api.github.com/user/emails") return new Response("not found", { status: 404 });
       if (url === "https://challenges.cloudflare.com/turnstile/v0/siteverify") return Response.json({ success: (init?.body as URLSearchParams | undefined)?.get?.("response") === "ok" });
       if (url.startsWith(ORIGIN)) return real(input, init);
       return new Response("not found", { status: 404 });
@@ -113,6 +116,29 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   let aliceClient: { clientId: string; secret: string };
   let mallory: { cookie: string; userId: string };
   let malloryClient: { clientId: string; secret: string };
+
+  it("a real GitHub sign-in (through the callback) keeps the login and account age, and nothing else", async () => {
+    const home = await call("/");
+    expect(home.headers.get("content-security-policy")).toContain("form-action 'self' https://github.com https://gitlab.com");
+    const start = await call("/signin", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: "provider=github" });
+    expect(start.status).toBe(302);
+    const authorize = new URL(start.headers.get("location") ?? "");
+    expect(authorize.origin + authorize.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(authorize.searchParams.get("scope")).toBe("read:user");
+    const jar = start.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    const back = await call(`/api/auth/callback/github?code=test-code&state=${encodeURIComponent(authorize.searchParams.get("state") ?? "")}`, { cookie: jar, headers: { "user-agent": "TesterBrowser/1.0" } });
+    expect(back.status, await back.clone().text()).toBe(302);
+    expect(back.headers.get("location")).toContain("/register");
+    const [user] = await rows<{ id: string; email: string; name: string; image: string | null; accountCreatedAt: string | null }>(`select id, email, name, image, accountCreatedAt from "user" where email = 'github-555@testers.invalid'`);
+    expect(user).toMatchObject({ name: "octo", image: null });
+    expect(user?.accountCreatedAt).toBeTruthy();
+    expect(await rows(`select accessToken, refreshToken, idToken, scope from "account" where userId = ?`, user?.id)).toEqual([{ accessToken: null, refreshToken: null, idToken: null, scope: "read:user" }]);
+    expect(await rows(`select ipAddress, userAgent from "session" where userId = ?`, user?.id)).toEqual([{ ipAddress: null, userAgent: null }]);
+    expect(JSON.stringify(await rows(`select * from "user"`))).not.toContain("octo@example.com");
+    // And that tester can register: the account age came through the real sign-in.
+    const session = back.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    expect(await (await register(session, ISSUERS[1])).text()).toContain("Registered, pending");
+  });
 
   it("sign-in keeps the login and account age, never the email, picture or provider tokens", async () => {
     const { createAuth } = await import("../../examples/workers/tester/src/auth");
@@ -137,7 +163,9 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain(AUD);
     aliceClient = await credentials(html);
     expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
-    const abuse = await rows<Record<string, unknown>>(`select * from testerAbuse`);
+    const [ends] = await rows<{ expiresAt: number; sessionEnds: string }>(`select r.expiresAt, (select max(s.expiresAt) from "session" s where s.userId = r.userId) as sessionEnds from testerRegistration r where r.clientId = ?`, aliceClient.clientId);
+    expect(ends?.expiresAt).toBeLessThanOrEqual(Date.parse(ends?.sessionEnds ?? ""));
+    const abuse = await rows<Record<string, unknown>>(`select * from testerAbuse where id = (select id from testerRegistration where clientId = ?)`, aliceClient.clientId);
     expect(abuse).toHaveLength(1);
     const text = JSON.stringify(abuse);
     for (const personal of ["alice", IP, "198.51.100", alice.userId]) expect(text).not.toContain(personal);
@@ -169,6 +197,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(failed(check)).toEqual([]);
     expect(check?.checkedAgainst).toMatch(/^draft-ietf-oauth-identity-assertion-authz-grant-06; better-auth-id-jag \d+\.\d+\.\d+/);
     expect(await rows(`select confirmed from testerAbuse where confirmed = 1`)).toHaveLength(1);
+    expect(await rows(`select id from "idJagAudit" where ipAddress is not null or userAgent is not null`)).toEqual([]);
 
     const mcp = (method: string, params: unknown = {}) => call("/mcp", { method: "POST", headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
     const whoami = (await (await mcp("tools/call", { name: "whoami" })).json()) as { result: { content: { text: string }[] } };
@@ -188,7 +217,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const store = await import("../../examples/workers/tester/src/store");
     const now = Date.now();
     const reg = { id: "direct", userId: "nobody", issuer: ISSUERS[0], jwksUri: "", jwks: "{}", jwksFetchedAt: now, clientId: "", trustRowId: "", authMethod: "client_secret_basic", metadataReport: "[]", blockAccountFp: "a", blockNetFp: "n", createdAt: now, expiresAt: now + 3_600_000, confirmedAt: null, revokedAt: null, revokedReason: null };
-    const abuse = { id: "direct", at: now, keyId: "w0", provider: "github", accountFp: "x", ipFp: "y", netFp: "z", accountAge: "over 5 years", issuerHost: "idp-one.example.org" };
+    const abuse = { id: "direct", at: now, keyId: "w0", provider: "github", accountFp: "x", ipFp: "y", netFp: "z", blockAccountFp: "ba", blockNetFp: "bn", accountAge: "over 5 years", issuerHost: "idp-one.example.org" };
     expect(await store.reserve(env.DB as never, reg, abuse, { day: 0, perDay: 100, perAccount: 100, perIp: 100 })).toBe(false);
     expect(await rows(`select id from testerAbuse where id = 'direct'`)).toEqual([]);
   });
@@ -260,6 +289,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const answers = await Promise.all(clients.map(async (c) => redeem(c, await idJag(ISSUERS[5], c.clientId))));
     expect(answers.map((r) => r.status).sort()).toEqual([200, 400]);
     expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[5])).toHaveLength(1);
+    // The winner sending two more at once is never told another tester holds its own issuer.
+    const winner = clients[answers.findIndex((r) => r.status === 200)] as { clientId: string; secret: string };
+    const again = await Promise.all([0, 1].map(async () => (await redeem(winner, await idJag(ISSUERS[5], winner.clientId))).json() as Promise<{ error_description?: string }>));
+    expect(again.map((a) => a.error_description ?? "")).not.toContainEqual(expect.stringContaining("Another tester"));
   });
 
   it("an issuer whose registration just ended can be proven again before the purge runs", async () => {
@@ -289,6 +322,13 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const mixed = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${aliceClient.clientId}:wrong`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: "a.b.c", client_id: "other", client_secret: "x" }).toString() });
     expect(mixed.status).toBe(400);
     expect(await count()).toBe(before);
+    // Mallory's own credentials in a Basic header the receiver accepts (two spaces), Alice's client id in the body.
+    const smuggled = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic  ${btoa(`${malloryClient.clientId}:${malloryClient.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: "a.b.c", client_id: aliceClient.clientId }).toString() });
+    expect(smuggled.status).toBe(400);
+    expect(await count()).toBe(before);
+    // A Basic header the receiver accepts is read the same way here: two spaces still work.
+    const spaced = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic  ${btoa(`${aliceClient.clientId}:${aliceClient.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: await idJag(ISSUERS[0], aliceClient.clientId) }).toString() });
+    expect(spaced.status).toBe(200);
   });
 
   it("a stored JWKS that isn't one is refetched, never a 500", async () => {
@@ -366,7 +406,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect((await redeem(ivanClient, await idJag(ISSUERS[2], ivanClient.clientId))).status).toBe(200);
     const [reg] = await rows<{ id: string }>(`select id from testerRegistration where userId = ?`, ivan.userId);
     expect((await call("/delete", { method: "POST", cookie: ivan.cookie, headers: { origin: "https://evil.example" } })).status).toBe(403);
+    // Deleting works even while the tester is closed.
+    await env.DB.prepare(`insert into testerState (id, closed, reason, changedAt, changedBy) values ('main', 1, 'test', 0, 'test') on conflict (id) do update set closed = 1`).run();
     const done = await call("/delete", { method: "POST", cookie: ivan.cookie, headers: { origin: ORIGIN } });
+    await env.DB.prepare(`update testerState set closed = 0`).run();
     expect(done.status).toBe(200);
     expect(await rows(`select id from "user" where id = ?`, ivan.userId)).toEqual([]);
     expect(await rows(`select id from "session" where userId = ?`, ivan.userId)).toEqual([]);
@@ -376,6 +419,25 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(await rows(`select id from testerCheck where registrationId = ?`, reg?.id)).toEqual([]);
     expect(await rows(`select id from "idJagTrustedIssuer" where issuer = ?`, ISSUERS[2])).toEqual([]);
     expect(await rows(`select ended from testerAbuse where id = ?`, reg?.id)).toEqual([{ ended: "deleted by the tester" }]);
+  });
+
+  it("an abuser who deleted their data can still be blocked, for the abuse record's 7 days", async () => {
+    const oscar = await signedIn("oscar", { accountId: 77 });
+    await credentials(await register(oscar.cookie, ISSUERS[2], { ip: "192.0.2.20" }));
+    const [reg] = await rows<{ id: string }>(`select id from testerRegistration where userId = ?`, oscar.userId);
+    expect((await call("/delete", { method: "POST", cookie: oscar.cookie, headers: { origin: ORIGIN } })).status).toBe(200);
+    const block = await call("/admin/block", { method: "POST", headers: { authorization: `Bearer ${KEYS.close}`, "content-type": "application/json" }, body: JSON.stringify({ registrationId: reg?.id, kinds: ["account"], reason: "test" }) });
+    expect(block.status).toBe(200);
+    // The same GitHub account, signed in again from elsewhere: kept out.
+    expect(await (await register((await signedIn("oscar-again", { accountId: 77 })).cookie, ISSUERS[2], { ip: "192.0.2.99" })).text()).toContain("register here for now");
+  });
+
+  it("the purge for an issuer removes trust rows that no active registration holds", async () => {
+    const store = await import("../../examples/workers/tester/src/store");
+    const now = new Date().toISOString();
+    await env.DB.prepare(`insert into "idJagTrustedIssuer" (id, issuer, jwksUri, jitProvisioning, jitTrustEmailVerified, enabled, createdAt, updatedAt) values ('stray', ?, ?, 0, 0, 1, ?, ?)`).bind(ISSUERS[3], `${ISSUERS[3]}/jwks`, now, now).run();
+    await store.purge(env.DB as never, Date.now(), ISSUERS[3]);
+    expect(await rows(`select id from "idJagTrustedIssuer" where id = 'stray'`)).toEqual([]);
   });
 
   it("revoking a registration stops its client and tokens at once; expiry and the purge remove everything, testers included", async () => {
@@ -394,8 +456,13 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     for (let i = 0; i < 3; i++) await worker.scheduled({}, env);
     for (const table of ["oauthClient", "idJagTrustedIssuer", "testerRegistration", "testerCheck", "idJagAudit", "idJagJti", "session", "account", "user"]) expect(await rows(`select * from "${table}"`), table).toEqual([]);
     expect((await rows(`select id from testerAbuse`)).length).toBeGreaterThan(0);
+    // The blocklist key stays while any abuse record holds a fingerprint made with it, however old the key.
+    await env.DB.prepare(`update testerBlock set expiresAt = ?`).bind(Date.now() - 1).run();
+    await env.DB.prepare(`update testerKey set createdAt = ? where id = 'block'`).bind(Date.now() - 15 * 86_400_000).run();
+    await worker.scheduled({}, env);
+    expect(await rows(`select id from testerKey where id = 'block'`)).toHaveLength(1);
     await env.DB.prepare(`update testerAbuse set at = ?`).bind(Date.now() - 8 * 86_400_000).run();
-    await env.DB.prepare(`update testerKey set createdAt = ? where id <> 'block'`).bind(Date.now() - 15 * 86_400_000).run();
+    await env.DB.prepare(`update testerKey set createdAt = ?`).bind(Date.now() - 15 * 86_400_000).run();
     await env.DB.prepare(`update testerBlock set expiresAt = ?`).bind(Date.now() - 1).run();
     await worker.scheduled({}, env);
     for (const table of ["testerAbuse", "testerKey", "testerBlock"]) expect(await rows(`select * from "${table}"`), table).toEqual([]);
