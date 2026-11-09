@@ -34,7 +34,7 @@ export interface Env {
   TESTER_ENABLED: string;
   /** The one origin the tester serves (for example https://idjag-tester.example.org); other host names get 404. */
   PUBLIC_ORIGIN?: string;
-  /** Bearer keys for /admin: STATS (read-only), CLOSE (close or revoke only), OPEN (reopen: Mark's alone). */
+  /** Bearer keys for /admin: STATS (read-only), CLOSE (close, revoke or block only), OPEN (reopen: the operator's alone). */
   ADMIN_STATS_KEY: string;
   ADMIN_CLOSE_KEY: string;
   ADMIN_OPEN_KEY: string;

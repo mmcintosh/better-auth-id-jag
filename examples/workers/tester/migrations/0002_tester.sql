@@ -24,7 +24,7 @@ create index "testerAbuse_at_idx" on "testerAbuse" ("at");
 -- abuse record holds a fingerprint made with it.
 create table "testerKey" ("id" text not null primary key, "key" text not null, "createdAt" integer not null);
 
--- Accounts and networks the watcher or Mark blocked, as blocklist-key fingerprints, for 30 days.
+-- Accounts and networks the watcher or the operator blocked, as blocklist-key fingerprints, for 30 days.
 create table "testerBlock" ("fp" text not null primary key, "kind" text not null, "reason" text not null, "createdAt" integer not null, "expiresAt" integer not null);
 
 -- The stored kill switch (one row, id 'main').

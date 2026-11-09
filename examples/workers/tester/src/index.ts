@@ -27,7 +27,7 @@ export const LIMITS = {
   redemptionsPerRegistrationPerDay: 50,
   /** Past this, across everyone, redemptions stop until 00:00 UTC: far more than real testing needs. */
   redemptionsPerDay: 300,
-  /** This many 5xx answers in 10 minutes closes the tester until Mark reopens it. */
+  /** This many 5xx answers in 10 minutes closes the tester until the operator reopens it. */
   serverErrorsPer10Min: 10,
   maxBodyBytes: 20_000,
 };
@@ -76,7 +76,7 @@ async function readBody(request: Request): Promise<string | null> {
   return new TextDecoder().decode(bytes);
 }
 
-/** Is the tester open? The deploy-level switch (TESTER_ENABLED) and the stored one (closed by a rule, the watcher or Mark). */
+/** Is the tester open? The deploy-level switch (TESTER_ENABLED) and the stored one (closed by a rule, the watcher or the operator). */
 async function openState(env: Env): Promise<{ open: boolean; reason: string | null }> {
   if (env.TESTER_ENABLED !== "true") return { open: false, reason: "disabled in the deployment" };
   const s = await store.isClosed(env.DB);
@@ -490,8 +490,8 @@ async function keyMatches(request: Request, expected: string | undefined): Promi
 }
 
 /**
- * The watcher's and Mark's controls. STATS reads; CLOSE closes the tester or revokes one registration and can never
- * reopen anything; OPEN (Mark's alone) reopens. The key is checked before the body is read.
+ * The watcher's and the operator's controls. STATS reads; CLOSE closes the tester, revokes or blocks, and can never
+ * reopen anything; OPEN (the operator's alone) reopens. The key is checked before the body is read.
  */
 async function admin(request: Request, env: Env, url: URL): Promise<Response> {
   if (!(await env.IP_LIMIT.limit({ key: `admin:${clientIp(request)}` })).success) return new Response("slow down", { status: 429 });
@@ -536,7 +536,7 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
     console.log(JSON.stringify({ event: "tester.revoked", registrationId: body.registrationId, reason, done }));
     return Response.json({ revoked: done });
   }
-  await store.setClosed(env.DB, false, reason, "mark", now);
+  await store.setClosed(env.DB, false, reason, "operator", now);
   console.log(JSON.stringify({ event: "tester.opened", reason }));
   return Response.json({ closed: false });
 }
