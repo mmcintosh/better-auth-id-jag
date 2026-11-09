@@ -2458,5 +2458,50 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "policy hook: scopes not checked as scope tokens (\"read write\" becomes two)",
+  "file": "src/issuer/policy.ts",
+  "a": "    scopes: z.array(z.string().regex(/^[\\x21\\x23-\\x5b\\x5d-\\x7e]{1,256}$/)).max(1000),",
+  "b": "    scopes: z.array(z.string().min(1).max(256)).max(1000),",
+  "paths": [
+   "test/issuer"
+  ]
+ },
+ {
+  "name": "exchange: a grant longer than the scope claim holds reaches buildIdJag",
+  "file": "src/issuer/exchange.ts",
+  "a": "    if (grant.scopes.join(\" \").length > MAX_SCOPE_LENGTH) refuse(",
+  "b": "    if (false && grant.scopes.join(\" \").length > MAX_SCOPE_LENGTH) refuse(",
+  "paths": [
+   "test/issuer"
+  ]
+ },
+ {
+  "name": "directory: resource servers past the bound decided on part of them",
+  "file": "src/issuer/directory.ts",
+  "a": "    if (rows.length > MAX_PER_AUDIENCE) refuse(",
+  "b": "    if (false && rows.length > MAX_PER_AUDIENCE) refuse(",
+  "paths": [
+   "test/issuer"
+  ]
+ },
+ {
+  "name": "directory: policies past the bound decided on part of them",
+  "file": "src/issuer/directory.ts",
+  "a": "      if (policyRows.length > MAX_POLICIES) refuse(",
+  "b": "      if (false && policyRows.length > MAX_POLICIES) refuse(",
+  "paths": [
+   "test/issuer"
+  ]
+ },
+ {
+  "name": "create-from-jti: a cut audit value makes a block",
+  "file": "src/issuer/registry.ts",
+  "a": "  if ([hit.userId, hit.clientId, hit.audience].some((v) => typeof v === \"string\" && mayBeCut(v))) return \"cut\";\n",
+  "b": "",
+  "paths": [
+   "test/issuer"
+  ]
  }
 ]

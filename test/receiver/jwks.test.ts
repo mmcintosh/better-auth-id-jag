@@ -2,7 +2,7 @@
 // an unknown kid at most once per interval. Unit tests on JwksCache, then through a host.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IdJagRefusal } from "../../src/core";
-import { JwksCache, type JwksSettings } from "../../src/receiver";
+import { JwksCache, type JwksSettings, resolveReceiverOptions } from "../../src/receiver";
 import { createClient, linkedUser, network, receiverHost, recorder, redeem, testIdp } from "../support/receiver-host";
 
 const SETTINGS: JwksSettings = { timeoutMs: 200, maxBytes: 64 * 1024, cacheTtlMs: 600_000, minRefetchMs: 60_000, maxStaleMs: 3_600_000 };
@@ -250,6 +250,29 @@ describe("JwksCache: caching and refetch (S4)", () => {
     c.advance(1);
     expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/HTTP 503/);
     expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/^jwks_unavailable/);
+  });
+
+  it("keys must outlive the refetch interval: cacheTtlSeconds + maxStaleSeconds below minRefetchIntervalSeconds is refused at startup", () => {
+    const base = { trustedIssuers: [{ issuer: "https://idp.example", jwksUri: "https://idp.example/jwks" }] };
+    expect(() => resolveReceiverOptions({ ...base, jwks: { cacheTtlSeconds: 0, maxStaleSeconds: 0 } })).toThrow(/less than jwks.minRefetchIntervalSeconds \(60\)/);
+    expect(() => resolveReceiverOptions({ ...base, jwks: { cacheTtlSeconds: 10, maxStaleSeconds: 20, minRefetchIntervalSeconds: 60 } })).toThrow(/\(30\) is less than/);
+    // Equal is enough: the keys last until the next fetch is allowed.
+    expect(() => resolveReceiverOptions({ ...base, jwks: { cacheTtlSeconds: 0, maxStaleSeconds: 60 } })).not.toThrow();
+    expect(() => resolveReceiverOptions({ ...base, jwks: { cacheTtlSeconds: 0, maxStaleSeconds: 1, minRefetchIntervalSeconds: 1 } })).not.toThrow();
+  });
+
+  it("the shortest keys allowed (cacheTtl 0, maxStale = the refetch interval): every request has keys while the issuer is up", async () => {
+    const idp = await testIdp();
+    const net = network(idp);
+    const c = clock();
+    const o = resolveReceiverOptions({ trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: net.fetch, clock: () => new Date(c.now()), jwks: { cacheTtlSeconds: 0, maxStaleSeconds: 60 } });
+    const cache = o.jwks;
+    for (let s = 0; s < 180; s += 7) {
+      expect(await reasonOf(cache.keysFor(idp, idp.key.kid)), `at ${s} s`).toBe("ok");
+      c.advance(7000);
+    }
+    // At most one fetch per interval.
+    expect(net.calls.length).toBeLessThanOrEqual(4);
   });
 
   it("concurrent lookups share one fetch", async () => {

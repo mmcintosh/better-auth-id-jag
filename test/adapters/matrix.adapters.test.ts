@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { hasJti, recordJti, sweepAudit, sweepJtis, AUDIT_MODEL } from "../../src/core";
 import { coreHost } from "../support/core-host";
 import { acquireActiveSCIMUserLink } from "@better-auth/scim";
-import { BASE, createClient, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
+import { BASE, createClient, linkedUser, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
 
 const KIND = process.env.ADAPTER_DB;
 const URL_ = process.env.ADAPTER_URL ?? "";
@@ -194,6 +194,26 @@ describe.skipIf(!enabled)(`adapter matrix: ${KIND}`, () => {
     const ok = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: crypto.randomUUID(), email: local })));
     expect(ok.status, ok.text).toBe(200);
     expect(await h.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: providerId }] })).toMatchObject([{ userId: u.id }]);
+  });
+
+  it("an ID-JAG for José never gets jose's user: the account key is compared exactly (RFC 7519 section 4.1.2)", async () => {
+    const idp = await testIdp();
+    const providerId = `id-jag:${idp.issuer}`;
+    const rec = recorder();
+    const make = await prepare((database, migrate) => receiverHost("mcp", { receiver: { trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch }, database, migrate, recorder: rec as never }));
+    const h = await make();
+    const client = await createClient(h);
+    const tag = crypto.randomUUID().slice(0, 8);
+    const jose = await linkedUser(h, providerId, `jose-${tag}`);
+    // The hazard is real here: MySQL's default collation ignores case and accents, so the database matches the two.
+    const matched = await h.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: providerId }, { field: "accountId", value: `JOSÉ-${tag}` }] });
+    if (KIND?.endsWith("mysql")) expect(matched).toMatchObject([{ userId: jose.id }]);
+    const r = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: `JOSÉ-${tag}` })));
+    await rec.settle();
+    expect(r.status, r.text).toBe(400);
+    expect(r.body).toEqual({ error: "access_denied", error_description: "The subject or client is not authorized for this request." });
+    const ok = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: `jose-${tag}` })));
+    expect(ok.status, ok.text).toBe(200);
   });
 
   // @better-auth/scim needs native transactions; the MongoDB rows run without them (D-019).

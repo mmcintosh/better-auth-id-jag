@@ -291,6 +291,36 @@ describe("registry: policy evaluation", () => {
     expect(takeReasons(h)).toEqual(["unknown_audience"]);
   });
 
+  it("more resource servers match an audience than the lookup reads: refused, not decided on part of them", async () => {
+    const h = await host();
+    const { client, idToken } = await setup(h);
+    await registered(h, client);
+    // As a database whose collation folds case could answer: 101 rows for one audience lookup.
+    const findMany = h.ctx.adapter.findMany.bind(h.ctx.adapter);
+    h.ctx.adapter.findMany = (async (args: { model: string; where?: { field: string; value: unknown }[]; limit?: number }) => {
+      if (args.model === RESOURCE_SERVER_MODEL && args.where?.[0]?.field === "audience") {
+        const [row] = await findMany<Record<string, unknown>>(args as never);
+        return Array.from({ length: Math.min(args.limit ?? 101, 101) }, (_, i) => ({ ...row, id: `${String(row?.id)}-${i}` }));
+      }
+      return findMany(args as never);
+    }) as typeof h.ctx.adapter.findMany;
+    await exchange(h, client, idToken);
+    h.ctx.adapter.findMany = findMany;
+    expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: "more than 100 resource servers match this audience" });
+  });
+
+  it("more than 1000 policies for a resource server: refused, not decided on part of them", async () => {
+    const h = await host();
+    const { client, idToken } = await setup(h);
+    const { rsId, policyId } = await registered(h, client);
+    const [policy] = await h.ctx.adapter.findMany<Record<string, unknown>>({ model: POLICY_MODEL, where: [{ field: "id", value: policyId }] });
+    const { id: _, ...data } = policy as Record<string, unknown>;
+    for (let i = 0; i < 1000; i += 100) await Promise.all(Array.from({ length: 100 }, (_, j) => h.ctx.adapter.create({ model: POLICY_MODEL, data: { ...data, name: `copy ${i + j}` } })));
+    takeReasons(h);
+    await exchange(h, client, idToken);
+    expect(h.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: `more than 1000 policies for resource server ${rsId}` });
+  });
+
   it("S8: an unregistered resource without an allowing policy is the generic refusal, not unknown_resource", async () => {
     const h = await host();
     const { client, idToken } = await setup(h);

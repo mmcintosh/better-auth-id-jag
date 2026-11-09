@@ -183,6 +183,29 @@ describe("trust: static config and the idJagTrustedIssuer table", () => {
     void t1;
   });
 
+  it("one issuer with many tenant rows: every row is seen (none dropped before the tenant filter or the namespace check)", async () => {
+    const idp = await testIdp();
+    const s = await host([idp], { trustedIssuerTable: true }, { sso: false });
+    const row = (tenant: string, ssoProviderId: string) => ({ issuer: idp.issuer, jwksUri: idp.jwksUri, tenant, ssoProviderId, enabled: true, jitProvisioning: false, jitTrustEmailVerified: false, createdAt: new Date(), updatedAt: new Date() });
+    for (let i = 1; i <= 12; i++) await s.h.ctx.adapter.create({ model: TRUSTED_ISSUER_MODEL, data: row(`t-${i}`, `tenant-${i}`) });
+    const sub = crypto.randomUUID();
+    await linkedUser(s.h, "tenant-12", sub);
+    expect((await s.attempt(idp, { sub, tenant: "t-12" })).reason).toBe("accepted");
+    // A thirteenth row sharing tenant 1's namespace is seen too, and refused as before.
+    await s.h.ctx.adapter.create({ model: TRUSTED_ISSUER_MODEL, data: row("t-13", "tenant-1") });
+    expect((await s.attempt(idp, { sub, tenant: "t-1" })).reason).toBe("untrusted_issuer");
+    expect(s.rec.refused.at(-1)?.detail).toMatch(/share an account namespace/);
+  });
+
+  it("more than 1000 rows for one issuer: refused, not decided on part of them", async () => {
+    const idp = await testIdp();
+    const s = await host([idp], { trustedIssuerTable: true }, { sso: false });
+    const data = (i: number) => ({ issuer: idp.issuer, jwksUri: idp.jwksUri, tenant: `t-${i}`, ssoProviderId: `tenant-${i}`, enabled: true, jitProvisioning: false, jitTrustEmailVerified: false, createdAt: new Date(), updatedAt: new Date() });
+    for (let i = 1; i <= 1001; i++) await s.h.ctx.adapter.create({ model: TRUSTED_ISSUER_MODEL, data: data(i) });
+    expect((await s.attempt(idp, { sub: crypto.randomUUID(), tenant: "t-1" })).reason).toBe("untrusted_issuer");
+    expect(s.rec.refused.at(-1)?.detail).toMatch(/more than 1000/);
+  });
+
   it("table rows: enabled rows are trusted, disabled ones aren't; ssoProviderId sets the account link", async () => {
     const idp = await testIdp();
     const s = await host([idp], { trustedIssuerTable: true }, { sso: false });

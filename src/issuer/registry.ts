@@ -292,7 +292,7 @@ const issuedOf = (userId: unknown, clientId: unknown, audience: unknown): Issued
  * for its retention). Only issued rows count: the audit table also holds jtis a receiver on this
  * host accepted or refused, which name other issuers' tokens. Matched exactly, whatever the collation.
  */
-async function issuedRecord(ctx: GenericEndpointContext, state: IssuerState, jti: string): Promise<IssuedRecord | null> {
+async function issuedRecord(ctx: GenericEndpointContext, state: IssuerState, jti: string): Promise<IssuedRecord | "cut" | null> {
   const key = await jtiKey("issued", issuerOf(ctx), jti);
   const row = await ctx.context.adapter.findOne<Record<string, unknown>>({ model: JTI_MODEL, where: [{ field: "key", value: key }] });
   if (row && row.key === key) return issuedOf(row.sub, row.clientId, row.aud);
@@ -307,8 +307,15 @@ async function issuedRecord(ctx: GenericEndpointContext, state: IssuerState, jti
   });
   const hit = rows.find((r) => r.type === "id-jag.issued" && r.jti === jti);
   if (!hit) return null;
+  if ([hit.userId, hit.clientId, hit.audience].some((v) => typeof v === "string" && mayBeCut(v))) return "cut";
   return issuedOf(hit.userId, hit.clientId, hit.audience);
 }
+
+/**
+ * Whether an audit value may have been cut: the audit log keeps at most 300 code points of a string and marks a cut
+ * with "…" (`logSafe`). A cut value can't name the ID-JAG's user, client or audience exactly, so it can't make a block.
+ */
+const mayBeCut = (v: string) => v.endsWith("…") && Array.from(v).length > 300;
 
 /** Why create-from-jti found nothing (D-B25). */
 const JTI_NOT_FOUND = {
@@ -390,6 +397,8 @@ export function blockEndpoints(state: IssuerState) {
         const who = await actor(ctx, state, "blocks");
         const issued = await issuedRecord(ctx, state, ctx.body.jti);
         if (!issued) throw fail("NOT_FOUND", "NOT_FOUND", { message: state.options.auditLog ? JTI_NOT_FOUND.withAudit : JTI_NOT_FOUND.withoutAudit });
+        // Before, a cut audience made a block that matched nothing, and the call reported success.
+        if (issued === "cut") throw fail("BAD_REQUEST", "INVALID", { message: "This ID-JAG's user, client or audience is longer than the audit log keeps (300 characters), so it can't be blocked exactly by its jti. Block it by userId, clientId and audience instead." });
         const fields = new Set(ctx.body.fields ?? JTI_FIELDS);
         const config = parse({
           ...(fields.has("userId") ? { userId: issued.userId } : {}),
