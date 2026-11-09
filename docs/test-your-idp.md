@@ -128,13 +128,18 @@ registration and deletes everything about you and your IdP at once, your sign-in
 remains, for the rest of its 7 days: it holds no login, email or address, and the limits and the blocklist must
 still work.
 
-**Cloudflare:**
-- Its request logs (Workers Logs, kept 7 days) hold only the tester's own log lines: registration ids, IdP host
-  names, and when the tester closes or ends a registration. Never logins or addresses. Cloudflare's automatic
-  per-request logs are turned off.
-- Its database keeps a restore history (D1 Time Travel) that can't be turned off: anything deleted can still be
-  restored from it for 30 days, by the operator only. Because no email, token or address is ever stored, that
-  history holds little more than the above.
+**Cloudflare** (its pages as read on 2026-11-07):
+- **Request logs.** Cloudflare's [Workers pricing page](https://developers.cloudflare.com/workers/platform/pricing/)
+  gives Workers Logs a retention of "7 Days" on the Workers Paid plan. The tester writes only its own log lines
+  there: registration ids, IdP host names, and when it closes or ends a registration; never logins or addresses
+  (`console.log` calls in `examples/workers/tester/src/index.ts`). Cloudflare's automatic per-request logs are
+  turned off (`"invocation_logs": false` in its `wrangler.jsonc`).
+- **Database restore history.** Cloudflare's [D1 Time Travel page](https://developers.cloudflare.com/d1/reference/time-travel/)
+  says: "You do not need to enable Time Travel. It is always on." and "You can restore a database back to a point
+  in time up to 30 days in the past (Workers Paid plan) or 7 days (Workers Free plan)." The page offers no way to
+  turn it off or shorten it. So anything deleted from the tester's database can still be restored from that history
+  for up to 30 days, by the operator only. The tester never stores an email, a provider token or an address, so that
+  history holds nothing more about you than this page lists.
 
 Nothing is shared or used for anything else. The site shows your results only to you. The services involved see
 what they always see: GitHub or GitLab, your sign-in; Cloudflare, your request and its bot check (Turnstile).
