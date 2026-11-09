@@ -412,16 +412,18 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   it("an issuer's JWKS that is down is fetched at most once a minute, though every request asks (a failure counts as an attempt)", async () => {
     const regId = (await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId))[0]?.id as string;
     const jwksCalls = () => fetchSpy.mock.calls.filter(([input]: unknown[]) => String(input instanceof Request ? input.url : input) === `${ISSUERS[0]}/jwks`).length;
-    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0 where id = ?`).bind(regId).run();
+    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0, jwksAttemptAt = 0 where id = ?`).bind(regId).run();
     jwksDown.add(ISSUERS[0]);
     try {
       const before = jwksCalls();
-      for (let i = 0; i < 3; i++) await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
+      // Together and one after another: one request claims the minute's fetch.
+      await Promise.all(Array.from({ length: 3 }, async () => redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))));
+      for (let i = 0; i < 2; i++) await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
       // The report's fetch once; the receiver's own key cache may fetch once too.
       expect(jwksCalls() - before).toBeLessThanOrEqual(2);
     } finally {
       jwksDown.delete(ISSUERS[0]);
-      await env.DB.prepare(`update testerRegistration set jwksFetchedAt = 0 where id = ?`).bind(regId).run();
+      await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = 0, jwksAttemptAt = 0 where id = ?`).bind(JSON.stringify(jwks[ISSUERS[0]]), regId).run();
     }
   });
 
@@ -431,17 +433,43 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const oldSigner = signers[ISSUERS[0]];
     const rotated = await generateKeyPair("RS256", { extractable: true });
     // Stored keys six minutes old, naming k1; the issuer now publishes another key as k1.
-    await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ? where id = ?`).bind(JSON.stringify(oldJwks), Date.now() - 6 * 60_000, regId).run();
+    await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ?, jwksAttemptAt = 0 where id = ?`).bind(JSON.stringify(oldJwks), Date.now() - 6 * 60_000, regId).run();
     jwks[ISSUERS[0]] = { keys: [{ ...(await exportJWK(rotated.publicKey)), kid: "k1", alg: "RS256", use: "sig" }] };
     signers[ISSUERS[0]] = rotated.privateKey;
     try {
+      const signature = async () => JSON.parse((await lastCheck())?.results ?? "[]").find((r: { id: string }) => r.id === "signature")?.outcome;
+      // The issuer is down at first: the failed refresh doesn't make the old keys count as fresh.
+      jwksDown.add(ISSUERS[0]);
       await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
-      expect(JSON.parse((await lastCheck())?.results ?? "[]").find((r: { id: string }) => r.id === "signature")?.outcome).toBe("pass");
+      expect(await signature()).toBe("fail");
+      jwksDown.delete(ISSUERS[0]);
+      // A minute on (the attempt moved back), the issuer is up: the rotated key is fetched and the signature checks.
+      await env.DB.prepare(`update testerRegistration set jwksAttemptAt = ? where id = ?`).bind(Date.now() - 61_000, regId).run();
+      await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
+      expect(await signature()).toBe("pass");
     } finally {
+      jwksDown.delete(ISSUERS[0]);
       jwks[ISSUERS[0]] = oldJwks;
       signers[ISSUERS[0]] = oldSigner as CryptoKey;
-      await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = 0 where id = ?`).bind(JSON.stringify(oldJwks), regId).run();
+      await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = 0, jwksAttemptAt = 0 where id = ?`).bind(JSON.stringify(oldJwks), regId).run();
     }
+  });
+
+  it("a redemption that fails on the way gives its allowance back", async () => {
+    const regId = (await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId))[0]?.id as string;
+    const day = Date.now() - (Date.now() % 86_400_000);
+    const used = async () => (await rows<{ used: number }>(`select used from testerAllowance where key = ?`, `registration:${regId}:${day}`))[0]?.used ?? 0;
+    const before = await used();
+    // Keys to refresh, and a database that fails storing them: the request ends in an error after the allowance is taken.
+    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksAttemptAt = 0 where id = ?`).bind(regId).run();
+    const failing = { ...env, DB: new Proxy(env.DB, { get: (db, k) => (k === "prepare" ? (sql: string) => (sql.startsWith("update testerRegistration set jwks = ?") ? { bind: () => ({ run: async () => Promise.reject(new Error("D1 down")) }) } : db.prepare(sql)) : Reflect.get(db, k)) }) };
+    const ctx = cf.createExecutionContext();
+    const assertion = await idJag(ISSUERS[0], aliceClient.clientId);
+    const r = await worker.fetch(new Request(`${ORIGIN}/api/auth/oauth2/token`, { method: "POST", headers: { authorization: `Basic ${btoa(`${aliceClient.clientId}:${aliceClient.secret}`)}`, "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": IP }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() }), failing, ctx).catch(() => new Response(null, { status: 500 }));
+    await cf.waitOnExecutionContext(ctx).catch(() => {});
+    expect(r.status).toBe(500);
+    expect(await used()).toBe(before);
+    await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = 0, jwksAttemptAt = 0 where id = ?`).bind(JSON.stringify(jwks[ISSUERS[0]]), regId).run();
   });
 
   it("a report for a registration that is gone is never kept: not written, and swept by the purge", async () => {
@@ -473,7 +501,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   });
 
   it("a stored JWKS that isn't one is refetched, never a 500", async () => {
-    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0 where clientId = ?`).bind(aliceClient.clientId).run();
+    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0, jwksAttemptAt = 0 where clientId = ?`).bind(aliceClient.clientId).run();
     expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(200);
     expect(failed(await lastCheck())).toEqual([]);
   });

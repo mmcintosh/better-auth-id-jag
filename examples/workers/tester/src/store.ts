@@ -156,9 +156,14 @@ export async function updateJwks(db: D1Database, id: string, jwks: string, now: 
   await db.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ? where id = ?`).bind(jwks, now, id).run();
 }
 
-/** A failed JWKS fetch counts as an attempt too: an issuer that's down is fetched at most once a minute. */
-export async function jwksAttempted(db: D1Database, id: string, now: number): Promise<void> {
-  await db.prepare(`update testerRegistration set jwksFetchedAt = ? where id = ?`).bind(now, id).run();
+/**
+ * Claims this minute's JWKS fetch for a registration: true for the one request that may fetch, whether or not the fetch
+ * then succeeds. Concurrent requests can't all fetch, and an issuer that's down is asked at most once a minute.
+ * jwksFetchedAt stays the time of the last successful fetch.
+ */
+export async function claimJwksFetch(db: D1Database, id: string, now: number): Promise<boolean> {
+  const r = await db.prepare(`update testerRegistration set jwksAttemptAt = ? where id = ? and jwksAttemptAt <= ?`).bind(now, id, now - 60_000).run();
+  return (r.meta.changes ?? 0) === 1;
 }
 
 /** Takes one from an allowance for the day, atomically (concurrent requests can't all see the last one free). */

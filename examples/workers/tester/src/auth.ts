@@ -11,7 +11,6 @@
 // hash of `sub`. The receiver's other ways of finding a user (linked accounts, email, JIT) never run, so an ID-JAG
 // can't reach a tester's GitHub user, another registration's users, or anything else. No email from an ID-JAG is
 // stored.
-import { AsyncLocalStorage } from "node:async_hooks";
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { mcp } from "@better-auth/mcp";
@@ -76,38 +75,6 @@ const testerUser = (provider: "github" | "gitlab", id: unknown, login: unknown, 
 
 /** The provider's tokens, never stored: the tester needs nothing from the provider after sign-in. */
 const withoutTokens = <T extends Record<string, unknown>>(data: T): T => ({ ...data, accessToken: null, refreshToken: null, idToken: null });
-
-/**
- * Whether the receiver authenticated the client of the request being forwarded. Its events say so (an acceptance, or
- * a refusal with `authenticated`); a request Better Auth refuses before the grant handler runs (a malformed resource,
- * say) has none. The auth instance is cached per isolate, so the request travels in an AsyncLocalStorage.
- */
-interface Seen {
-  authenticated: boolean | undefined;
-  done: () => void;
-  settled: Promise<void>;
-}
-const seen = new AsyncLocalStorage<Seen>();
-const report = (authenticated: boolean) => {
-  const s = seen.getStore();
-  if (s && s.authenticated === undefined) {
-    s.authenticated = authenticated;
-    s.done();
-  }
-};
-
-/** Runs `forward`, then waits (briefly) for the receiver's event about it: authenticated only if it said so. */
-export async function forwardSeen<T>(forward: () => Promise<T>, waitMs = 3000): Promise<{ result: T; authenticated: boolean }> {
-  let done: () => void = () => {};
-  const settled = new Promise<void>((resolve) => {
-    done = resolve;
-  });
-  const s: Seen = { authenticated: undefined, done, settled };
-  const result = await seen.run(s, forward);
-  // The receiver delivers its events in the background, after the response: wait for this one, or give up.
-  if (s.authenticated === undefined) await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, waitMs))]);
-  return { result, authenticated: s.authenticated === true };
-}
 
 export function createAuth(env: Env, origin: string) {
   const resolveSubject = async ({ ctx, sub, clientId, trustedIssuer }: ResolveSubjectInput): Promise<SubjectResolution> => {
@@ -180,7 +147,6 @@ export function createAuth(env: Env, origin: string) {
         fetch: guardedFetch((url, init) => fetch(url, init)),
         jwks: { timeoutMs: 3_000, maxBytes: 65_536, cacheTtlSeconds: 300, minRefetchIntervalSeconds: 60, maxStaleSeconds: 300 },
         auditLog: { retentionDays: 2 },
-        events: { onAccepted: () => report(true), onRefused: (e) => report(e.authenticated === true) },
       }),
     ],
   });
