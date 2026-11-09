@@ -53,6 +53,8 @@ export type { ActSummary, AuditOptions, IdJagEvent, IdJagEventHandlers, IssuedEv
 
 // An ID-JAG toolkit, for building or testing another issuer or receiver.
 export { parseIdJag, verifyIdJag, buildIdJag } from "./core/jwt";
+export { checkIdJag, checkIssuerMetadata } from "./core/check";
+export type { IdJagCheckInput, IdJagReport, MetadataCheckInput, RuleLevel, RuleOutcome, RuleResult } from "./core/check";
 export type { ActClaim, IdJagClaims, IdJagHeader, IdJagKey, IdJagSigner, ParsedIdJag, SamlNameIdSubId, VerifyExpectations } from "./core/jwt";
 
 // Option and record types.

@@ -29,7 +29,7 @@ A change to any of these that could break an app using them as documented counts
   - the tables: the schema builders and table names;
   - the protocol constants, defaults and limits (`SUPPORTED_DRAFT`, the token and grant types, the metadata fields, the algorithms, the lifetimes and clock skew);
   - the refusal reasons and events: `REASONS`, `AUDIT_EVENT_TYPES`, `ID_JAG_REGISTRY_ERROR_CODES` and the event types;
-  - an ID-JAG toolkit: `parseIdJag`, `verifyIdJag`, `buildIdJag`;
+  - an ID-JAG toolkit: `parseIdJag`, `verifyIdJag`, `buildIdJag`, and the rule-by-rule checker `checkIdJag` and `checkIssuerMetadata` with their types. A rule's id, level and source are part of the API; its message wording isn't;
   - the option and record types.
 
   Everything else under `src/` is internal and can change in any release; `package.json` exposes only `.` and `./client`, so nothing else can be imported. A new export can come in a minor release; removing one is breaking.

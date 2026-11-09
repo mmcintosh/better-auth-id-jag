@@ -1,22 +1,24 @@
-// Every rule an ID-JAG is held to, each with its outcome and the draft -06 section it comes from. The receiver
-// stops at the first refusal; this runs them all, so an IdP builder sees everything wrong at once. It is a report,
-// never a gate: the tester still sends the request to the real receiver, whose decision is what counts.
+// Every rule an ID-JAG is held to, each with its outcome and the draft -06 section (or RFC) it comes from. The
+// receiver stops at the first refusal; this runs them all, so an IdP builder sees everything wrong at once. A report,
+// never a gate: the public tester (examples/workers/tester) still sends the ID-JAG to the real receiver, whose
+// decision is what counts. The rules are listed with their sources in docs/test-your-idp.md.
 //
 // Pure: no network, no clock of its own. The caller passes the issuer's JWKS and the time.
 import { compactVerify, importJWK, type JSONWebKeySet, type JWK } from "jose";
-import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TOKEN_TYPE, ID_JAG_TYP, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, MAX_LIFETIME_SECONDS, parseIdJag } from "better-auth-id-jag";
+import { parseIdJag } from "./jwt";
+import { ALLOWED_ALGORITHMS, DEFAULT_CLOCK_SKEW_SECONDS, ID_JAG_TOKEN_TYPE, ID_JAG_TYP, ISSUER_METADATA_FIELD, ISSUER_SIGNING_ALG_METADATA_FIELD, MAX_LIFETIME_SECONDS } from "./urns";
 
 /** MUST and friends from the draft; POLICY is this receiver's own choice, which the draft allows. */
-export type Level = "MUST" | "SHOULD" | "RECOMMENDED" | "OPTIONAL" | "POLICY";
+export type RuleLevel = "MUST" | "SHOULD" | "RECOMMENDED" | "OPTIONAL" | "POLICY";
 /** fail: the receiver refuses, or must. warn: allowed, but not what the draft recommends. info: worth knowing. */
-export type Outcome = "pass" | "fail" | "warn" | "info" | "skip";
+export type RuleOutcome = "pass" | "fail" | "warn" | "info" | "skip";
 
 export interface RuleResult {
   id: string;
-  level: Level;
+  level: RuleLevel;
   /** Where the rule comes from, for example "draft -06 section 4.4.1". */
   cite: string;
-  outcome: Outcome;
+  outcome: RuleOutcome;
   message: string;
 }
 
@@ -73,7 +75,7 @@ function decodePart(part: string): Record<string, unknown> | null {
 /** Checks one ID-JAG. Never throws. */
 export async function checkIdJag(token: string, input: IdJagCheckInput): Promise<IdJagReport> {
   const results: RuleResult[] = [];
-  const add = (id: string, level: Level, cite: string, outcome: Outcome, message: string) => results.push({ id, level, cite, outcome, message });
+  const add = (id: string, level: RuleLevel, cite: string, outcome: RuleOutcome, message: string) => results.push({ id, level, cite, outcome, message });
 
   // Structure: a compact JWS with JSON header and claims (RFC 7519 section 7.2). Nothing else can be checked without it.
   const parts = typeof token === "string" && token.length <= MAX_TOKEN_CHARS ? token.split(".") : [];
@@ -89,7 +91,7 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   // typ is a media type (RFC 7515 section 4.1.9): any letter case, "application/" optional. The receiver accepts both forms.
   const typ = typeof header.typ === "string" ? header.typ.toLowerCase() : undefined;
   const typOk = typ === ID_JAG_TYP || typ === `application/${ID_JAG_TYP}`;
-  add("header.typ", "MUST", D("4.4.1, 3.1") + "; RFC 7515 section 4.1.9", typOk ? "pass" : "fail", typOk ? (header.typ === ID_JAG_TYP ? `typ is ${ID_JAG_TYP}.` : `typ ${show(header.typ)} is accepted (a media type: any case, application/ optional); ${ID_JAG_TYP} is the usual form.`) : `typ must be ${ID_JAG_TYP}; it is ${show(header.typ)}.`);
+  add("header.typ", "MUST", `${D("4.4.1, 3.1")}; RFC 7515 section 4.1.9`, typOk ? "pass" : "fail", typOk ? (header.typ === ID_JAG_TYP ? `typ is ${ID_JAG_TYP}.` : `typ ${show(header.typ)} is accepted (a media type: any case, application/ optional); ${ID_JAG_TYP} is the usual form.`) : `typ must be ${ID_JAG_TYP}; it is ${show(header.typ)}.`);
   const alg = header.alg;
   const algAllowed = typeof alg === "string" && (ALLOWED_ALGORITHMS as readonly string[]).includes(alg);
   add("header.alg", "POLICY", D("3, 4.4.1"), algAllowed ? "pass" : "fail", algAllowed ? `alg ${alg}, which this receiver accepts (${ALLOWED_ALGORITHMS.join(", ")}).` : `alg ${show(alg)} is not accepted here (${ALLOWED_ALGORITHMS.join(", ")}); never none or HS*.`);
@@ -105,8 +107,8 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   if (header.crit !== undefined) add("header.crit", "MUST", "RFC 7515 section 4.1.11", "fail", "crit lists header parameters a receiver must understand; this receiver understands none, so it refuses.");
 
   // Signature, with the issuer's published keys.
-  if (!input.jwks) add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "skip", "Your JWKS couldn't be fetched, so the signature wasn't checked.");
-  else if (!algAllowed) add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", "fail", "Not checked: the algorithm isn't accepted.");
+  if (!input.jwks) add("signature", "MUST", `${D("4.4.1")}; RFC 7521 section 5.2`, "skip", "Your JWKS couldn't be fetched, so the signature wasn't checked.");
+  else if (!algAllowed) add("signature", "MUST", `${D("4.4.1")}; RFC 7521 section 5.2`, "fail", "Not checked: the algorithm isn't accepted.");
   else {
     const candidates = await signingKeys(input.jwks, header);
     let verified = false;
@@ -119,7 +121,7 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
         // the next candidate
       }
     }
-    add("signature", "MUST", D("4.4.1") + "; RFC 7521 section 5.2", verified ? "pass" : "fail", verified ? "The signature verifies with a key from your JWKS." : candidates.length === 0 ? "No signing key in your JWKS matches the header's kid (or x5t). Publish the key, or name it correctly." : "The signature doesn't verify with the matching key.");
+    add("signature", "MUST", `${D("4.4.1")}; RFC 7521 section 5.2`, verified ? "pass" : "fail", verified ? "The signature verifies with a key from your JWKS." : candidates.length === 0 ? "No signing key in your JWKS matches the header's kid (or x5t). Publish the key, or name it correctly." : "The signature doesn't verify with the matching key.");
   }
 
   // Claims (section 3.1), and the receiver's processing rules (section 4.4.1).
@@ -137,12 +139,12 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   add("claim.jti", "MUST", D("3.1"), isNonEmptyString(claims.jti) ? "pass" : "fail", isNonEmptyString(claims.jti) ? "jti is present (each ID-JAG works once here)." : "jti is REQUIRED: a unique id for this ID-JAG.");
 
   const skew = DEFAULT_CLOCK_SKEW_SECONDS;
-  if (!isNumericDate(claims.exp)) add("claim.exp", "MUST", D("3.1") + "; RFC 7519 section 4.1.4", "fail", "exp is REQUIRED: a NumericDate (seconds).");
+  if (!isNumericDate(claims.exp)) add("claim.exp", "MUST", `${D("3.1")}; RFC 7519 section 4.1.4`, "fail", "exp is REQUIRED: a NumericDate (seconds).");
   else if (!Number.isInteger(claims.exp)) add("claim.exp", "POLICY", "RFC 7519 section 2", "fail", "exp has a fraction: this receiver requires whole seconds.");
-  else add("claim.exp", "MUST", D("3.1") + "; RFC 7519 section 4.1.4", claims.exp > input.now - skew ? "pass" : "fail", claims.exp > input.now - skew ? `Not expired (${Math.round(claims.exp - input.now)} s left).` : `Expired ${Math.round(input.now - claims.exp)} s ago.`);
-  if (!isNumericDate(claims.iat)) add("claim.iat", "MUST", D("3.1") + "; RFC 7519 section 4.1.6", "fail", "iat is REQUIRED: a NumericDate (seconds).");
+  else add("claim.exp", "MUST", `${D("3.1")}; RFC 7519 section 4.1.4`, claims.exp > input.now - skew ? "pass" : "fail", claims.exp > input.now - skew ? `Not expired (${Math.round(claims.exp - input.now)} s left).` : `Expired ${Math.round(input.now - claims.exp)} s ago.`);
+  if (!isNumericDate(claims.iat)) add("claim.iat", "MUST", `${D("3.1")}; RFC 7519 section 4.1.6`, "fail", "iat is REQUIRED: a NumericDate (seconds).");
   else if (!Number.isInteger(claims.iat)) add("claim.iat", "POLICY", "RFC 7519 section 2", "fail", "iat has a fraction: this receiver requires whole seconds.");
-  else add("claim.iat", "MUST", D("3.1") + "; RFC 7519 section 4.1.6", claims.iat <= input.now + skew ? "pass" : "fail", claims.iat <= input.now + skew ? "iat is not in the future." : `iat is ${Math.round(claims.iat - input.now)} s in the future: check your clock.`);
+  else add("claim.iat", "MUST", `${D("3.1")}; RFC 7519 section 4.1.6`, claims.iat <= input.now + skew ? "pass" : "fail", claims.iat <= input.now + skew ? "iat is not in the future." : `iat is ${Math.round(claims.iat - input.now)} s in the future: check your clock.`);
   if (isNumericDate(claims.exp) && isNumericDate(claims.iat)) {
     const life = claims.exp - claims.iat;
     add("claim.lifetime", "POLICY", D("4.3.4"), life > 0 && life <= MAX_LIFETIME_SECONDS ? "pass" : "fail", life > 0 && life <= MAX_LIFETIME_SECONDS ? `Lifetime ${life} s (this receiver allows at most ${MAX_LIFETIME_SECONDS}; the draft's example is 300).` : `Lifetime ${life} s: this receiver allows more than 0 and at most ${MAX_LIFETIME_SECONDS} s. ID-JAGs are meant to be short-lived.`);
@@ -164,22 +166,22 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   // scope: optional in the claim, but an ID-JAG without it grants nothing (section 4.3.3: "the granted values, if any").
   const scope = claims.scope;
   if (scope === undefined) add("claim.scope", "POLICY", D("4.3.3, 4.4.1"), "fail", `No scope: the IdP includes the scopes it granted, so none were granted, and this receiver refuses (no_scope). Ask your IdP for ${input.grantableScopes.join(" ")}.`);
-  else if (typeof scope !== "string") add("claim.scope", "MUST", D("3.1") + "; RFC 6749 section 3.3", "fail", "scope must be one string of space-separated scopes, not an array.");
+  else if (typeof scope !== "string") add("claim.scope", "MUST", `${D("3.1")}; RFC 6749 section 3.3`, "fail", "scope must be one string of space-separated scopes, not an array.");
   else {
     const granted = scope.split(" ").filter((s) => input.grantableScopes.includes(s));
-    add("claim.scope", "POLICY", D("4.4.1") + "; RFC 6749 section 3.3", granted.length > 0 ? "pass" : "fail", granted.length > 0 ? `scope ${show(scope)}; this receiver grants ${granted.join(" ")}.` : `scope ${show(scope)} includes nothing this receiver grants (${input.grantableScopes.join(" ")}).`);
+    add("claim.scope", "POLICY", `${D("4.4.1")}; RFC 6749 section 3.3`, granted.length > 0 ? "pass" : "fail", granted.length > 0 ? `scope ${show(scope)}; this receiver grants ${granted.join(" ")}.` : `scope ${show(scope)} includes nothing this receiver grants (${input.grantableScopes.join(" ")}).`);
   }
 
   if (claims.authorization_details !== undefined) add("claim.authorization_details", "POLICY", D("4.4.1"), "fail", "authorization_details (Rich Authorization Requests): this receiver refuses them for now.");
   if (claims.tenant !== undefined) add("claim.tenant", "OPTIONAL", D("3.1, 6.1"), typeof claims.tenant === "string" ? "info" : "fail", typeof claims.tenant === "string" ? "tenant is present: your issuer is multi-tenant. This tester registers single-tenant issuers." : "tenant must be a JSON string.");
-  if (claims.act !== undefined) add("claim.act", "OPTIONAL", D("9.10") + "; RFC 8693 section 4.1", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? "info" : "fail", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? `act names an actor (${show(claims.act.sub)}): the receiver carries it into the access token.` : "act must be an object with a sub.");
-  if (claims.sub_id !== undefined) add("claim.sub_id", "OPTIONAL", D("3.2") + "; RFC 9493", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? "info" : "fail", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? `sub_id (format ${show(claims.sub_id.format)}): this tester resolves users by sub only.` : "sub_id must be an object with a format (RFC 9493).");
+  if (claims.act !== undefined) add("claim.act", "OPTIONAL", `${D("9.10")}; RFC 8693 section 4.1`, isObject(claims.act) && isNonEmptyString(claims.act.sub) ? "info" : "fail", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? `act names an actor (${show(claims.act.sub)}): the receiver carries it into the access token.` : "act must be an object with a sub.");
+  if (claims.sub_id !== undefined) add("claim.sub_id", "OPTIONAL", `${D("3.2")}; RFC 9493`, isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? "info" : "fail", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? `sub_id (format ${show(claims.sub_id.format)}): this tester resolves users by sub only.` : "sub_id must be an object with a format (RFC 9493).");
   if (claims.cnf !== undefined) add("claim.cnf", "POLICY", D("9.11.1.2"), "fail", "cnf (a sender-constrained ID-JAG): this receiver doesn't support proof of possession at redemption, so it refuses.");
   if (claims.email === undefined && claims.aud_sub === undefined) add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "warn", "Neither email nor aud_sub: RECOMMENDED, so a receiver can find or create the user. (This tester doesn't need them.)");
   else add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "pass", "email or aud_sub is present.");
-  if (claims.auth_time !== undefined && !isNumericDate(claims.auth_time)) add("claim.auth_time", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "auth_time must be a NumericDate.");
-  if (claims.acr !== undefined && typeof claims.acr !== "string") add("claim.acr", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "acr must be a string.");
-  if (claims.amr !== undefined && !(Array.isArray(claims.amr) && claims.amr.every((a) => typeof a === "string"))) add("claim.amr", "OPTIONAL", D("3.1") + "; OpenID Connect Core", "fail", "amr must be an array of strings.");
+  if (claims.auth_time !== undefined && !isNumericDate(claims.auth_time)) add("claim.auth_time", "OPTIONAL", `${D("3.1")}; OpenID Connect Core`, "fail", "auth_time must be a NumericDate.");
+  if (claims.acr !== undefined && typeof claims.acr !== "string") add("claim.acr", "OPTIONAL", `${D("3.1")}; OpenID Connect Core`, "fail", "acr must be a string.");
+  if (claims.amr !== undefined && !(Array.isArray(claims.amr) && claims.amr.every((a) => typeof a === "string"))) add("claim.amr", "OPTIONAL", `${D("3.1")}; OpenID Connect Core`, "fail", "amr must be an array of strings.");
 
   // The receiver's own parser, as a last check: whatever it refuses on shape, the report says so even if no rule
   // above caught it.
@@ -225,10 +227,10 @@ export interface MetadataCheckInput {
 /** Checks the issuer's metadata and keys at registration. `blocking` lists the rules that stop a registration. */
 export function checkIssuerMetadata(input: MetadataCheckInput): { results: RuleResult[]; blocking: string[] } {
   const results: RuleResult[] = [];
-  const add = (id: string, level: Level, cite: string, outcome: Outcome, message: string) => results.push({ id, level, cite, outcome, message });
+  const add = (id: string, level: RuleLevel, cite: string, outcome: RuleOutcome, message: string) => results.push({ id, level, cite, outcome, message });
   const m = input.metadata;
 
-  add("metadata.location", "SHOULD", D("7.1") + "; RFC 8414 section 3", input.source === "oauth-authorization-server" ? "pass" : "warn", input.source === "oauth-authorization-server" ? "Found at RFC 8414's location." : "Found only at OpenID Connect Discovery's location: allowed as a fallback (MAY), but RFC 8414's is what receivers SHOULD use.");
+  add("metadata.location", "SHOULD", `${D("7.1")}; RFC 8414 section 3`, input.source === "oauth-authorization-server" ? "pass" : "warn", input.source === "oauth-authorization-server" ? "Found at RFC 8414's location." : "Found only at OpenID Connect Discovery's location: allowed as a fallback (MAY), but RFC 8414's is what receivers SHOULD use.");
   add("metadata.issuer", "MUST", "RFC 8414 section 3.3", m.issuer === input.issuer ? "pass" : "fail", m.issuer === input.issuer ? "The metadata's issuer is exactly the issuer you entered." : `The metadata's issuer must be exactly ${show(input.issuer)}; it is ${show(m.issuer)}.`);
   const jwksUri = m.jwks_uri;
   add("metadata.jwks_uri", "POLICY", D("7.1"), typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "pass" : "fail", typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "jwks_uri is an https URL." : `jwks_uri must be an https URL; it is ${show(jwksUri)}.`);
