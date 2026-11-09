@@ -1,8 +1,8 @@
-// The "test your IdP" tester's rule-by-rule report (examples/workers/tester/src/checks.ts): each rule says pass or
-// fail for the right reason, and the metadata check stops registrations that would never work.
+// The rule-by-rule checker (src/core/check.ts; the public tester's report and the id-jag-check Action): each rule
+// says pass or fail for the right reason, and the metadata check stops registrations that would never work.
 import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
-import { checkIdJag, checkIssuerMetadata, type IdJagCheckInput, type RuleResult } from "../../examples/workers/tester/src/checks";
+import { checkIdJag, checkIssuerMetadata, type IdJagCheckInput, type RuleResult } from "../../src/core/check";
 
 const ISSUER = "https://idp.example.org";
 const AUD = "https://tester.example.net/api/auth";
@@ -26,7 +26,7 @@ const sign = (claims: Record<string, unknown>, header: Record<string, unknown> =
 const input = (o: Partial<IdJagCheckInput> = {}): IdJagCheckInput => ({ issuer: ISSUER, audience: AUD, resource: RESOURCE, grantableScopes: ["read"], clientId: "c1", jwks: jwks as never, now, ...o });
 const outcome = (results: RuleResult[], id: string) => results.find((r) => r.id === id)?.outcome;
 
-describe("tester: checkIdJag", () => {
+describe("checkIdJag", () => {
   it("a correct ID-JAG passes every rule that can fail", async () => {
     const { results } = await checkIdJag(await sign(good), input());
     expect(results.filter((r) => r.outcome === "fail")).toEqual([]);
@@ -109,7 +109,7 @@ describe("tester: checkIdJag", () => {
   });
 });
 
-describe("tester: checkIssuerMetadata", () => {
+describe("checkIssuerMetadata", () => {
   const meta = { issuer: ISSUER, jwks_uri: `${ISSUER}/jwks`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"], id_jag_signing_alg_values_supported: ["RS256", "ES256"] };
 
   it("good metadata and keys pass and nothing blocks", () => {
