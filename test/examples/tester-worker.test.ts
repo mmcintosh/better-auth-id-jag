@@ -120,6 +120,8 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   it("a real GitHub sign-in (through the callback) keeps the login and account age, and nothing else", async () => {
     const home = await call("/");
     expect(home.headers.get("content-security-policy")).toContain("form-action 'self' https://github.com https://gitlab.com");
+    // A browser sends "Origin: null" on form posts under no-referrer, which the same-origin check refuses.
+    expect(home.headers.get("referrer-policy")).toBe("same-origin");
     expect(await home.clone().text()).toContain('<link rel="icon" href="/logo.svg"');
     const logo = await call("/logo.svg");
     expect(logo.headers.get("content-type")).toBe("image/svg+xml");
