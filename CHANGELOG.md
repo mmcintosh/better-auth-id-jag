@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
+The rule-by-rule ID-JAG checker is public: checkIdJag and checkIssuerMetadata.
+
 ### Added
 
 - **The rule-by-rule ID-JAG checker is public:** `checkIdJag` and `checkIssuerMetadata`, with their types
