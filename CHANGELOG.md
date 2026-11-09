@@ -21,6 +21,10 @@
   instead of a scope split in two or an empty server error.
 - **The registry directory refuses past its bounds** (D-069): over 100 resource servers for an audience, or 1000
   policies for a resource server, is refused rather than decided on part of them.
+- **`checkIdJag` returns a report for a JWKS with a certificate that isn't base64, and for any nested value** (D-070),
+  instead of throwing.
+- **The checker's messages name the receiver, not the tester** (D-070).
+- **`pnpm build` works in a checkout whose path has a space** (D-070).
 
 ## [0.7.0] - 2026-11-09
 

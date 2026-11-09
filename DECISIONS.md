@@ -1536,3 +1536,20 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   policies per resource server, and decided on what it read. It now reads one more and refuses (`policy_denied`)
   when a bound is exceeded, as blocks already do (`src/issuer/directory.ts`).
 - **Evidence:** a test for each, and each fails with its fix taken out (test/mutations/issuer.json).
+
+## D-070: the checker never throws on a bad certificate or a deeply nested value, and names the receiver; the build works from a path with a space (2026-11-09)
+
+- **A certificate that isn't base64.** `checkIdJag` works out a key's certificate thumbprints from `x5c` when an ID-JAG
+  names its key by `x5t` instead of `kid`. One certificate that isn't base64, even on an unrelated key, made it throw
+  instead of returning a report. Such a key now gives no thumbprints, as in the receiver's own key selection
+  (`src/receiver/jwks.ts`).
+- **A value nested too deeply.** `show`, which quotes values in the checker's messages, fell back to `String` when
+  `JSON.stringify` overflowed the stack; `String` recurses through arrays the same way and threw too. It now shows a
+  placeholder, so `checkIdJag` and `checkIssuerMetadata` return a report for any input.
+- **Wording.** Four messages spoke of "this tester"; the checker also runs outside the public tester (the id-jag-check
+  Action), so they now speak of the receiver, or drop the remark about the tester. The `sub_id` message says subject
+  lookup depends on the receiver's configuration: a receiver with `samlSubjects` looks users up by `sub_id`.
+- **The build.** `scripts/build.mjs` took its root from `URL.pathname`, which leaves a space as `%20`, so `pnpm build`
+  failed in a checkout such as `~/My Projects/`. It uses `fileURLToPath`.
+- **Evidence:** tests in `test/core/check.test.ts`, each failing with its fix taken out (two entries in
+  test/mutations/core.json); `test/build-script.test.ts` fails if the build goes back to `URL.pathname`.
