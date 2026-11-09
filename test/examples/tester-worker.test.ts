@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import init0001 from "../../examples/workers/tester/migrations/0001_init.sql?raw";
 import init0002 from "../../examples/workers/tester/migrations/0002_tester.sql?raw";
 import init0003 from "../../examples/workers/tester/migrations/0003_client_secret.sql?raw";
+import init0004 from "../../examples/workers/tester/migrations/0004_allowance.sql?raw";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const ORIGIN = "https://tester.example.net";
@@ -26,6 +27,8 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   let LIMITS: Record<string, number>;
   let cf: typeof import("cloudflare:test");
   const signers: Record<string, CryptoKey> = {};
+  /** Issuers whose JWKS answers 503. */
+  const jwksDown = new Set<string>();
   const jwks: Record<string, unknown> = {};
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -86,7 +89,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     cf = await import("cloudflare:test");
     const ok = { limit: async () => ({ success: true }) };
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", GITLAB_CLIENT_ID: "gl", GITLAB_CLIENT_SECRET: "gl-secret", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", ADMIN_STATS_KEY: KEYS.stats, ADMIN_CLOSE_KEY: KEYS.close, ADMIN_OPEN_KEY: KEYS.open, TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
-    for (const sql of [init0001, init0002, init0003]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
+    for (const sql of [init0001, init0002, init0003, init0004]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     for (const issuer of ISSUERS) {
       const pair = await generateKeyPair("RS256", { extractable: true });
       signers[issuer] = pair.privateKey;
@@ -97,7 +100,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
       const url = input instanceof Request ? input.url : String(input);
       for (const issuer of ISSUERS) {
         if (url === `${new URL(issuer).origin}/.well-known/oauth-authorization-server`) return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"] });
-        if (url === `${issuer}/jwks`) return Response.json(jwks[issuer]);
+        if (url === `${issuer}/jwks`) return jwksDown.has(issuer) ? new Response("down", { status: 503 }) : Response.json(jwks[issuer]);
       }
       if (url === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "gho_test", token_type: "bearer", scope: "read:user" });
       if (url === "https://api.github.com/user") return Response.json({ id: 555, login: "octo", email: "octo@example.com", avatar_url: "https://avatars.example/octo.png", created_at: "2015-01-01T00:00:00Z" });
@@ -240,6 +243,12 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(JSON.parse(whoami.result.content[0]?.text ?? "{}")).toMatchObject({ scope: "read" });
     const checks = (await (await mcp("tools/call", { name: "checks" })).json()) as { result: { content: { text: string }[] } };
     expect(JSON.parse(checks.result.content[0]?.text ?? "[]")[0]).toMatchObject({ httpStatus: 200 });
+    // Valid JSON that isn't a JSON-RPC object is an invalid request, not a server error.
+    for (const raw of ["null", "42", "[]"]) {
+      const r = await call("/mcp", { method: "POST", headers: { authorization: `Bearer ${body.access_token}`, "content-type": "application/json" }, body: raw });
+      expect(r.status, raw).toBe(400);
+      expect(await r.json()).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+    }
   });
 
   it("check an ID-JAG by pasting it: redeemed with the registration's own client, and the report is on the results page", async () => {
@@ -390,9 +399,77 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const smuggled = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic  ${btoa(`${malloryClient.clientId}:${malloryClient.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: "a.b.c", client_id: aliceClient.clientId }).toString() });
     expect(smuggled.status).toBe(400);
     expect(await count()).toBe(before);
+    // Alice's client id with no secret, and a request Better Auth refuses before any client authentication (a resource
+    // that isn't an absolute URI): neither counted nor shown, though it isn't a 401.
+    const unauthenticated = await call("/api/auth/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: await idJag(ISSUERS[0], aliceClient.clientId), client_id: aliceClient.clientId, resource: "rel/path" }).toString() });
+    expect(unauthenticated.status).not.toBe(200);
+    expect(await count()).toBe(before);
     // A Basic header the receiver accepts is read the same way here: two spaces still work.
     const spaced = await call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic  ${btoa(`${aliceClient.clientId}:${aliceClient.secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: await idJag(ISSUERS[0], aliceClient.clientId) }).toString() });
     expect(spaced.status).toBe(200);
+  });
+
+  it("an issuer's JWKS that is down is fetched at most once a minute, though every request asks (a failure counts as an attempt)", async () => {
+    const regId = (await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId))[0]?.id as string;
+    const jwksCalls = () => fetchSpy.mock.calls.filter(([input]: unknown[]) => String(input instanceof Request ? input.url : input) === `${ISSUERS[0]}/jwks`).length;
+    await env.DB.prepare(`update testerRegistration set jwks = 'null', jwksFetchedAt = 0 where id = ?`).bind(regId).run();
+    jwksDown.add(ISSUERS[0]);
+    try {
+      const before = jwksCalls();
+      for (let i = 0; i < 3; i++) await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
+      // The report's fetch once; the receiver's own key cache may fetch once too.
+      expect(jwksCalls() - before).toBeLessThanOrEqual(2);
+    } finally {
+      jwksDown.delete(ISSUERS[0]);
+      await env.DB.prepare(`update testerRegistration set jwksFetchedAt = 0 where id = ?`).bind(regId).run();
+    }
+  });
+
+  it("the report's keys are refetched once older than the receiver keeps its own: a key rotated under the same kid is checked with the new key", async () => {
+    const regId = (await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId))[0]?.id as string;
+    const oldJwks = jwks[ISSUERS[0]];
+    const oldSigner = signers[ISSUERS[0]];
+    const rotated = await generateKeyPair("RS256", { extractable: true });
+    // Stored keys six minutes old, naming k1; the issuer now publishes another key as k1.
+    await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ? where id = ?`).bind(JSON.stringify(oldJwks), Date.now() - 6 * 60_000, regId).run();
+    jwks[ISSUERS[0]] = { keys: [{ ...(await exportJWK(rotated.publicKey)), kid: "k1", alg: "RS256", use: "sig" }] };
+    signers[ISSUERS[0]] = rotated.privateKey;
+    try {
+      await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId));
+      expect(JSON.parse((await lastCheck())?.results ?? "[]").find((r: { id: string }) => r.id === "signature")?.outcome).toBe("pass");
+    } finally {
+      jwks[ISSUERS[0]] = oldJwks;
+      signers[ISSUERS[0]] = oldSigner as CryptoKey;
+      await env.DB.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = 0 where id = ?`).bind(JSON.stringify(oldJwks), regId).run();
+    }
+  });
+
+  it("a report for a registration that is gone is never kept: not written, and swept by the purge", async () => {
+    const store = await import("../../examples/workers/tester/src/store");
+    const check = { id: `c-${crypto.randomUUID().slice(0, 8)}`, registrationId: "gone", at: Date.now(), jti: null, httpStatus: 200, error: null, results: "[]", checkedAgainst: "x" };
+    await store.insertCheck(env.DB, check);
+    expect(await rows(`select id from testerCheck where registrationId = 'gone'`)).toEqual([]);
+    // One written before insertCheck checked (as a running redemption could have): the purge removes it.
+    await env.DB.prepare(`insert into testerCheck (id, registrationId, at, jti, httpStatus, error, results, checkedAgainst) values (?, 'gone', ?, null, 200, null, '[]', 'x')`).bind(check.id, check.at).run();
+    await worker.scheduled({}, env);
+    expect(await rows(`select id from testerCheck where registrationId = 'gone'`)).toEqual([]);
+  });
+
+  it("daily allowances are taken atomically, and deleting reports gives none back", async () => {
+    const regId = (await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId))[0]?.id as string;
+    const day = Date.now() - (Date.now() % 86_400_000);
+    const used = (await rows<{ used: number }>(`select used from testerAllowance where key = ?`, `registration:${regId}:${day}`))[0]?.used ?? 0;
+    const before = LIMITS.redemptionsPerRegistrationPerDay;
+    LIMITS.redemptionsPerRegistrationPerDay = used + 2;
+    try {
+      const answers = await Promise.all(Array.from({ length: 6 }, async () => (await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status));
+      expect(answers.filter((s) => s !== 429)).toHaveLength(2);
+      // Deleting today's reports doesn't free the allowance they used.
+      await env.DB.prepare(`delete from testerCheck where registrationId = ?`).bind(regId).run();
+      expect((await redeem(aliceClient, await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(429);
+    } finally {
+      LIMITS.redemptionsPerRegistrationPerDay = before as number;
+    }
   });
 
   it("a stored JWKS that isn't one is refetched, never a 500", async () => {

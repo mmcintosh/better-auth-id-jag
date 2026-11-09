@@ -69,7 +69,10 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   // No server-to-client stream (a GET) and no sessions (a DELETE): Streamable HTTP's answer is 405.
   // A 200 here makes VS Code poll GET /mcp every few seconds.
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
-  const rpc = (await request.json().catch(() => ({}))) as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> } };
+  const parsed: unknown = await request.json().catch(() => ({}));
+  // Valid JSON need not be an object (null, a number, a batch array): that is an invalid request, not a crash.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request: not a JSON-RPC object" } }, { status: 400 });
+  const rpc = parsed as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> } };
   // The minimum of MCP's Streamable HTTP: initialize, the initialized notification (202, no body),
   // ping, tools/list and tools/call. Any other method is "method not found".
   const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });

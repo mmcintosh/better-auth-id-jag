@@ -156,6 +156,23 @@ export async function updateJwks(db: D1Database, id: string, jwks: string, now: 
   await db.prepare(`update testerRegistration set jwks = ?, jwksFetchedAt = ? where id = ?`).bind(jwks, now, id).run();
 }
 
+/** A failed JWKS fetch counts as an attempt too: an issuer that's down is fetched at most once a minute. */
+export async function jwksAttempted(db: D1Database, id: string, now: number): Promise<void> {
+  await db.prepare(`update testerRegistration set jwksFetchedAt = ? where id = ?`).bind(now, id).run();
+}
+
+/** Takes one from an allowance for the day, atomically (concurrent requests can't all see the last one free). */
+export async function takeAllowance(db: D1Database, key: string, day: number, limit: number): Promise<boolean> {
+  if (limit <= 0) return false;
+  const row = await db.prepare(`insert into testerAllowance (key, day, used) values (?, ?, 1) on conflict (key) do update set used = used + 1 where used < ? returning used`).bind(key, day, limit).first<{ used: number }>();
+  return row !== null;
+}
+
+/** Gives one back: the request it was taken for wasn't authenticated, or was refused before it counted. */
+export async function giveBackAllowance(db: D1Database, key: string): Promise<void> {
+  await db.prepare(`update testerAllowance set used = used - 1 where key = ? and used > 0`).bind(key).run();
+}
+
 /**
  * Ends a registration at once: its client is refused by the token endpoint and its access tokens by /mcp from now
  * on, and its trust row is disabled. The purge removes everything within minutes.
@@ -193,8 +210,15 @@ export async function countServerErrors(db: D1Database, since: number): Promise<
   return (await db.prepare(`select count(*) as n from testerCheck where at >= ? and httpStatus >= 500`).bind(since).first<{ n: number }>())?.n ?? 0;
 }
 
+/**
+ * Records a report, only while its registration exists: a redemption still running when the registration is deleted
+ * (by its tester, or the purge) must not leave a report behind that nothing would ever remove.
+ */
 export async function insertCheck(db: D1Database, c: CheckRow): Promise<void> {
-  await db.prepare(`insert into testerCheck (id, registrationId, at, jti, httpStatus, error, results, checkedAgainst) values (?, ?, ?, ?, ?, ?, ?, ?)`).bind(c.id, c.registrationId, c.at, c.jti, c.httpStatus, c.error, c.results, c.checkedAgainst).run();
+  await db
+    .prepare(`insert into testerCheck (id, registrationId, at, jti, httpStatus, error, results, checkedAgainst) select ?, ?, ?, ?, ?, ?, ?, ? where exists (select 1 from testerRegistration where id = ?)`)
+    .bind(c.id, c.registrationId, c.at, c.jti, c.httpStatus, c.error, c.results, c.checkedAgainst, c.registrationId)
+    .run();
 }
 
 export async function recentChecks(db: D1Database, registrationId: string, limit = 50): Promise<CheckRow[]> {
@@ -313,6 +337,9 @@ export async function purge(db: D1Database, now: number, issuer?: string): Promi
     // an hour of being made, so a registration being reserved right now can't lose the key it just used.
     db.prepare(`delete from testerKey where id = ? and createdAt < ? and not exists (select 1 from testerBlock) and not exists (select 1 from testerAbuse)`).bind(BLOCK_KEY_ID, now - 3_600_000),
     db.prepare(`delete from testerCounter where bucket < ?`).bind(iso(now - WEEK_MS).slice(0, 13)),
+    // Reports whose registration is gone (written as it was deleted, before insertCheck checked): never kept.
+    db.prepare(`delete from testerCheck where registrationId not in (select id from testerRegistration)`),
+    db.prepare(`delete from testerAllowance where day < ?`).bind(now - 2 * 86_400_000),
   ]);
   return ended.length;
 }

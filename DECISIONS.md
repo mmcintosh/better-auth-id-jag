@@ -1495,3 +1495,31 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   empty-scope token with `allowEmptyScope`. The fix for Claude Code is on the client's side: ask the IdP for the scopes
   the server advertises. docs/interop.md records the run (PR #91).
 - **Evidence:** one test pins the refusal (`test/receiver/grant.test.ts`, "an ID-JAG with no scope claim is refused").
+
+## D-071: the public tester counts only authenticated requests, takes its allowances atomically, keeps no orphan report, and bounds its key fetches (2026-11-09)
+
+The public tester (`examples/workers/tester`):
+
+- **Only authenticated requests count.** It counted and recorded any answer but a 401 or `invalid_client`, and a
+  client id is no secret. A request Better Auth refuses before the grant handler runs (a `resource` that isn't an
+  absolute URI) passed that test without credentials, so a stranger could use up a registration's allowance and add
+  reports to its results. The receiver's events now say whether it authenticated the client of the request being
+  forwarded (an acceptance, or a refusal with `authenticated`), carried in an AsyncLocalStorage; only those requests
+  count (`src/auth.ts`, `src/index.ts`).
+- **Allowances are taken atomically.** The daily limits counted the reports already written: concurrent requests at
+  the limit all passed, and deleting reports gave allowance back. A `testerAllowance` row per registration and per day
+  is now taken atomically before the redemption and given back when the client wasn't authenticated (migration
+  0004).
+- **No report outlives its registration.** A redemption still running when its registration was deleted wrote its
+  report afterwards, and nothing removed it. The insert now requires the registration, and the purge deletes reports
+  whose registration is gone (`src/store.ts`).
+- **Key fetches are bounded and current.** A failed JWKS fetch didn't record the attempt, so an issuer that was down was
+  fetched on every request, before the client authenticated. A failure now counts as an attempt (at most one a
+  minute). The report's stored keys are also refetched once older than the receiver keeps its own (5 minutes), so a
+  key rotated under the same `kid`, or a token named by `x5t`, is checked with the current keys.
+- **A JSON-RPC body that isn't an object** (`null`, a number, an array) is an invalid request (-32600), not a server
+  error, at the tester's `/mcp` and the example MCP server; the admin endpoints treat it as an empty body.
+- **`jwks.fetch` cites draft -06 section 4.4.1 and RFC 7521 section 5.2** (a receiver verifies the signature with these
+  keys), as the id-jag-check Action does, rather than section 7.1.
+- **Evidence:** `test/examples/tester-worker.test.ts` (workerd, D1), a test for each, each failing with its fix taken
+  out.

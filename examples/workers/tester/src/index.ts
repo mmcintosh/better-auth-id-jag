@@ -9,7 +9,7 @@ import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/cor
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { checkIdJag, checkIssuerMetadata, JWT_BEARER_GRANT, type RuleResult, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import { withExecutionContext } from "../../background";
-import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
+import { createAuth, type Env, forwardSeen, internalKey, providers, SCOPES } from "./auth";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
 import { APP_JS } from "./app";
 import { CHECKED_AGAINST, LIMITS } from "./limits";
@@ -29,6 +29,7 @@ const authFor = (env: Env, origin: string) => {
   return auth;
 };
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const oauthError = (status: number, error: string, description: string) => Response.json({ error, error_description: description }, { status, headers: { "cache-control": "no-store" } });
 const clientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown";
 const newId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 20);
@@ -171,7 +172,7 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   const jwksUri = typeof metadata.jwks_uri === "string" ? metadata.jwks_uri : "";
   const jwks = jwksUri ? await fetchJsonCapped(fetch, jwksUri) : ({ ok: false, why: "no jwks_uri" } as const);
   const check = checkIssuerMetadata({ issuer, source, metadata, jwks: jwks.ok ? jwks.json : null });
-  if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 7.1", outcome: "fail", message: `Your JWKS ${jwks.why}.` });
+  if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 4.4.1; RFC 7521 section 5.2", outcome: "fail", message: `Your JWKS ${jwks.why}: a receiver verifies the ID-JAG's signature with these keys.` });
   if (check.blocking.length > 0 || !jwks.ok) return registerForm(env.TURNSTILE_SITE_KEY, `Not registered: ${check.results.filter((r) => r.outcome === "fail").map((r) => r.message).join(" ")}`);
 
   // Reserve the registration (pending) and its abuse record first, in one transaction that checks every limit: two
@@ -240,6 +241,9 @@ function requestClientId(request: Request, form: URLSearchParams): { clientId?: 
   return id ? { clientId: id, both: false } : { both: false };
 }
 
+/** The receiver's own key cache keeps keys this long (auth.ts, jwks.cacheTtlSeconds): the report's keys are no older. */
+const REPORT_KEYS_MAX_AGE_MS = 300_000;
+
 /**
  * The receiver's token endpoint, with limits in front and the rule-by-rule report recorded after. Only a request the
  * receiver authenticated is counted or recorded: a client id is no secret (it is in every ID-JAG), so nobody else's
@@ -264,13 +268,17 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
     store.bump("ratelimited.client");
     return oauthError(429, "slow_down", "At most 10 redemptions a minute per client.");
   }
+  // Today's allowances, taken atomically now and given back below if the receiver doesn't authenticate the client.
   const day = store.utcDayStart(now);
-  if ((await store.countChecks(env.DB, day, reg.id)) >= LIMITS.redemptionsPerRegistrationPerDay) return oauthError(429, "slow_down", `At most ${LIMITS.redemptionsPerRegistrationPerDay} redemptions a day per registration; more after 00:00 UTC.`);
-  if ((await store.countChecks(env.DB, day)) >= LIMITS.redemptionsPerDay) {
+  const allowance = { registration: `registration:${reg.id}:${day}`, everyone: `everyone:${day}` };
+  if (!(await store.takeAllowance(env.DB, allowance.registration, day, LIMITS.redemptionsPerRegistrationPerDay))) return oauthError(429, "slow_down", `At most ${LIMITS.redemptionsPerRegistrationPerDay} redemptions a day per registration; more after 00:00 UTC.`);
+  if (!(await store.takeAllowance(env.DB, allowance.everyone, day, LIMITS.redemptionsPerDay))) {
+    await store.giveBackAllowance(env.DB, allowance.registration);
     store.bump("token.daily_budget");
     console.log(JSON.stringify({ event: "tester.budget_reached", day: new Date(day).toISOString().slice(0, 10) }));
     return oauthError(503, "temporarily_unavailable", "Today's redemptions are used up; more after 00:00 UTC.");
   }
+  const giveBack = () => Promise.all([store.giveBackAllowance(env.DB, allowance.registration), store.giveBackAllowance(env.DB, allowance.everyone)]);
 
   // The report: every rule, with the issuer's keys (refetched at most once a minute when the kid is new).
   const assertion = form.get("assertion") ?? "";
@@ -287,12 +295,15 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
       return undefined;
     }
   })();
-  if ((!isJwks(jwks) || (typeof kid === "string" && !jwks.keys.some((k) => k.kid === kid))) && now - reg.jwksFetchedAt > 60_000) {
+  // Refetched when the stored keys aren't a JWKS, don't name this kid, or are older than the receiver keeps its own
+  // (5 minutes: a key rotated under the same kid, or a token named by x5t), at most once a minute, a failure included.
+  const stale = !isJwks(jwks) || (typeof kid === "string" && !jwks.keys.some((k) => k.kid === kid)) || now - reg.jwksFetchedAt > REPORT_KEYS_MAX_AGE_MS;
+  if (stale && now - reg.jwksFetchedAt > 60_000) {
     const fresh = await fetchJsonCapped(fetch, reg.jwksUri);
     if (fresh.ok && isJwks(fresh.json)) {
       jwks = fresh.json;
       await store.updateJwks(env.DB, reg.id, JSON.stringify(fresh.json), now);
-    }
+    } else await store.jwksAttempted(env.DB, reg.id, now);
   }
   const report = await checkIdJag(assertion, {
     issuer: reg.issuer,
@@ -310,9 +321,13 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   // The receiver's audit would keep the caller's user agent: it isn't needed, so it isn't sent.
   headers.delete("user-agent");
   const forward = () => authFor(env, origin).handler(new Request(request.url, { method: "POST", headers, body }));
-  let response = await forward();
+  // Counted and recorded only if the receiver says it authenticated the client: any other answer (a 400 Better Auth
+  // gives before the grant handler runs, say) could come from someone who knows only the client id.
+  const first = await forwardSeen(forward);
+  let response = first.result;
   let answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
-  if (response.status === 401 || answer?.error === "invalid_client") {
+  if (!first.authenticated || response.status === 401 || answer?.error === "invalid_client") {
+    await giveBack();
     store.bump("token.auth_failed");
     ctx.waitUntil(store.flushCounters(env.DB, Date.now()));
     return response;
@@ -392,12 +407,15 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   }
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
   const raw = await readBody(request);
-  let rpc: { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string } } = {};
+  let parsed: unknown = {};
   try {
-    rpc = raw ? JSON.parse(raw) : {};
+    parsed = raw ? JSON.parse(raw) : {};
   } catch {
-    rpc = {};
+    parsed = {};
   }
+  // Valid JSON need not be an object (null, a number, a batch array): that is an invalid request, not a crash.
+  if (!isObject(parsed)) return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request: not a JSON-RPC object" } }, { status: 400 });
+  const rpc = parsed as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string } };
   const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
   const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
   switch (rpc.method) {
@@ -531,7 +549,8 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
   const raw = await readBody(request);
   let body: { reason?: unknown; registrationId?: unknown; kinds?: unknown } = {};
   try {
-    body = raw ? JSON.parse(raw) : {};
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    body = isObject(parsed) ? parsed : {};
   } catch {
     body = {};
   }
