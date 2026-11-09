@@ -1,5 +1,6 @@
-# Fails a pull request (title, description, commits) or a push to main whose text has a
-# trailer or footer line matching the pattern below.
+# Fails a pull request, or a push to main, when any commit, its author or committer, or the PR's title or description
+# credits an AI: a Co-authored-by line naming one, a "Generated with/by" line, an AI tool's link, or a commit made by
+# an AI account. A required check on main (ruleset protect-main). The same check as github.com/mmcintosh/id-jag-check.
 name: Commit text
 on:
   push: { branches: [main] }
@@ -11,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: { contents: read, pull-requests: read }
     steps:
-      - name: Check titles, descriptions and commit messages
+      - name: Check titles, descriptions, commit messages, authors and committers
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -23,17 +24,20 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          pattern='co-authored-by:.*(claude|anthropic|copilot|openai|chatgpt|gemini|cursor)|generated (with|by) \[?(claude|copilot|chatgpt|gemini|cursor)|claude\.(ai|com)/code'
+          ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok'
+          text_pattern="co-authored-by:.*($ai)|generated (with|by) \[?($ai)|noreply@anthropic\.com|claude\.(ai|com)/code|chatgpt\.com|copilot-swe-agent"
+          people_pattern="($ai)"
+          # Each commit as: message, then "author: name <email>" and "committer: name <email>" lines.
+          jq_commit='"\(.commit.message)\nauthor: \(.commit.author.name) <\(.commit.author.email)> \(.author.login // "")\ncommitter: \(.commit.committer.name) <\(.commit.committer.email)> \(.committer.login // "")"'
           if [ "$EVENT" = pull_request ]; then
-            text=$(printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY"; gh api "repos/$REPO/pulls/$PR/commits" --paginate --jq '.[].commit.message')
+            commits=$(gh api "repos/$REPO/pulls/$PR/commits" --paginate --jq ".[] | $jq_commit")
+            text=$(printf '%s\n%s\n%s\n' "$PR_TITLE" "$PR_BODY" "$commits")
           elif [ -n "${BEFORE//0/}" ] && gh api "repos/$REPO/compare/$BEFORE...$AFTER" --silent 2>/dev/null; then
-            text=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.commits[].commit.message')
+            text=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq ".commits[] | $jq_commit")
           else
-            text=$(gh api "repos/$REPO/commits/$AFTER" --jq .commit.message)
+            text=$(gh api "repos/$REPO/commits/$AFTER" --jq "$jq_commit")
           fi
-          if hits=$(printf '%s\n' "$text" | grep -inE "$pattern"); then
-            echo "::error::Remove these lines:"
-            printf '%s\n' "$hits"
-            exit 1
-          fi
-          echo "OK."
+          bad=0
+          if hits=$(printf '%s\n' "$text" | grep -inE "$text_pattern"); then echo "::error::AI attribution in the text:"; printf '%s\n' "$hits"; bad=1; fi
+          if hits=$(printf '%s\n' "$text" | grep -iE '^(author|committer): ' | grep -iE "$people_pattern"); then echo "::error::A commit by an AI account:"; printf '%s\n' "$hits"; bad=1; fi
+          [ "$bad" = 0 ] && echo "OK." || exit 1
