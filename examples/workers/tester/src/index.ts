@@ -13,6 +13,7 @@ import { withExecutionContext } from "../../background";
 import { createAuth, type Env, INTERNAL_KEY, providers, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
+import { LOGO_SVG } from "./logo";
 import { landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
 import * as store from "./store";
@@ -550,6 +551,7 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
   const origin = url.origin;
   const path = url.pathname;
   if (path.startsWith("/admin/")) return admin(request, env, url);
+  if (path === "/logo.svg" && request.method === "GET") return new Response(LOGO_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
   if (!(await env.IP_LIMIT.limit({ key: `ip:${clientIp(request)}` })).success) {
     store.bump("ratelimited.ip");
     return new Response("Too many requests from your address. Try again in a minute.", { status: 429 });

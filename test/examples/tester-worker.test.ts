@@ -120,6 +120,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   it("a real GitHub sign-in (through the callback) keeps the login and account age, and nothing else", async () => {
     const home = await call("/");
     expect(home.headers.get("content-security-policy")).toContain("form-action 'self' https://github.com https://gitlab.com");
+    expect(await home.clone().text()).toContain('<link rel="icon" href="/logo.svg"');
+    const logo = await call("/logo.svg");
+    expect(logo.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await logo.text()).toMatch(/^<svg /);
     const start = await call("/signin", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: "provider=github" });
     expect(start.status).toBe(302);
     const authorize = new URL(start.headers.get("location") ?? "");

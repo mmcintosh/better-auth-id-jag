@@ -8,7 +8,7 @@ export const esc = (v: unknown): string =>
 
 // form-action also applies to where a form's answer redirects (Chrome checks it): the sign-in form posts here and is
 // redirected to GitHub or GitLab, so those two are allowed, on the home page only.
-const csp = (formAction: string) => `default-src 'none'; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`;
+const csp = (formAction: string) => `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`;
 const SIGN_IN_FORM_ACTION = "'self' https://github.com https://gitlab.com";
 
 const STYLE = `
@@ -30,7 +30,7 @@ button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid
 `;
 
 export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string>, formAction = "'self'" } = {}): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store", ...headers } });
 }
 
@@ -43,7 +43,7 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
   const signIn = providers.map((p) => `<form method="post" action="/signin" style="display:inline-block;margin-right:8px"><input type="hidden" name="provider" value="${p}"><button>Sign in with ${PROVIDER_NAMES[p]}</button></form>`).join("");
   return page(
     "Test your IdP",
-    `<h1>Test your IdP</h1>
+    `<h1><img src="/logo.svg" alt="" width="40" height="40" style="vertical-align:middle;margin-right:10px">Test your IdP</h1>
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
 <ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint. The first one signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
