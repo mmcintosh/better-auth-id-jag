@@ -1019,7 +1019,7 @@
  {
   "name": "D-A25 JWKS: stale keys never discarded (used indefinitely while the JWKS is down)",
   "file": "src/receiver/jwks.ts",
-  "a": "    if (entry.keys !== null && !fetchedNow && !this.usable(entry)) entry.keys = null;\n",
+  "a": "    if (entry.keys !== null && !this.usable(entry)) entry.keys = null;\n",
   "b": "",
   "paths": [
    "test/receiver/jwks.test.ts"
@@ -1976,19 +1976,19 @@
   ]
  },
  {
-  "name": "jwks: keys fetched for this request discarded when the cache keeps nothing",
-  "file": "src/receiver/jwks.ts",
-  "a": "    const fetchedNow = entry.fetches !== fetchesBefore;",
-  "b": "    const fetchedNow = false;",
+  "name": "resolve: loose matches past the lookup's bound taken as no account",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (rows.length > MAX_LINKED_ROWS) refuse(",
+  "b": "  if (false && rows.length > MAX_LINKED_ROWS) refuse(",
   "paths": [
    "test/receiver"
   ]
  },
  {
-  "name": "resolve: loose matches past the lookup's bound taken as no account",
-  "file": "src/receiver/resolve.ts",
-  "a": "  if (rows.length > MAX_LINKED_ROWS) refuse(",
-  "b": "  if (false && rows.length > MAX_LINKED_ROWS) refuse(",
+  "name": "options: keys that can't outlive the refetch interval accepted (no keys between refetches)",
+  "file": "src/receiver/options.ts",
+  "a": "  if (settings.cacheTtlMs + settings.maxStaleMs < settings.minRefetchMs)\n",
+  "b": "  if (false)\n",
   "paths": [
    "test/receiver"
   ]

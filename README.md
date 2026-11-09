@@ -274,7 +274,7 @@ Adds the jwt-bearer grant to the host's token endpoint (`mcp()` or `oauthProvide
 | `clockSkewSeconds` | `60` | Allowed skew on `iat`, `nbf` and `exp`, 0 to 300. |
 | `maxLifetimeSeconds` | `900` | The longest `exp − iat` accepted. |
 | `fetch` | the global `fetch` | The only fetch the receiver uses (JWKS and discovery). |
-| `jwks` | | `{ timeoutMs: 5000, maxBytes: 65536, cacheTtlSeconds: 600, minRefetchIntervalSeconds: 60, maxStaleSeconds: 3600 }`. An unknown `kid` (or certificate thumbprint) refetches, at most once per interval. While the issuer's JWKS can't be fetched, cached keys keep working for at most `maxStaleSeconds` past their TTL, then every request is refused until a fetch succeeds. |
+| `jwks` | | `{ timeoutMs: 5000, maxBytes: 65536, cacheTtlSeconds: 600, minRefetchIntervalSeconds: 60, maxStaleSeconds: 3600 }`. An unknown `kid` (or certificate thumbprint) refetches, at most once per interval. While the issuer's JWKS can't be fetched, cached keys keep working for at most `maxStaleSeconds` past their TTL, then every request is refused until a fetch succeeds. `cacheTtlSeconds + maxStaleSeconds` must be at least `minRefetchIntervalSeconds`, or there would be no keys between refetches (refused at startup). |
 | `events`, `auditLog` | | As for the issuer. |
 
 ### Trusted issuers

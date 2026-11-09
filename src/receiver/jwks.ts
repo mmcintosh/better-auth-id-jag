@@ -51,8 +51,6 @@ export interface IssuerKeys {
 interface Entry {
   keys: JWK[] | null;
   fetchedAt: number;
-  /** Counts successful fetches, so a request can tell that the keys were fetched for it. */
-  fetches: number;
   lastAttemptAt: number;
   inflight: Promise<void> | null;
 }
@@ -93,11 +91,10 @@ export class JwksCache {
     const cacheKey = JSON.stringify([source.issuer, source.jwksUri ?? "", source.discoveryUri ?? ""]);
     let entry = this.entries.get(cacheKey);
     if (!entry) {
-      entry = { keys: null, fetchedAt: 0, fetches: 0, lastAttemptAt: Number.NEGATIVE_INFINITY, inflight: null };
+      entry = { keys: null, fetchedAt: 0, lastAttemptAt: Number.NEGATIVE_INFINITY, inflight: null };
       this.entries.set(cacheKey, entry);
     }
     const now = this.now();
-    const fetchesBefore = entry.fetches;
     const fresh = entry.keys !== null && now - entry.fetchedAt < this.settings.cacheTtlMs;
     const known = entry.keys?.some((k) => matches(k, named)) ?? false;
     if (!(fresh && known)) {
@@ -109,10 +106,8 @@ export class JwksCache {
         });
       // else: refetched too recently; use what we have (an unknown kid then fails as a bad signature).
     }
-    // Too stale to use (the refetches failed): discard the keys until a fetch succeeds. Keys fetched for this request
-    // (by it, or by the fetch it waited on) are always used for it, even with cacheTtlSeconds and maxStaleSeconds at 0.
-    const fetchedNow = entry.fetches !== fetchesBefore;
-    if (entry.keys !== null && !fetchedNow && !this.usable(entry)) entry.keys = null;
+    // Too stale to use (the refetches failed): discard the keys until a fetch succeeds.
+    if (entry.keys !== null && !this.usable(entry)) entry.keys = null;
     if (!entry.keys) refuse("jwks_unavailable", "no keys (a recent fetch failed)");
     if (named.kid !== undefined) return toIssuerKeys(entry.keys);
     // No kid: only the keys whose certificate the header names; jose then picks among them by alg and key type.
@@ -133,7 +128,6 @@ export class JwksCache {
         const keys = await this.load(source);
         entry.keys = keys;
         entry.fetchedAt = this.now();
-        entry.fetches++;
       } finally {
         entry.inflight = null;
       }

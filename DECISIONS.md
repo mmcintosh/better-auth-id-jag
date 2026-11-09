@@ -1512,8 +1512,10 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
 - **JIT undoes a user whose account link failed.** The user and the membership JIT just created stayed behind when
   linking the account failed, so every retry was refused ("email belongs to an existing user"). They are now removed,
   and the request is refused as `subject_unavailable`, which a retry can get past.
-- **Keys fetched for a request are used for it.** With `jwks.cacheTtlSeconds` and `jwks.maxStaleSeconds` both 0 (both
-  allowed), freshly fetched keys counted as stale and were discarded, so every redemption failed with
-  `jwks_unavailable` (`src/receiver/jwks.ts`).
+- **Keys must outlive the refetch interval.** Keys are usable for `jwks.cacheTtlSeconds + jwks.maxStaleSeconds` after a
+  fetch, and refetched at most once per `jwks.minRefetchIntervalSeconds` (at least 1). Both of the first two at 0 were
+  accepted, and then every redemption failed with `jwks_unavailable`, even while the issuer was healthy; any sum below
+  the interval left no keys between refetches. Such options are now refused at startup with a message saying which to
+  change (`src/receiver/options.ts`).
 - **Evidence:** a test for each, and each fails with its fix taken out (test/mutations/receiver.json lists them);
   `test/adapters` runs the account-key case on real databases, MySQL included.

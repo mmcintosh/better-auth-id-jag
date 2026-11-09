@@ -13,8 +13,8 @@
 - **Every trust row for an issuer is read** (D-068): more than 10 `ssoProvider` or `idJagTrustedIssuer` rows for one
   issuer no longer hide tenants or escape the ambiguity checks. Over 1000 rows per source is refused.
 - **JIT removes the user and membership it created when linking the account fails** (D-068), so a retry works.
-- **`jwks.cacheTtlSeconds: 0` with `jwks.maxStaleSeconds: 0` works** (D-068): the keys fetched for a request are used for
-  it.
+- **JWKS options whose keys can't outlive the refetch interval are refused at startup** (D-068): with
+  `cacheTtlSeconds + maxStaleSeconds` below `minRefetchIntervalSeconds` (both 0, for one), every redemption failed.
 
 ## [0.7.0] - 2026-11-09
 
