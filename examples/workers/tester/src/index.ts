@@ -296,7 +296,11 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   const day = store.utcDayStart(now);
   const allowance = { registration: `registration:${reg.id}:${day}`, everyone: `everyone:${day}` };
   if (!(await store.takeAllowance(env.DB, allowance.registration, day, LIMITS.redemptionsPerRegistrationPerDay))) return oauthError(429, "slow_down", `At most ${LIMITS.redemptionsPerRegistrationPerDay} redemptions a day per registration; more after 00:00 UTC.`);
-  if (!(await store.takeAllowance(env.DB, allowance.everyone, day, LIMITS.redemptionsPerDay))) {
+  const everyone = await store.takeAllowance(env.DB, allowance.everyone, day, LIMITS.redemptionsPerDay).catch(async (e: unknown) => {
+    await store.giveBackAllowance(env.DB, allowance.registration);
+    throw e;
+  });
+  if (!everyone) {
     await store.giveBackAllowance(env.DB, allowance.registration);
     store.bump("token.daily_budget");
     console.log(JSON.stringify({ event: "tester.budget_reached", day: new Date(day).toISOString().slice(0, 10) }));
@@ -339,6 +343,15 @@ async function redeem(request: Request, env: Env, origin: string, ctx: Execution
     if (fresh.ok && isJwks(fresh.json)) {
       jwks = fresh.json;
       await store.updateJwks(env.DB, reg.id, JSON.stringify(fresh.json), now);
+    }
+  } else if (stale) {
+    // Another request has this minute's fetch: use what it stored, if it has finished (the report is a diagnostic;
+    // the receiver, with its own key cache, decides).
+    const latest = await store.byId(env.DB, reg.id);
+    try {
+      if (latest) jwks = JSON.parse(latest.jwks);
+    } catch {
+      // keep the keys read before
     }
   }
   const report = await checkIdJag(assertion, {
