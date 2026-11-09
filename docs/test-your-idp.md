@@ -35,10 +35,11 @@ nothing (section 4.3.3: the IdP includes "the granted values, if any").
 
 ### The rules
 
-Every rule below is in [`examples/workers/tester/src/checks.ts`](../examples/workers/tester/src/checks.ts) (`jwks.fetch`
-in its `index.ts`), written from the text of draft -06 and the RFCs it relies on. The level is the source's own word
-(MUST, SHOULD, RECOMMENDED, OPTIONAL), or POLICY for this receiver's choice. A rule whose level differs by case
-(a claim that is present but malformed, say) lists both.
+Every rule below is in the package's checker, [`src/core/check.ts`](../src/core/check.ts) (`checkIdJag` and
+`checkIssuerMetadata`; `jwks.fetch` is in the tester's [`index.ts`](../examples/workers/tester/src/index.ts)),
+written from the text of draft -06 and the RFCs it relies on. The level is the source's own word (MUST, SHOULD,
+RECOMMENDED, OPTIONAL), or POLICY for this receiver's choice. A rule whose level differs by case (a claim that is
+present but malformed, say) lists both.
 
 **At registration: your metadata and keys.** A failed rule marked *blocks* stops the registration.
 
