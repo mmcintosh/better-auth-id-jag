@@ -51,13 +51,16 @@ const MAX_TOKEN_CHARS = 16_384;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 const isNumericDate = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-/** A value as the report shows it: short, and never more than one line. */
+/**
+ * A value as the report shows it: short, and never more than one line. Never throws: a value nested too deeply for
+ * JSON.stringify (and for String, which recurses through arrays the same way) is shown as a placeholder.
+ */
 export const show = (v: unknown): string => {
   let s: string;
   try {
     s = typeof v === "string" ? JSON.stringify(v) : (JSON.stringify(v) ?? String(v));
   } catch {
-    s = String(v);
+    s = "(a value too deeply nested to show)";
   }
   return s.length > 120 ? `${s.slice(0, 117)}...` : s;
 };
@@ -134,7 +137,7 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
 
   if (!isNonEmptyString(claims.client_id)) add("claim.client_id", "MUST", D("3.1"), "fail", "client_id is REQUIRED: the client's id at this receiver.");
   else if (input.clientId === undefined) add("claim.client_id", "MUST", D("4.4.1"), "skip", "client_id is present; the request's client wasn't known, so it wasn't compared.");
-  else add("claim.client_id", "MUST", D("4.4.1"), claims.client_id === input.clientId ? "pass" : "fail", claims.client_id === input.clientId ? "client_id is the client that authenticated." : `client_id must be the client that authenticated (${show(input.clientId)}); it is ${show(claims.client_id)}. Use the client id this tester gave you, not your IdP's own.`);
+  else add("claim.client_id", "MUST", D("4.4.1"), claims.client_id === input.clientId ? "pass" : "fail", claims.client_id === input.clientId ? "client_id is the client that authenticated." : `client_id must be the client that authenticated (${show(input.clientId)}); it is ${show(claims.client_id)}. Use the client id the receiver gave you, not your IdP's own.`);
 
   add("claim.jti", "MUST", D("3.1"), isNonEmptyString(claims.jti) ? "pass" : "fail", isNonEmptyString(claims.jti) ? "jti is present (each ID-JAG works once here)." : "jti is REQUIRED: a unique id for this ID-JAG.");
 
@@ -173,11 +176,11 @@ export async function checkIdJag(token: string, input: IdJagCheckInput): Promise
   }
 
   if (claims.authorization_details !== undefined) add("claim.authorization_details", "POLICY", D("4.4.1"), "fail", "authorization_details (Rich Authorization Requests): this receiver refuses them for now.");
-  if (claims.tenant !== undefined) add("claim.tenant", "OPTIONAL", D("3.1, 6.1"), typeof claims.tenant === "string" ? "info" : "fail", typeof claims.tenant === "string" ? "tenant is present: your issuer is multi-tenant. This tester registers single-tenant issuers." : "tenant must be a JSON string.");
+  if (claims.tenant !== undefined) add("claim.tenant", "OPTIONAL", D("3.1, 6.1"), typeof claims.tenant === "string" ? "info" : "fail", typeof claims.tenant === "string" ? "tenant is present: your issuer is multi-tenant." : "tenant must be a JSON string.");
   if (claims.act !== undefined) add("claim.act", "OPTIONAL", `${D("9.10")}; RFC 8693 section 4.1`, isObject(claims.act) && isNonEmptyString(claims.act.sub) ? "info" : "fail", isObject(claims.act) && isNonEmptyString(claims.act.sub) ? `act names an actor (${show(claims.act.sub)}): the receiver carries it into the access token.` : "act must be an object with a sub.");
-  if (claims.sub_id !== undefined) add("claim.sub_id", "OPTIONAL", `${D("3.2")}; RFC 9493`, isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? "info" : "fail", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? `sub_id (format ${show(claims.sub_id.format)}): this tester resolves users by sub only.` : "sub_id must be an object with a format (RFC 9493).");
+  if (claims.sub_id !== undefined) add("claim.sub_id", "OPTIONAL", `${D("3.2")}; RFC 9493`, isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? "info" : "fail", isObject(claims.sub_id) && isNonEmptyString(claims.sub_id.format) ? `sub_id (format ${show(claims.sub_id.format)}): subject lookup depends on the receiver's configuration (by sub, or by sub_id where it maps a SAML NameID).` : "sub_id must be an object with a format (RFC 9493).");
   if (claims.cnf !== undefined) add("claim.cnf", "POLICY", D("9.11.1.2"), "fail", "cnf (a sender-constrained ID-JAG): this receiver doesn't support proof of possession at redemption, so it refuses.");
-  if (claims.email === undefined && claims.aud_sub === undefined) add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "warn", "Neither email nor aud_sub: RECOMMENDED, so a receiver can find or create the user. (This tester doesn't need them.)");
+  if (claims.email === undefined && claims.aud_sub === undefined) add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "warn", "Neither email nor aud_sub: RECOMMENDED, so a receiver can find or create the user.");
   else add("claim.email_or_aud_sub", "RECOMMENDED", D("3.1"), "pass", "email or aud_sub is present.");
   if (claims.auth_time !== undefined && !isNumericDate(claims.auth_time)) add("claim.auth_time", "OPTIONAL", `${D("3.1")}; OpenID Connect Core`, "fail", "auth_time must be a NumericDate.");
   if (claims.acr !== undefined && typeof claims.acr !== "string") add("claim.acr", "OPTIONAL", `${D("3.1")}; OpenID Connect Core`, "fail", "acr must be a string.");
@@ -206,7 +209,14 @@ async function signingKeys(jwks: JSONWebKeySet, header: Record<string, unknown>)
   const out: JWK[] = [];
   for (const k of keys) {
     const cert = Array.isArray(k.x5c) && typeof k.x5c[0] === "string" ? k.x5c[0] : undefined;
-    const der = cert ? Uint8Array.from(atob(cert), (c) => c.charCodeAt(0)) : undefined;
+    // A certificate that isn't base64 gives no thumbprints (as the receiver's own key selection, src/receiver/jwks.ts),
+    // so one bad entry, even on an unrelated key, can't stop the report.
+    let der: Uint8Array<ArrayBuffer> | undefined;
+    try {
+      der = cert ? Uint8Array.from(atob(cert), (c) => c.charCodeAt(0)) : undefined;
+    } catch {
+      der = undefined;
+    }
     const b64url = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     const x5t = (k as { x5t?: string }).x5t ?? (der ? b64url(await crypto.subtle.digest("SHA-1", der)) : undefined);
     const x5tS256 = (k as { "x5t#S256"?: string })["x5t#S256"] ?? (der ? b64url(await crypto.subtle.digest("SHA-256", der)) : undefined);

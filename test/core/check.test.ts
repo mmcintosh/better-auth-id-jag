@@ -2,7 +2,7 @@
 // says pass or fail for the right reason, and the metadata check stops registrations that would never work.
 import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
-import { checkIdJag, checkIssuerMetadata, type IdJagCheckInput, type RuleResult } from "../../src/core/check";
+import { checkIdJag, checkIssuerMetadata, type IdJagCheckInput, type RuleResult, show } from "../../src/core/check";
 
 const ISSUER = "https://idp.example.org";
 const AUD = "https://tester.example.net/api/auth";
@@ -106,6 +106,31 @@ describe("checkIdJag", () => {
 
   it("never throws, whatever it is given", async () => {
     for (const t of ["", "a.b.c", "....", "x".repeat(20_000), `${btoa("[]")}.${btoa("{}")}.x`]) await expect(checkIdJag(t, input())).resolves.toBeDefined();
+  });
+
+  it("a certificate that isn't base64, even on an unrelated key, gives no thumbprints and doesn't stop the report", async () => {
+    const thumb = "A".repeat(27);
+    const withBadCert = { keys: [{ ...jwks.keys[0], kid: undefined, x5c: ["not base64!"] }, { ...jwks.keys[0], kid: undefined, x5t: thumb }] };
+    const token = await new SignJWT(good).setProtectedHeader({ alg: "RS256", typ: "oauth-id-jag+jwt", x5t: thumb }).sign(key);
+    const r = (await checkIdJag(token, input({ jwks: withBadCert as never }))).results;
+    expect(outcome(r, "signature")).toBe("pass");
+  });
+
+  it("its messages name the receiver, not the tester (the checker runs in the Action too)", async () => {
+    const r = (await checkIdJag(await sign({ ...good, client_id: "someone-else", email: undefined, tenant: "t1", sub_id: { format: "email", email: "a@example.org" } }), input())).results;
+    expect(outcome(r, "claim.client_id")).toBe("fail");
+    expect(r.map((x) => x.message).join("\n")).not.toMatch(/tester/i);
+  });
+});
+
+describe("show", () => {
+  it("never throws: a value nested too deeply for JSON.stringify (or String) is a short placeholder", () => {
+    let deep: unknown = [];
+    for (let i = 0; i < 200_000; i++) deep = [deep];
+    // Where JSON.stringify overflows (Node), the placeholder; where it copes (workerd), the value, cut short.
+    const shown = show(deep);
+    expect(shown === "(a value too deeply nested to show)" || /^\[\[\[.*\.\.\.$/.test(shown)).toBe(true);
+    expect(show("ok")).toBe('"ok"');
   });
 });
 

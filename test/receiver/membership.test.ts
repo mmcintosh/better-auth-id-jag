@@ -75,6 +75,26 @@ describe("JIT membership: static entries", () => {
     expect(await membersOf(s.h, org)).toMatchObject([{ userId: r.userId, role: "member" }]);
   });
 
+  it("a failed account link removes the new user and its membership; a retry joins once", async () => {
+    const org = newOrgId();
+    const s = await host({ trust: { organizationId: org } });
+    await createOrganization(s.h, org);
+    const internal = s.h.ctx.internalAdapter;
+    const original = internal.linkAccount.bind(internal);
+    internal.linkAccount = (async () => {
+      throw new Error("database briefly down");
+    }) as typeof internal.linkAccount;
+    const email = uniqueEmail();
+    const sub = crypto.randomUUID();
+    expect((await s.attempt({ sub, email })).reason).toBe("subject_unavailable");
+    expect(await membersOf(s.h, org)).toEqual([]);
+    expect(await internal.findUserByEmail(email)).toBeNull();
+    internal.linkAccount = original;
+    const r = await s.attempt({ sub, email });
+    expect(r.reason).toBe("accepted");
+    expect(await membersOf(s.h, org)).toMatchObject([{ userId: r.userId, role: "member" }]);
+  });
+
   it("jitRole sets the role; the same subject again adds nothing", async () => {
     const org = newOrgId();
     const t = await host({ trust: { organizationId: org, jitRole: "admin" } });

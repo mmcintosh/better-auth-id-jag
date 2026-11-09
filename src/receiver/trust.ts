@@ -13,7 +13,22 @@ import { type IdJagClaims, refuse } from "../core";
 import { defaultAccountProviderId, normaliseSamlSubjects, type ResolvedReceiverOptions, samlSubjectSchema, type TrustEntry } from "./options";
 import { TRUSTED_ISSUER_MODEL } from "./schema";
 
-const MAX_ROWS = 10;
+/**
+ * How many trust rows one issuer may have, per source. The tenant filter and the ambiguity and shared-namespace checks
+ * below need every row for the issuer (one shared issuer, such as a multi-tenant IdP's, can have a row per tenant), so
+ * none is dropped: a lookup that reaches the bound refuses instead of deciding on part of the set.
+ */
+const MAX_ROWS = 1000;
+
+/** Rows for one issuer from one source, all of them, or a refusal when there are more than MAX_ROWS. */
+async function allRows(ctx: GenericEndpointContext, model: string, where: { field: string; value: string | boolean }[], iss: string): Promise<Record<string, unknown>[]> {
+  const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({ model, where, limit: MAX_ROWS + 1 });
+  if (rows.length > MAX_ROWS) {
+    ctx.context.logger.error(`[id-jag] more than ${MAX_ROWS} ${model} rows for ${iss}; refusing rather than deciding on part of them`);
+    refuse("untrusted_issuer", `more than ${MAX_ROWS} ${model} rows for ${iss}`);
+  }
+  return rows;
+}
 
 const oidcConfigSchema = z.looseObject({
   issuer: z.string().optional(),
@@ -87,7 +102,7 @@ export function openIdConfigurationUrl(issuer: string): string {
 async function fromSso(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, iss: string): Promise<TrustEntry[]> {
   if (!o.sso || !ctx.context.hasPlugin("sso")) return [];
   const sso = o.sso;
-  const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({ model: "ssoProvider", where: [{ field: "issuer", value: iss }], limit: MAX_ROWS });
+  const rows = await allRows(ctx, "ssoProvider", [{ field: "issuer", value: iss }], iss);
   const out: TrustEntry[] = [];
   for (const raw of rows) {
     const row = ssoRowSchema.safeParse(raw);
@@ -123,14 +138,15 @@ async function fromSso(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
 
 async function fromTable(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, iss: string): Promise<TrustEntry[]> {
   if (!o.trustedIssuerTable) return [];
-  const rows = await ctx.context.adapter.findMany<Record<string, unknown>>({
-    model: TRUSTED_ISSUER_MODEL,
-    where: [
+  const rows = await allRows(
+    ctx,
+    TRUSTED_ISSUER_MODEL,
+    [
       { field: "issuer", value: iss },
       { field: "enabled", value: true },
     ],
-    limit: MAX_ROWS,
-  });
+    iss,
+  );
   const out: TrustEntry[] = [];
   for (const raw of rows) {
     const row = tableRowSchema.safeParse(raw);
