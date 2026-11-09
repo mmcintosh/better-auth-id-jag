@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The rule-by-rule ID-JAG checker is public:** `checkIdJag` and `checkIssuerMetadata`, with their types
+  (`RuleResult`, `RuleLevel`, `RuleOutcome`, `IdJagCheckInput`, `IdJagReport`, `MetadataCheckInput`). Every rule an
+  ID-JAG (or an IdP's metadata and keys) is held to, each with pass, fail, warn, info or skip, its level and its
+  source in draft -06 or an RFC, all at once rather than the receiver's first refusal. Pure: no network, no clock of
+  its own. The public tester (`examples/workers/tester`) reports with it.
+
+## [0.6.1] - 2026-11-09
+
+A security fix: the issuer refuses an ID-JAG request that carries a DPoP proof, instead of answering it with an unbound ID-JAG.
+
 ### Security
 
 - **The issuer refuses an ID-JAG request that carries a DPoP proof** (D-066): `invalid_request`, "DPoP-bound ID-JAGs

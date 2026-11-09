@@ -7,10 +7,9 @@
 // (bearer keys). While the tester is closed, only /, /admin, sign-out and /delete answer. Limits are in LIMITS.
 import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/core/oauth2";
 import { createLocalJWKSet, jwtVerify } from "jose";
-import { JWT_BEARER_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
+import { checkIdJag, checkIssuerMetadata, JWT_BEARER_GRANT, type RuleResult, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
-import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
 import { APP_JS } from "./app";
 import { CHECKED_AGAINST, LIMITS } from "./limits";
