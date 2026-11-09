@@ -114,9 +114,10 @@ describe("subject resolution: email fallback", () => {
       findUserByEmail: async () => ({ user: { id: "someone", email: "a@corp.example", emailVerified: true }, accounts: [] }),
       linkAccount: async (a: unknown) => void linked.push(a),
     };
-    const adapter = { ...s.h.ctx.adapter, findMany: async () => [{ id: "acc-1", userId: "gone", createdAt: new Date() }] };
-    const ctx = { context: { ...s.h.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
     const claims = s.idp.claims({ email: "a@corp.example" }) as unknown as IdJagClaims;
+    // The row as a database returns it: with its key, which the lookup compares exactly.
+    const adapter = { ...s.h.ctx.adapter, findMany: async () => [{ id: "acc-1", userId: "gone", providerId: trust.accountProviderId, accountId: claims.sub, createdAt: new Date() }] };
+    const ctx = { context: { ...s.h.ctx, adapter, internalAdapter } } as unknown as GenericEndpointContext;
     const outcome = await resolveSubject(ctx, o, trust, claims, "c").then(
       () => "accepted",
       (e: IdJagRefusal) => e.reason,
@@ -212,6 +213,63 @@ describe("subject resolution: the host's account-linking settings (D-A32)", () =
   }
 });
 
+describe("subject resolution: only the exact subject's account (RFC 7519 section 4.1.2: sub is case-sensitive)", () => {
+  // A database whose collation ignores case and accents (MySQL's default) answers a lookup for the account of "José"
+  // with the account of "jose" too. The account lookup is made to answer that way here; test/adapters runs it on real
+  // databases.
+  const fold = (v: unknown) => (typeof v === "string" ? v.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase() : v);
+  const looseAccounts = (s: Awaited<ReturnType<typeof host>>) => {
+    const adapter = s.h.ctx.adapter;
+    const original = adapter.findMany.bind(adapter);
+    adapter.findMany = (async (q: Parameters<typeof original>[0]) => {
+      const wanted = q.where?.find((w) => w.field === "accountId");
+      if (q.model !== "account" || !wanted) return original(q);
+      // Every row of the provider, then the loose match, then the limit asked for: as such a database answers.
+      const rows = await original({ ...q, where: q.where?.filter((w) => w !== wanted), limit: 100_000 });
+      return (rows as Record<string, unknown>[]).filter((r) => fold(r.accountId) === fold(wanted.value)).slice(0, q.limit);
+    }) as typeof adapter.findMany;
+  };
+
+  it("an ID-JAG for José never gets jose's user, though the database matched jose's account", async () => {
+    const s = await host();
+    const tag = crypto.randomUUID().slice(0, 8);
+    const jose = await linkedUser(s.h, s.providerId, `jose-${tag}`);
+    looseAccounts(s);
+    // The hazard is emulated: the lookup for José returns jose's row.
+    expect(await s.h.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: s.providerId }, { field: "accountId", value: `JOSÉ-${tag}` }] })).toMatchObject([{ userId: jose.id }]);
+    expect((await s.attempt({ sub: `JOSÉ-${tag}` })).reason).toBe("unknown_subject");
+    expect(await s.attempt({ sub: `jose-${tag}` })).toMatchObject({ reason: "accepted", userId: jose.id });
+  });
+
+  it("more loose matches than the lookup reads: refused, never taken for no account (nor provisioned)", async () => {
+    const s = await host({ trust: { jitProvisioning: true } });
+    const tag = crypto.randomUUID().slice(0, 8);
+    // 101 case variants of one subject, all older than its own account: on such a database they fill the lookup.
+    const variants = new Set<string>();
+    for (let i = 0; variants.size < 101; i++) variants.add(`abcdefgh-${tag}`.replace(/[a-h]/g, (c, at: number) => ((i >> at) & 1 ? c.toUpperCase() : c)));
+    variants.delete(`abcdefgh-${tag}`);
+    for (const v of [...variants].slice(0, 101)) await linkedUser(s.h, s.providerId, v);
+    const own = await linkedUser(s.h, s.providerId, `abcdefgh-${tag}`);
+    looseAccounts(s);
+    const r = await s.attempt({ sub: `abcdefgh-${tag}`, email: uniqueEmail() });
+    expect(r.reason).toBe("subject_unavailable");
+    expect(s.rec.refused.at(-1)?.detail).toMatch(/more than 100 accounts/);
+    void own;
+  });
+
+  it("with JIT, José gets a user of his own, and jose's link is left alone", async () => {
+    const s = await host({ trust: { jitProvisioning: true } });
+    const tag = crypto.randomUUID().slice(0, 8);
+    const jose = await linkedUser(s.h, s.providerId, `jose-${tag}`);
+    looseAccounts(s);
+    const r = await s.attempt({ sub: `José-${tag}`, email: uniqueEmail() });
+    expect(r.reason).toBe("accepted");
+    expect(r.userId).not.toBe(jose.id);
+    expect(await s.attempt({ sub: `jose-${tag}` })).toMatchObject({ reason: "accepted", userId: jose.id });
+    expect(await s.attempt({ sub: `José-${tag}` })).toMatchObject({ reason: "accepted", userId: r.userId });
+  });
+});
+
 describe("subject resolution: JIT provisioning", () => {
   it("off by default", async () => {
     const s = await host();
@@ -233,6 +291,23 @@ describe("subject resolution: JIT provisioning", () => {
     expect((await s.attempt({ sub: crypto.randomUUID(), email })).reason).toBe("unknown_subject");
     // No email claim: nothing to provision.
     expect((await s.attempt({ sub: crypto.randomUUID() })).reason).toBe("unknown_subject");
+  });
+
+  it("a failed account link removes the new user and refuses as subject_unavailable, so a retry can work", async () => {
+    const s = await host({ trust: { jitProvisioning: true } });
+    const internal = s.h.ctx.internalAdapter;
+    const original = internal.linkAccount.bind(internal);
+    internal.linkAccount = (async () => {
+      throw new Error("database briefly down");
+    }) as typeof internal.linkAccount;
+    const email = uniqueEmail();
+    const sub = crypto.randomUUID();
+    expect((await s.attempt({ sub, email })).reason).toBe("subject_unavailable");
+    expect(await internal.findUserByEmail(email)).toBeNull();
+    internal.linkAccount = original;
+    const r = await s.attempt({ sub, email });
+    expect(r.reason).toBe("accepted");
+    expect(await internal.findAccountByKey({ providerId: s.providerId, accountId: sub })).toMatchObject({ userId: r.userId });
   });
 
   it("trustEmailVerified: the IdP's say-so marks the email verified", async () => {

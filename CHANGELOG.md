@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Security
+
+- **The receiver compares the account key exactly** (D-068): on a database whose collation ignores case or accents
+  (MySQL's default), an ID-JAG's `sub` could match another subject's linked account, and the receiver accepted it as
+  that account's user. `sub` is case-sensitive (RFC 7519 section 4.1.2).
+
+### Fixed
+
+- **Every trust row for an issuer is read** (D-068): more than 10 `ssoProvider` or `idJagTrustedIssuer` rows for one
+  issuer no longer hide tenants or escape the ambiguity checks. Over 1000 rows per source is refused.
+- **JIT removes the user and membership it created when linking the account fails** (D-068), so a retry works.
+- **JWKS options whose keys can't outlive the refetch interval are refused at startup** (D-068): with
+  `cacheTtlSeconds + maxStaleSeconds` below `minRefetchIntervalSeconds` (both 0, for one), every redemption failed.
+
 ## [0.7.0] - 2026-11-09
 
 The rule-by-rule ID-JAG checker is public: checkIdJag and checkIssuerMetadata.
