@@ -24,7 +24,8 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok'
+          # AI review bots too: committing one's suggested change on GitHub adds the bot as a co-author.
+          ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok|greptile|coderabbit|qodo|sourcery|ellipsis'
           text_pattern="co-authored-by:.*($ai)|generated (with|by) \[?($ai)|noreply@anthropic\.com|claude\.(ai|com)/code|chatgpt\.com|copilot-swe-agent"
           people_pattern="($ai)"
           # Each commit as: message, then "author: name <email>" and "committer: name <email>" lines.
