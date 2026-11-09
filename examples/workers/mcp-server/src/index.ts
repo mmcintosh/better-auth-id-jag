@@ -108,7 +108,7 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
       // in again for a scope it already has (Claude Code and VS Code did, docs/interop.md). This demo has no approval
       // step, so "approval" means refused for an agent.
       // structuredContent carries a status an agent can act on (approval_required here; policy_denied when a policy
-      // engine says no) and whether calling again can help: the same names as the delegated-access gateway's refusals.
+      // engine says no) and whether calling again can help.
       if (claims.act !== undefined && tool.agents === "approval")
         return reply({
           content: [{ type: "text", text: `${tool.name} refused: when an AI agent asks, this needs a person's approval, and this demo has no approval step. The token has the ${tool.scope} scope, so signing in again won't change this; a person or an app can do it.` }],

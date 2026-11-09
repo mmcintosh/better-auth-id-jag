@@ -98,8 +98,10 @@ jobs:
         with: { mode: firewall-free }
       - run: sfw pnpm install --frozen-lockfile && pnpm build
       - run: npx tsc -p examples/workers/tsconfig.json
+      - run: npx tsc -p test/examples/tsconfig.json
       - run: cd examples/workers/enterprise-idp && npx wrangler deploy --dry-run --outdir /tmp/idp
       - run: cd examples/workers/mcp-server && npx wrangler deploy --dry-run --outdir /tmp/mcp
+      - run: cd examples/workers/tester && npx wrangler deploy --dry-run --outdir /tmp/tester
 
   secrets:
     runs-on: ubuntu-24.04

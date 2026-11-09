@@ -5,8 +5,13 @@ Two Better Auth apps on Cloudflare Workers with D1, and a script that plays the 
 - **`enterprise-idp/`**: the enterprise identity provider. `oauthProvider()` + `jwt()` (ES256) + `idJagIssuer()`.
   People sign in here. The agent exchanges their ID token for an ID-JAG, after the policy has approved it.
 - **`mcp-server/`**: an MCP server and its authorization server. `mcp()` + `jwt()` + `idJagGrant()`. It trusts the IdP
-  (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves three tools (`whoami`,
+  (and optionally Okta), turns an ID-JAG into an access token for its `/mcp`, and serves four tools (`whoami`,
   `list_notes`, `add_note`, `delete_note`).
+- **`tester/`**: a separate, public "test your IdP" receiver: anyone building an ID-JAG issuer registers it (GitHub
+  or GitLab sign-in, 24 hours, confirmed by an ID-JAG signed with the issuer's key), redeems ID-JAGs, and reads a
+  rule-by-rule report next to the receiver's decision. Locked down: isolated sandbox users, rate limits, daily budgets,
+  a blocklist, kill switches, and personal data kept a day at most. See
+  [docs/test-your-idp.md](../../docs/test-your-idp.md).
 - **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use. It runs
   as an AI agent or, with `--client=app`, as an ordinary app.
 

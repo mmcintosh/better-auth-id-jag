@@ -1,4 +1,4 @@
-// Prints each example Worker's D1 schema: Better Auth's own migrations for the same plugins,
+// Prints each example Worker's D1 schema (idp, mcp or tester): Better Auth's own migrations for the same plugins,
 // compiled against SQLite, from the built package (pnpm build first). node examples/workers/schema.mts idp|mcp > <worker>/migrations/0001_init.sql
 import { DatabaseSync } from "node:sqlite";
 import { betterAuth } from "better-auth";
@@ -18,7 +18,11 @@ const base = { baseURL: "https://schema.invalid", secret: "schema-secret-that-is
 const plugins =
   which === "idp"
     ? [jwt(), oauthProvider({ loginPage: "/l", consentPage: "/c" }), idJagIssuer({ authorize: () => ({ decision: "deny" }), auditLog: { retentionDays: 1 } })]
-    : [jwt(), mcp({ loginPage: "/l", consentPage: "/c", resource: "https://schema.invalid/mcp" }), idJagGrant({ trustedIssuers: [{ issuer: "https://idp.invalid", jwksUri: "https://idp.invalid/jwks" }], auditLog: { retentionDays: 1 } })];
-const auth = betterAuth({ ...base, plugins } as never);
+    : which === "tester"
+      ? [jwt(), mcp({ loginPage: "/l", consentPage: "/c", resource: "https://schema.invalid/mcp" }), idJagGrant({ trustedIssuerTable: true, auditLog: { retentionDays: 1 } })]
+      : [jwt(), mcp({ loginPage: "/l", consentPage: "/c", resource: "https://schema.invalid/mcp" }), idJagGrant({ trustedIssuers: [{ issuer: "https://idp.invalid", jwksUri: "https://idp.invalid/jwks" }], auditLog: { retentionDays: 1 } })];
+// The tester's users carry their provider account's creation time (examples/workers/tester/src/auth.ts).
+const user = which === "tester" ? { user: { additionalFields: { accountCreatedAt: { type: "date", required: false } } } } : {};
+const auth = betterAuth({ ...base, ...user, plugins } as never);
 const { compileMigrations } = await getMigrations((await (auth as { $context: Promise<{ options: never }> }).$context).options);
 process.stdout.write(await compileMigrations());

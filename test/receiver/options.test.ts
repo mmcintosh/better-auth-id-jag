@@ -108,6 +108,12 @@ describe("options are validated when the plugin is built", () => {
     expect(resolveReceiverOptions({ trustedIssuers: TRUST }).trustedIssuers[0]).toMatchObject({ samlSubjects: null, requireSubId: false });
   });
 
+  it("the trusted-issuer table is off unless a host turns it on: no table, and no issuer trusted from one", () => {
+    expect(resolveReceiverOptions({ trustedIssuers: TRUST }).trustedIssuerTable).toBe(false);
+    expect(Object.keys(idJagGrant({ trustedIssuers: TRUST }).schema ?? {})).not.toContain("idJagTrustedIssuer");
+    expect(Object.keys(idJagGrant({ trustedIssuers: TRUST, trustedIssuerTable: true }).schema ?? {})).toContain("idJagTrustedIssuer");
+  });
+
   it("a defaultResource that isn't registered fails at startup", async () => {
     const auth = betterAuth({
       baseURL: BASE,
