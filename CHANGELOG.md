@@ -29,6 +29,11 @@
   so Okta's ID-JAG has none) and with the example IdP (verified with tool calls); VS Code 1.145.0 with Okta re-run with
   tool calls. What a server needs to know about each, including that a refusal for any reason other than a missing scope
   belongs in an MCP tool error, not a 403 `insufficient_scope`, which made both clients sign in again.
+- **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
+  builders to the tester; "Examples" covers its three Workers; Interoperability has VS Code 1.145.0 through to
+  `tools/call` and both Claude Code rows. `docs/test-your-idp.md` gives the tester's address, lists every rule it
+  reports with its level and source, and says what it doesn't check (the IdP's side of the exchange); a test keeps
+  that list and the code in step.
 
 ### Example
 

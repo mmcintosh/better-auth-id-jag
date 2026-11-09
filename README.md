@@ -21,7 +21,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 > [!WARNING]
 > **Experimental: this implements a draft, not a finished standard.** ID-JAG is an IETF Internet-Draft, [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/), still being worked on in the OAuth working group, and MCP's Enterprise-Managed Authorization builds on it. Its claims, URNs and rules can still change, and while they do, a 0.x minor release follows them, even when that breaks your setup. 1.0 waits until the draft settles. The **issuer** (`idJagIssuer()`) is newer than the receiver, and experimental in its own right. Review it for your own threat model before you rely on it in production.
 
-> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#interoperability)). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
+> **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), with the MCP clients **VS Code** and **Claude Code**, against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#interoperability)). Building an ID-JAG issuer? [Test it against this receiver](#test-your-idp). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
 ## Features
 
@@ -37,11 +37,12 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 - **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token, and the issuer can send one for the clients your policy says are agents.
 - **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
 - **Testing**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
+- **A public tester for IdP builders**: register your ID-JAG issuer at [idjag-tester.infowall.net](https://idjag-tester.infowall.net), paste an ID-JAG it minted, and see every rule it passed or failed, each with its source in the draft or an RFC, beside this receiver's own decision ([docs/test-your-idp.md](docs/test-your-idp.md)).
 - **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
 
 ## Contents
 
-[Install](#install) · [Quick start](#quick-start) · [Issuer](#issuer-idjagissuer) · [Receiver](#receiver-idjaggrant) · [Database tables](#database-tables) · [Audit events](#audit-events) · [Errors](#errors) · [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#conformance) · [Interoperability](#interoperability) · [Example](#example-two-workers) · [Runtimes and databases](#runtimes-and-databases) · [Not yet](#not-yet) · [Security](#security) · [Development](#development)
+[Install](#install) · [Quick start](#quick-start) · [Issuer](#issuer-idjagissuer) · [Receiver](#receiver-idjaggrant) · [Database tables](#database-tables) · [Audit events](#audit-events) · [Errors](#errors) · [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#conformance) · [Interoperability](#interoperability) · [Test your IdP](#test-your-idp) · [Examples](#examples) · [Runtimes and databases](#runtimes-and-databases) · [Not yet](#not-yet) · [Security](#security) · [Development](#development)
 
 ## Install
 
@@ -162,7 +163,7 @@ authorize: ({ subjectToken }) =>
 
 The client gets HTTP 400 `{ "error": "insufficient_user_authentication", "error_description": "Confirm it's you, then try again.", "error_uri": "https://idp.example.com/confirm", "max_age": 300 }`, RFC 9470's parameters (`acrValues` becomes `acr_values`). All four fields are optional; the description defaults to "The subject does not meet the authentication requirements." `description` is printable ASCII without `"` or `\` (at most 300 characters), `uri` an absolute https URL without credentials or a fragment; anything else is a malformed verdict (`policy_denied`). A step-up tells the client that this user got past identity and policy lookup, so return it only for that. An administrator's block, or a registry that refuses, still answers with the generic body: the hook runs after them. Whether the client shows the description or opens the link to the person is up to the client.
 
-**The client has two ids.** The MCP server registers the agent and gives it its own client id; the ID-JAG's `client_id` must be that one, because the receiver checks it against the client that presents the ID-JAG. Keep the mapping somewhere the policy can read it, for example in the IdP client's metadata, as [the example](#example-two-workers) does.
+**The client has two ids.** The MCP server registers the agent and gives it its own client id; the ID-JAG's `client_id` must be that one, because the receiver checks it against the client that presents the ID-JAG. Keep the mapping somewhere the policy can read it, for example in the IdP client's metadata, as [the example](#examples) does.
 
 ### Registry and admin API
 
@@ -494,7 +495,9 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | **identity-provider.net** (a stub IdP on xaa.rocks) | Receiver | ✅ Verified live, weekly: ID token and refresh token subjects; replay, another client id and an ML-DSA signature refused |
 | **PingFederate** 13.1.3 | Receiver | ✅ Verified live: Ping names its key by `x5t` only, never `kid` (accepted since 0.4.0); `client_id` and a 5-minute lifetime are two settings on Ping's connection |
 | **Oracle OCI IAM** | Receiver | ❌ Refused, by design (checked 2026-10-14): Oracle's ID-JAG had no `aud`, which the draft requires |
-| **VS Code** 1.141.0 (MCP client) with Okta | Receiver on Workers + D1 | ✅ Verified live through to MCP `initialize` and `tools/list`. VS Code redeems with `client_secret_post` and asks for every advertised scope |
+| **VS Code** 1.145.0 (MCP client) with Okta | Receiver on Workers + D1 | ✅ Verified live through to MCP `tools/call`, with Okta's `act` in the access token. VS Code redeems with `client_secret_post` and asks for every advertised scope |
+| **Claude Code** 2.1.319 (MCP client) with the example IdP | Receiver on Workers + D1 | ✅ Verified live through to MCP `tools/call`. Claude Code asks the IdP for no scope, so this works where the IdP's policy grants scopes unasked |
+| **Claude Code** 2.1.319 with Okta | Receiver on Workers + D1 | ❌ Refused, correctly: Claude Code asks Okta for no scope, so Okta's ID-JAG has none, and an ID-JAG without `scope` grants nothing (draft -06 section 4.3.3) |
 | better-auth-saml-idp 1.2.0 (SAML assertions) | Issuer → our receiver | ✅ Verified end to end: Assertion → refresh token → ID-JAG, and Assertion → ID-JAG |
 | better-auth-scim-provisioning → `@better-auth/scim` (the versions in the lockfile) | Issuer → our receiver | ✅ Verified in every CI run (Node): users provisioned by the IdP resolve by SCIM; banned or deleted at the IdP, refused at the receiver, even with an earlier ID-JAG |
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG (checked 2026-11-07: v4.39.28, the latest) |
@@ -504,9 +507,13 @@ Each row's date, version, commands and the ways the other side differs are in [d
 
 **Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way. Draft -06 makes RS256 the one algorithm every receiver must accept, so for a receiver you know nothing about, RS256 is the safe choice.
 
-## Example: two Workers
+## Test your IdP
 
-[examples/workers](examples/workers/README.md) is the whole flow on Cloudflare Workers with D1: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with four tools (`whoami`, `list_notes`, `add_note`, `delete_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server lets an agent add a note but not delete one without a person's approval (refused as a tool error, not a 403), so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server.
+Building an ID-JAG issuer of your own? **[idjag-tester.infowall.net](https://idjag-tester.infowall.net)** is a public receiver running this package. Sign in with GitHub or GitLab, register your issuer, and paste an ID-JAG your IdP minted. It shows every rule the ID-JAG passed or failed, each with the section of draft -06 or the RFC it comes from, beside this receiver's own decision. A registration, and everything personal, is deleted within a day; an anonymous abuse record of fingerprints lasts 7 days. The rules, what it doesn't check, its limits and exactly what it keeps: [docs/test-your-idp.md](docs/test-your-idp.md). The tester is itself an example you can run: [examples/workers/tester](examples/workers/tester).
+
+## Examples
+
+[examples/workers](examples/workers/README.md) has three Cloudflare Workers with D1. The first two are the whole flow: an **enterprise IdP** (`oauthProvider()` + `jwt()` + `idJagIssuer()`), an **MCP server** (`mcp()` + `jwt()` + `idJagGrant()`) with four tools (`whoami`, `list_notes`, `add_note`, `delete_note`), and `client.mjs`, which plays an AI agent or an app through every step and then shows a replay being refused. The IdP names the agent in `act`, and the MCP server lets an agent add a note but not delete one without a person's approval (refused as a tool error, not a 403), so the demo shows each layer of permissions. It also covers the two Workers limits you'll meet (a Worker can't fetch another on the same account by URL, or itself), and how to point Okta Cross App Access at the MCP server. The third is the [public tester](#test-your-idp) (`examples/workers/tester`): the receiver behind GitHub and GitLab sign-in, with per-tester sandboxes, rate limits and a rule-by-rule report.
 
 ## Runtimes and databases
 
