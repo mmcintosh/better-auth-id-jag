@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`checkIdJag` returns a report for a JWKS with a certificate that isn't base64, and for any nested value** (D-070),
+  instead of throwing.
+- **The checker's messages name the receiver, not the tester** (D-070).
+- **`pnpm build` works in a checkout whose path has a space** (D-070).
+
 ## [0.7.0] - 2026-11-09
 
 The rule-by-rule ID-JAG checker is public: checkIdJag and checkIssuerMetadata.
