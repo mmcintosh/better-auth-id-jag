@@ -36,28 +36,34 @@ nothing (section 4.3.3: the IdP includes "the granted values, if any").
 ## How to use it
 
 1. **Sign in with GitHub or GitLab** (gitlab.com). The account must be at least 30 days old.
-2. **Register your issuer.** Enter your issuer identifier exactly as your ID-JAGs' `iss`, and how your client will
-   authenticate (`client_secret_basic` or `client_secret_post`). The tester reads your metadata and JWKS and shows the
-   results. You get a client id and a secret, shown once, valid until your sign-in ends (24 hours after you signed
-   in). The registration starts **pending**.
-3. **Mint an ID-JAG** with the values the registration page shows: `aud` this receiver's issuer (`<tester>/api/auth`),
-   `client_id` the client id you got here (not your IdP's own), `scope` `read`, and optionally `resource`
-   `<tester>/mcp`.
-4. **Redeem it:**
-
-   ```sh
-   curl <tester>/api/auth/oauth2/token -u <client_id>:<client_secret> \
-     -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
-     -d assertion=<your ID-JAG>
-   ```
+2. **Register your issuer.** Enter your issuer identifier exactly as your ID-JAGs' `iss`. The tester reads your
+   metadata and JWKS and shows the results. You get a client here, valid until your sign-in ends (24 hours after you
+   signed in). The registration starts **pending**.
+3. **Have your IdP mint an ID-JAG** with the values the registration page shows, each with a copy button (or all at
+   once, as JSON): `aud` this receiver's issuer (`<tester>/api/auth`), `client_id` the client id you got here (not
+   your IdP's own), `scope` `read`, and optionally `resource` `<tester>/mcp`, with the header `typ`
+   `oauth-id-jag+jwt`.
+4. **Paste it into "Check an ID-JAG"** and press Check. The tester redeems it with your client here, through the same
+   token endpoint anyone would use, and adds the report to your results page.
 
    The first ID-JAG signed with a key from your issuer's published JWKS, with your issuer as `iss` and this client as
    `client_id`, **confirms** the registration: proof that you run the issuer. It is then redeemed as usual. Until
    then, others may register the same issuer too, and the first to confirm holds it while the registration lasts.
    So nobody can hold an issuer they don't run, unless the issuer signs ID-JAGs for anyone who asks (an open
    playground IdP); then anyone can confirm it.
-5. **Read the report** at `<tester>/results`. Optionally call the MCP server at `<tester>/mcp` with the access token:
-   `whoami` shows what the receiver made of your ID-JAG, `checks` the latest reports.
+5. **Read the report** at `<tester>/results`: every rule, and the receiver's own decision.
+
+**From your own code instead:** the registration page also shows the client secret, once, and how to redeem with it:
+
+```sh
+curl <tester>/api/auth/oauth2/token -u <client_id>:<client_secret> \
+  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+  -d assertion=<your ID-JAG>
+```
+
+Then you can call the MCP server at `<tester>/mcp` with the access token: `whoami` shows what the receiver made of
+your ID-JAG, `checks` the latest reports. If your code sends the secret in the request body rather than HTTP Basic,
+choose `client_secret_post` under "Advanced" when you register.
 
 Your users never sign in here. Each subject your ID-JAGs name becomes a sandbox user of your registration only. No
 email from your ID-JAGs is stored.
@@ -98,7 +104,9 @@ The tester keeps what it needs to show you your results and to keep it open with
 GitHub is asked only for `read:user`, GitLab for `read_user`.
 
 **About your IdP, while the registration lasts:**
-- its metadata report, its keys, and the client here;
+- its metadata report, its keys, and the client here, including the client secret, encrypted (AES-GCM, under a key
+  derived from the deployment's own secret) so that "Check an ID-JAG" can redeem with it
+  (`examples/workers/tester/src/seal.ts`);
 - the sandbox users;
 - each redemption's report and the receiver's logs of it.
 

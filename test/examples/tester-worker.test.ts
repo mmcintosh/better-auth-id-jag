@@ -7,6 +7,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import init0001 from "../../examples/workers/tester/migrations/0001_init.sql?raw";
 import init0002 from "../../examples/workers/tester/migrations/0002_tester.sql?raw";
+import init0003 from "../../examples/workers/tester/migrations/0003_client_secret.sql?raw";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const ORIGIN = "https://tester.example.net";
@@ -57,8 +58,8 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
 
   const credentials = async (page: Response | string) => {
     const html = typeof page === "string" ? page : await page.text();
-    const secret = html.match(/shown once:<\/strong> copy it now\.<\/p><pre>([^<]+)<\/pre>/)?.[1];
-    const clientId = html.match(/<td><code>client_id<\/code><\/td><td><code>([^<]+)<\/code>/)?.[1];
+    const secret = html.match(/shown once:<\/strong> <span class="copy"><code>([^<]+)<\/code>/)?.[1];
+    const clientId = html.match(/<td><code>client_id<\/code><\/td><td><span class="copy"><code>([^<]+)<\/code>/)?.[1];
     if (!secret || !clientId) throw new Error(`no credentials in: ${html.slice(0, 400)}`);
     return { clientId, secret };
   };
@@ -73,6 +74,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
   const redeem = (c: { clientId: string; secret: string }, assertion: string) =>
     call("/api/auth/oauth2/token", { method: "POST", headers: { authorization: `Basic ${btoa(`${c.clientId}:${c.secret}`)}`, "content-type": "application/x-www-form-urlencoded", "user-agent": "curl/8.0" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() });
 
+  /** "Check an ID-JAG" on the site: paste it, the tester redeems it with the registration's own client. */
+  const pasteCheck = (cookie: string, registrationId: string, assertion: string, origin = ORIGIN) =>
+    call("/check", { method: "POST", cookie, headers: { origin, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ registration: registrationId, assertion }).toString() });
+
   const rows = async <T>(sql: string, ...binds: unknown[]) => (await env.DB.prepare(sql).bind(...binds).all()).results as T[];
   const lastCheck = async () => (await rows<{ results: string; error: string | null; httpStatus: number; checkedAgainst: string }>(`select results, error, httpStatus, checkedAgainst from testerCheck order by at desc, rowid desc limit 1`))[0];
   const failed = (check: { results: string } | undefined) => (JSON.parse(check?.results ?? "[]") as { id: string; outcome: string }[]).filter((r) => r.outcome === "fail").map((r) => r.id);
@@ -81,7 +86,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     cf = await import("cloudflare:test");
     const ok = { limit: async () => ({ success: true }) };
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", GITLAB_CLIENT_ID: "gl", GITLAB_CLIENT_SECRET: "gl-secret", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", ADMIN_STATS_KEY: KEYS.stats, ADMIN_CLOSE_KEY: KEYS.close, ADMIN_OPEN_KEY: KEYS.open, TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
-    for (const sql of [init0001, init0002]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
+    for (const sql of [init0001, init0002, init0003]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     for (const issuer of ISSUERS) {
       const pair = await generateKeyPair("RS256", { extractable: true });
       signers[issuer] = pair.privateKey;
@@ -103,7 +108,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     });
     const mod = await import("../../examples/workers/tester/src/index");
     worker = mod.default as never;
-    LIMITS = mod.LIMITS as never;
+    LIMITS = (await import("../../examples/workers/tester/src/limits")).LIMITS as never;
     // Room for every registration these tests make; the daily caps are tested on their own.
     LIMITS.registrationsPerDay = 100;
     LIMITS.registrationsPerIpPerDay = 100;
@@ -122,6 +127,18 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(home.headers.get("content-security-policy")).toContain("form-action 'self' https://github.com https://gitlab.com");
     // A browser sends "Origin: null" on form posts under no-referrer, which the same-origin check refuses.
     expect(home.headers.get("referrer-policy")).toBe("same-origin");
+    expect(home.headers.get("content-security-policy")).toContain("script-src 'self' https://challenges.cloudflare.com");
+    const js = await call("/app.js");
+    expect(js.headers.get("content-type")).toContain("text/javascript");
+    const script = await js.text();
+    expect(script).toContain("data-copy");
+    // The copy command inside the click first (works where the clipboard API waits on a permission), and a message if both fail.
+    expect(script).toContain('document.execCommand("copy")');
+    expect(script).toContain("Couldn't copy");
+    // HEAD is answered like GET, without a body.
+    const head = await call("/", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
     expect(await home.clone().text()).toContain('<link rel="icon" href="/logo.svg"');
     const logo = await call("/logo.svg");
     expect(logo.headers.get("content-type")).toBe("image/svg+xml");
@@ -170,8 +187,18 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const html = await page.text();
     expect(html).toContain("Registered, pending");
     expect(html).toContain(AUD);
+    // Plug and play: every value has a copy button, the whole template too, and the paste box is right there.
+    expect(html).toContain(`data-copy="${AUD}"`);
+    expect(html).toContain("Copy as JSON");
+    expect(html).toContain('action="/check"');
+    // The script's address carries a hash of its content, so a changed script is never served from a browser's cache.
+    expect(html).toMatch(/<script src="\/app\.js\?v=[0-9a-z]+" defer><\/script>/);
     aliceClient = await credentials(html);
     expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
+    // The client secret is kept sealed for "Check an ID-JAG", never in the clear.
+    const [sealed] = await rows<{ clientSecretEnc: string }>(`select clientSecretEnc from testerRegistration where clientId = ?`, aliceClient.clientId);
+    expect(sealed?.clientSecretEnc).toMatch(/^[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/);
+    expect(JSON.stringify(await rows(`select * from testerRegistration`))).not.toContain(aliceClient.secret);
     const [ends] = await rows<{ expiresAt: number; sessionEnds: string }>(`select r.expiresAt, (select max(s.expiresAt) from "session" s where s.userId = r.userId) as sessionEnds from testerRegistration r where r.clientId = ?`, aliceClient.clientId);
     expect(ends?.expiresAt).toBeLessThanOrEqual(Date.parse(ends?.sessionEnds ?? ""));
     const abuse = await rows<Record<string, unknown>>(`select * from testerAbuse where id = (select id from testerRegistration where clientId = ?)`, aliceClient.clientId);
@@ -215,6 +242,31 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(JSON.parse(checks.result.content[0]?.text ?? "[]")[0]).toMatchObject({ httpStatus: 200 });
   });
 
+  it("check an ID-JAG by pasting it: redeemed with the registration's own client, and the report is on the results page", async () => {
+    const [reg] = await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId);
+    const before = (await rows(`select id from testerCheck`)).length;
+    const pasted = await pasteCheck(alice.cookie, reg?.id ?? "", await idJag(ISSUERS[0], aliceClient.clientId));
+    expect(pasted.status).toBe(302);
+    expect(pasted.headers.get("location")).toBe("/results");
+    expect((await rows(`select id from testerCheck`)).length).toBe(before + 1);
+    expect((await lastCheck())?.httpStatus).toBe(200);
+    // Only the registration's owner, only from this site.
+    expect((await pasteCheck(mallory.cookie, reg?.id ?? "", await idJag(ISSUERS[0], aliceClient.clientId))).status).toBe(404);
+    expect((await pasteCheck(alice.cookie, reg?.id ?? "", await idJag(ISSUERS[0], aliceClient.clientId), "https://evil.example")).status).toBe(403);
+  });
+
+  it("the results page labels each check with its own decision: a redeemed ID-JAG stays accepted after its replay", async () => {
+    const [reg] = await rows<{ id: string }>(`select id from testerRegistration where clientId = ?`, aliceClient.clientId);
+    const jag = await idJag(ISSUERS[0], aliceClient.clientId, { jti: "once-then-replayed" });
+    await pasteCheck(alice.cookie, reg?.id ?? "", jag);
+    await pasteCheck(alice.cookie, reg?.id ?? "", jag);
+    const html = await (await call("/results", { cookie: alice.cookie })).text();
+    const rowsFor = [...html.matchAll(/receiver: (<span class="(pass|fail)">[^<]*(<code>[^<]*<\/code>)?<\/span>)[\s\S]*?jti <code>once-then-replayed<\/code>/g)].map((m) => m[1] ?? "");
+    expect(rowsFor).toHaveLength(2);
+    expect(rowsFor.some((r) => r.includes("accepted"))).toBe(true);
+    expect(rowsFor.some((r) => r.includes("replay"))).toBe(true);
+  });
+
   it("once proven, the issuer is held: the squatter can't take it, and nobody else can register it", async () => {
     expect((await redeem(malloryClient, await idJag(ISSUERS[0], malloryClient.clientId))).status).toBe(400);
     expect((await lastCheck())?.error).toBe("issuer_taken");
@@ -253,6 +305,9 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain("every rule passed");
     expect(html).toContain("Confirmed.");
     expect(html).toContain("Delete my data now");
+    // The values for the IdP, with copy buttons, are on the results page too, not only right after registering.
+    expect(html).toContain("Values for your IdP");
+    expect(html).toContain(`data-copy="${aliceClient.clientId}"`);
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("<img src=x");

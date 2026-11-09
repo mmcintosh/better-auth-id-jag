@@ -25,6 +25,8 @@ export interface Registration {
   confirmedAt: number | null;
   revokedAt: number | null;
   revokedReason: string | null;
+  /** The client secret, sealed (seal.ts), for "Check an ID-JAG". Absent on registrations made before it existed. */
+  clientSecretEnc?: string | null;
 }
 
 export interface AbuseRow {
@@ -114,8 +116,8 @@ export async function reserve(db: D1Database, r: Registration, a: AbuseRow, l: {
 }
 
 /** The client is made: from now on it can redeem (a pending registration still has no trust row). */
-export async function setClient(db: D1Database, id: string, clientId: string): Promise<void> {
-  await db.prepare(`update testerRegistration set clientId = ? where id = ?`).bind(clientId, id).run();
+export async function setClient(db: D1Database, id: string, clientId: string, clientSecretEnc: string): Promise<void> {
+  await db.prepare(`update testerRegistration set clientId = ?, clientSecretEnc = ? where id = ?`).bind(clientId, clientSecretEnc, id).run();
 }
 
 /**
@@ -199,12 +201,34 @@ export async function recentChecks(db: D1Database, registrationId: string, limit
   return (await db.prepare(`select * from testerCheck where registrationId = ? order by at desc limit ?`).bind(registrationId, limit).all<CheckRow>()).results;
 }
 
-/** The receiver's own decision for each ID-JAG, from its audit table (written in the background, so it may lag). */
-export async function receiverDecisions(db: D1Database, clientId: string): Promise<Map<string, { type: string; reason: string | null }>> {
-  const rows = (await db.prepare(`select jti, type, reason from idJagAudit where clientId = ? and jti is not null order by at desc limit 200`).bind(clientId).all<{ jti: string; type: string; reason: string | null }>()).results;
-  const out = new Map<string, { type: string; reason: string | null }>();
-  for (const r of rows) if (!out.has(r.jti)) out.set(r.jti, { type: r.type, reason: r.reason });
+export interface Decision {
+  type: string;
+  reason: string | null;
+  at: number;
+}
+
+/**
+ * The receiver's refusals for a client, by jti, with their times (from its audit table, written in the background, so
+ * they may lag). One ID-JAG can be refused more than once (a replay of it, say), so each check takes the refusal
+ * closest to it in time: see decisionFor.
+ */
+export async function receiverRefusals(db: D1Database, clientId: string): Promise<Map<string, Decision[]>> {
+  const rows = (await db.prepare(`select jti, type, reason, at from idJagAudit where clientId = ? and jti is not null and type = 'id-jag.refused' order by at desc limit 200`).bind(clientId).all<{ jti: string; type: string; reason: string | null; at: string }>()).results;
+  const out = new Map<string, Decision[]>();
+  for (const r of rows) out.set(r.jti, [...(out.get(r.jti) ?? []), { type: r.type, reason: r.reason, at: Date.parse(r.at) }]);
   return out;
+}
+
+/**
+ * The receiver's decision for one check. A 200 is accepted, whatever else happened to the same ID-JAG; otherwise the
+ * refusal recorded closest in time to the check, or none yet (the page then shows the HTTP answer).
+ */
+export function decisionFor(check: Pick<CheckRow, "at" | "jti" | "httpStatus">, refusals: Map<string, Decision[]>): { type: string; reason: string | null } | null {
+  if (check.httpStatus === 200) return { type: "id-jag.accepted", reason: null };
+  const candidates = check.jti ? (refusals.get(check.jti) ?? []) : [];
+  let best: Decision | null = null;
+  for (const d of candidates) if (!best || Math.abs(d.at - check.at) < Math.abs(best.at - check.at)) best = d;
+  return best ? { type: best.type, reason: best.reason } : null;
 }
 
 // Counters for events that are deliberately not stored row by row (a refused flood must not become a flood of

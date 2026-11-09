@@ -17,7 +17,12 @@ describe("tester: nothing random while the modules load", () => {
       calls.push("getRandomValues");
       throw new Error("getRandomValues at load time");
     });
-    for (const m of ["index", "auth", "checks", "guard", "pages", "privacy", "store", "logo"]) await import(`../../examples/workers/tester/src/${m}.ts`);
+    for (const m of ["index", "auth", "checks", "guard", "pages", "privacy", "store", "logo", "app", "seal", "limits"]) await import(`../../examples/workers/tester/src/${m}.ts`);
     expect(calls).toEqual([]);
+  });
+
+  it("the Worker's entry module exports only its handler (the runtime treats any other export as an entry point)", async () => {
+    vi.resetModules();
+    expect(Object.keys(await import("../../examples/workers/tester/src/index"))).toEqual(["default"]);
   });
 });
