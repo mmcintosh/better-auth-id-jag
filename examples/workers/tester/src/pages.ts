@@ -1,5 +1,5 @@
-// The tester's pages, server-rendered. Everything a tester or their IdP sent is escaped; the only script is
-// Cloudflare Turnstile's, and the Content-Security-Policy allows nothing else.
+// The tester's pages, server-rendered. Everything a tester or their IdP sent is escaped. The only scripts are the
+// tester's own /app.js (copy buttons) and Cloudflare Turnstile's; the Content-Security-Policy allows nothing else.
 import { SUPPORTED_DRAFT } from "better-auth-id-jag";
 import { APP_JS_URL } from "./app";
 import type { RuleResult } from "./checks";
