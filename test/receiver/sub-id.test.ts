@@ -325,7 +325,8 @@ describe("R3-S7: links use the mapping key", () => {
     const linked: unknown[] = [];
     const adapter = { ...s.h.ctx.adapter, findMany: async (q: unknown) => {
         queried.push(q);
-        return [{ id: "acc-1", userId: "gone", createdAt: new Date() }];
+        // The row as a database returns it: with its key, which the lookup compares exactly.
+        return [{ id: "acc-1", userId: "gone", providerId: x.providerId, accountId: nameid, createdAt: new Date() }];
       },
     };
     const internalAdapter = {
