@@ -1506,8 +1506,9 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   `JSON.stringify` overflowed the stack; `String` recurses through arrays the same way and threw too. It now shows a
   placeholder, so `checkIdJag` and `checkIssuerMetadata` return a report for any input.
 - **Wording.** Four messages spoke of "this tester"; the checker also runs outside the public tester (the id-jag-check
-  Action), so they now speak of the receiver, or drop the remark about the tester.
+  Action), so they now speak of the receiver, or drop the remark about the tester. The `sub_id` message says subject
+  lookup depends on the receiver's configuration: a receiver with `samlSubjects` looks users up by `sub_id`.
 - **The build.** `scripts/build.mjs` took its root from `URL.pathname`, which leaves a space as `%20`, so `pnpm build`
   failed in a checkout such as `~/My Projects/`. It uses `fileURLToPath`.
 - **Evidence:** tests in `test/core/check.test.ts`, each failing with its fix taken out (two entries in
-  test/mutations/core.json).
+  test/mutations/core.json); `test/build-script.test.ts` fails if the build goes back to `URL.pathname`.
