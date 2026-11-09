@@ -31,7 +31,9 @@ button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid
 
 export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string>, formAction = "'self'" } = {}): Response {
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "cache-control": "no-store", ...headers } });
+  // Referrer-Policy same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" on a form post (the
+  // Fetch standard), and every form here is checked for this site's own origin. Other sites still get no referrer.
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "same-origin", "cache-control": "no-store", ...headers } });
 }
 
 const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it (<a href="https://github.com/mmcintosh/better-auth-id-jag/tree/main/examples/workers/tester">the rules' code</a>). A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
