@@ -1983,5 +1983,14 @@
   "paths": [
    "test/receiver"
   ]
+ },
+ {
+  "name": "resolve: loose matches past the lookup's bound taken as no account",
+  "file": "src/receiver/resolve.ts",
+  "a": "  if (rows.length > MAX_LINKED_ROWS) refuse(",
+  "b": "  if (false && rows.length > MAX_LINKED_ROWS) refuse(",
+  "paths": [
+   "test/receiver"
+  ]
  }
 ]

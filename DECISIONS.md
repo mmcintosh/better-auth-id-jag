@@ -1502,7 +1502,8 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   whose collation ignores case or accents (MySQL's default) also returns another subject's row: a lookup for `José`
   returns `jose`'s. `sub` is case-sensitive (RFC 7519 section 4.1.2), and the receiver took the row as found, so an
   ID-JAG for one subject could be accepted as another user. The rows are now compared exactly before one is chosen or
-  deleted (`src/receiver/resolve.ts`), as the email fallback already compared addresses (D-064).
+  deleted (`src/receiver/resolve.ts`), as the email fallback already compared addresses (D-064). When more than 100
+  rows match loosely, the lookup refuses (`subject_unavailable`) rather than conclude the subject has no account.
 - **Every trust row for an issuer.** The `ssoProvider` and `idJagTrustedIssuer` lookups read at most 10 rows, before
   the tenant filter and before the ambiguity and shared-namespace checks. One issuer with more than 10 tenant rows (a
   shared, multi-tenant issuer) had tenants refused as `untrusted_issuer`, and a hidden row escaped the checks. They now

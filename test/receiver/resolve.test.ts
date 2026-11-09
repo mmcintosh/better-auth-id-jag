@@ -224,8 +224,9 @@ describe("subject resolution: only the exact subject's account (RFC 7519 section
     adapter.findMany = (async (q: Parameters<typeof original>[0]) => {
       const wanted = q.where?.find((w) => w.field === "accountId");
       if (q.model !== "account" || !wanted) return original(q);
-      const rows = await original({ ...q, where: q.where?.filter((w) => w !== wanted), limit: undefined });
-      return (rows as Record<string, unknown>[]).filter((r) => fold(r.accountId) === fold(wanted.value));
+      // Every row of the provider, then the loose match, then the limit asked for: as such a database answers.
+      const rows = await original({ ...q, where: q.where?.filter((w) => w !== wanted), limit: 100_000 });
+      return (rows as Record<string, unknown>[]).filter((r) => fold(r.accountId) === fold(wanted.value)).slice(0, q.limit);
     }) as typeof adapter.findMany;
   };
 
@@ -238,6 +239,22 @@ describe("subject resolution: only the exact subject's account (RFC 7519 section
     expect(await s.h.ctx.adapter.findMany<{ userId: string }>({ model: "account", where: [{ field: "providerId", value: s.providerId }, { field: "accountId", value: `JOSÉ-${tag}` }] })).toMatchObject([{ userId: jose.id }]);
     expect((await s.attempt({ sub: `JOSÉ-${tag}` })).reason).toBe("unknown_subject");
     expect(await s.attempt({ sub: `jose-${tag}` })).toMatchObject({ reason: "accepted", userId: jose.id });
+  });
+
+  it("more loose matches than the lookup reads: refused, never taken for no account (nor provisioned)", async () => {
+    const s = await host({ trust: { jitProvisioning: true } });
+    const tag = crypto.randomUUID().slice(0, 8);
+    // 101 case variants of one subject, all older than its own account: on such a database they fill the lookup.
+    const variants = new Set<string>();
+    for (let i = 0; variants.size < 101; i++) variants.add(`abcdefgh-${tag}`.replace(/[a-h]/g, (c, at: number) => ((i >> at) & 1 ? c.toUpperCase() : c)));
+    variants.delete(`abcdefgh-${tag}`);
+    for (const v of [...variants].slice(0, 101)) await linkedUser(s.h, s.providerId, v);
+    const own = await linkedUser(s.h, s.providerId, `abcdefgh-${tag}`);
+    looseAccounts(s);
+    const r = await s.attempt({ sub: `abcdefgh-${tag}`, email: uniqueEmail() });
+    expect(r.reason).toBe("subject_unavailable");
+    expect(s.rec.refused.at(-1)?.detail).toMatch(/more than 100 accounts/);
+    void own;
   });
 
   it("with JIT, José gets a user of his own, and jose's link is left alone", async () => {

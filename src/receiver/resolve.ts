@@ -142,8 +142,11 @@ async function linkedAccounts(ctx: GenericEndpointContext, providerId: string, a
       { field: "accountId", value: accountId },
     ],
     sortBy: { field: "createdAt", direction: "asc" },
-    limit: MAX_LINKED_ROWS,
+    limit: MAX_LINKED_ROWS + 1,
   });
+  // More than the bound (loose matches included): this subject's own row may be among those not read, so refuse
+  // rather than conclude it has none.
+  if (rows.length > MAX_LINKED_ROWS) refuse("subject_unavailable", `more than ${MAX_LINKED_ROWS} accounts match this subject's key`);
   return rows.filter((r) => r.providerId === providerId && r.accountId === accountId).sort(byAge);
 }
 
