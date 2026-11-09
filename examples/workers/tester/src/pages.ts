@@ -1,6 +1,7 @@
 // The tester's pages, server-rendered. Everything a tester or their IdP sent is escaped; the only script is
 // Cloudflare Turnstile's, and the Content-Security-Policy allows nothing else.
 import { SUPPORTED_DRAFT } from "better-auth-id-jag";
+import { APP_JS_URL } from "./app";
 import type { RuleResult } from "./checks";
 
 export const esc = (v: unknown): string =>
@@ -33,7 +34,7 @@ textarea { width: 100%; font: 0.88em ui-monospace, monospace; padding: 8px; bord
 `;
 
 export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string>, formAction = "'self'" } = {}): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style><script src="/app.js" defer></script>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style><script src="${APP_JS_URL}" defer></script>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
   // Referrer-Policy same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" on a form post (the
   // Fetch standard), and every form here is checked for this site's own origin. Other sites still get no referrer.
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "same-origin", "cache-control": "no-store", ...headers } });
@@ -50,6 +51,20 @@ const checkForm = (registrationId: string) => `<form method="post" action="/chec
 <p><label><strong>Check an ID-JAG.</strong> Paste one your IdP minted for this registration, then press Check: the tester redeems it with your client here and adds the report below.<br><textarea name="assertion" rows="4" required maxlength="16384" placeholder="eyJ..."></textarea></label></p>
 <p><button>Check</button></p>
 </form>`;
+
+/** The values a tester's IdP mints with, each with a copy button, and all of them as one JSON template. */
+const idpValues = (origin: string, issuer: string, clientId: string) => {
+  const audience = `${origin}/api/auth`;
+  const resource = `${origin}/mcp`;
+  const template = JSON.stringify({ header: { typ: "oauth-id-jag+jwt" }, claims: { iss: issuer, aud: audience, client_id: clientId, resource, scope: "read" } }, null, 2);
+  return `<table><tr><td><code>aud</code></td><td>${copyable(audience)}<br><span class="muted">this authorization server's issuer, exactly</span></td></tr>
+<tr><td><code>client_id</code></td><td>${copyable(clientId)}<br><span class="muted">your client here, not your IdP's own</span></td></tr>
+<tr><td><code>resource</code></td><td>${copyable(resource)} <span class="muted">(optional)</span></td></tr>
+<tr><td><code>scope</code></td><td>${copyable("read")}</td></tr>
+<tr><td>header <code>typ</code></td><td>${copyable("oauth-id-jag+jwt")}</td></tr></table>
+<p>All of it at once, for your IdP's configuration: <button type="button" class="small" data-copy="${esc(template)}">Copy as JSON</button></p>
+<pre>${esc(template)}</pre>`;
+};
 
 const PROVIDER_NAMES = { github: "GitHub", gitlab: "GitLab" } as const;
 
@@ -93,22 +108,14 @@ const ruleRows = (results: RuleResult[]) =>
   results.map((r) => `<tr><td class="${esc(r.outcome)}">${esc(r.outcome)}</td><td><code>${esc(r.id)}</code><br><span class="muted">${esc(r.level)}, ${esc(r.cite)}</span></td><td>${esc(r.message)}</td></tr>`).join("");
 
 export function registered(o: { origin: string; registrationId: string; clientId: string; clientSecret: string; authMethod: string; issuer: string; expiresAt: number; report: RuleResult[] }): Response {
-  const audience = `${o.origin}/api/auth`;
   const resource = `${o.origin}/mcp`;
-  const template = JSON.stringify({ header: { typ: "oauth-id-jag+jwt" }, claims: { iss: o.issuer, aud: audience, client_id: o.clientId, resource, scope: "read" } }, null, 2);
   const auth = o.authMethod === "client_secret_post" ? `-d client_id=${o.clientId} -d client_secret=YOUR_SECRET` : `-u ${o.clientId}:YOUR_SECRET`;
   return page(
     "Registered",
     `<h1>Registered, pending</h1>
 <p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer). Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
 <h2>1. Have your IdP mint an ID-JAG with these values</h2>
-<table><tr><td><code>aud</code></td><td>${copyable(audience)}<br><span class="muted">this authorization server's issuer, exactly</span></td></tr>
-<tr><td><code>client_id</code></td><td>${copyable(o.clientId)}<br><span class="muted">your client here, not your IdP's own</span></td></tr>
-<tr><td><code>resource</code></td><td>${copyable(resource)} <span class="muted">(optional)</span></td></tr>
-<tr><td><code>scope</code></td><td>${copyable("read")}</td></tr>
-<tr><td>header <code>typ</code></td><td>${copyable("oauth-id-jag+jwt")}</td></tr></table>
-<p>All of it at once, for your IdP's configuration: <button type="button" class="small" data-copy="${esc(template)}">Copy as JSON</button></p>
-<pre>${esc(template)}</pre>
+${idpValues(o.origin, o.issuer, o.clientId)}
 <h2>2. Paste it here</h2>
 ${checkForm(o.registrationId)}
 <p>Every check is kept on <a href="/results">your results page</a>, with each rule and the receiver's own decision.</p>
@@ -138,14 +145,14 @@ export interface ResultView {
   checks: { at: number; checkedAgainst: string; jti: string | null; httpStatus: number; error: string | null; results: RuleResult[]; receiver: { type: string; reason: string | null } | null }[];
 }
 
-export function results(views: ResultView[], name: string): Response {
+export function results(views: ResultView[], name: string, origin: string): Response {
   const body = views.length
     ? views
         .map(
           (v) => `<div class="box"><h2 style="margin-top:0">${esc(v.issuer)}</h2>
 <p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
 <details><summary>Metadata and keys</summary><div class="wrap"><table>${ruleRows(v.metadata)}</table></div></details>
-${v.active ? checkForm(v.registrationId) : ""}
+${v.active ? `<details><summary>Values for your IdP</summary>${idpValues(origin, v.issuer, v.clientId)}</details>${checkForm(v.registrationId)}` : ""}
 ${
   v.checks.length
     ? v.checks

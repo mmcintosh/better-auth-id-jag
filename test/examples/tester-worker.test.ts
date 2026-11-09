@@ -108,7 +108,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     });
     const mod = await import("../../examples/workers/tester/src/index");
     worker = mod.default as never;
-    LIMITS = mod.LIMITS as never;
+    LIMITS = (await import("../../examples/workers/tester/src/limits")).LIMITS as never;
     // Room for every registration these tests make; the daily caps are tested on their own.
     LIMITS.registrationsPerDay = 100;
     LIMITS.registrationsPerIpPerDay = 100;
@@ -130,7 +130,11 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(home.headers.get("content-security-policy")).toContain("script-src 'self' https://challenges.cloudflare.com");
     const js = await call("/app.js");
     expect(js.headers.get("content-type")).toContain("text/javascript");
-    expect(await js.text()).toContain("data-copy");
+    const script = await js.text();
+    expect(script).toContain("data-copy");
+    // The copy command inside the click first (works where the clipboard API waits on a permission), and a message if both fail.
+    expect(script).toContain('document.execCommand("copy")');
+    expect(script).toContain("Couldn't copy");
     // HEAD is answered like GET, without a body.
     const head = await call("/", { method: "HEAD" });
     expect(head.status).toBe(200);
@@ -187,7 +191,8 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain(`data-copy="${AUD}"`);
     expect(html).toContain("Copy as JSON");
     expect(html).toContain('action="/check"');
-    expect(html).toContain('<script src="/app.js" defer></script>');
+    // The script's address carries a hash of its content, so a changed script is never served from a browser's cache.
+    expect(html).toMatch(/<script src="\/app\.js\?v=[0-9a-z]+" defer><\/script>/);
     aliceClient = await credentials(html);
     expect(await rows(`select id from "idJagTrustedIssuer"`)).toEqual([]);
     // The client secret is kept sealed for "Check an ID-JAG", never in the clear.
@@ -300,6 +305,9 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain("every rule passed");
     expect(html).toContain("Confirmed.");
     expect(html).toContain("Delete my data now");
+    // The values for the IdP, with copy buttons, are on the results page too, not only right after registering.
+    expect(html).toContain("Values for your IdP");
+    expect(html).toContain(`data-copy="${aliceClient.clientId}"`);
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("<img src=x");

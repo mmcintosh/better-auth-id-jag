@@ -7,36 +7,18 @@
 // (bearer keys). While the tester is closed, only /, /admin, sign-out and /delete answer. Limits are in LIMITS.
 import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/core/oauth2";
 import { createLocalJWKSet, jwtVerify } from "jose";
-import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
-import pkg from "../../../../package.json";
+import { JWT_BEARER_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
 import { APP_JS } from "./app";
+import { CHECKED_AGAINST, LIMITS } from "./limits";
 import { LOGO_SVG } from "./logo";
 import { landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
 import { open, seal } from "./seal";
 import * as store from "./store";
-
-/** Every limit in one place. The rate-limit bindings (wrangler.jsonc) add per-minute limits on top. */
-export const LIMITS = {
-  registrationHours: 24,
-  registrationsPerDay: 3,
-  registrationsPerAccountPerDay: 2,
-  registrationsPerIpPerDay: 3,
-  accountMinAgeDays: 30,
-  redemptionsPerRegistrationPerDay: 50,
-  /** Past this, across everyone, redemptions stop until 00:00 UTC: far more than real testing needs. */
-  redemptionsPerDay: 300,
-  /** This many 5xx answers in 10 minutes closes the tester until the operator reopens it. */
-  serverErrorsPer10Min: 10,
-  maxBodyBytes: 20_000,
-};
-
-/** What every report was checked against: a later draft or release may judge the same ID-JAG differently. */
-export const CHECKED_AGAINST = `${SUPPORTED_DRAFT}; better-auth-id-jag ${pkg.version}`;
 
 const cache = new Map<string, ReturnType<typeof createAuth>>();
 const authFor = (env: Env, origin: string) => {
@@ -466,7 +448,7 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
       checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: TESTER_REFUSALS.has(c.error ?? "") ? null : store.decisionFor(c, refusals) })),
     });
   }
-  return results(views, s.user.name);
+  return results(views, s.user.name, origin);
 }
 
 /** Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's. */
