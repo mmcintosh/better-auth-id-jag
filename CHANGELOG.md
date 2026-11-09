@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-09
+
+A security fix: the issuer refuses an ID-JAG request that carries a DPoP proof, instead of answering it with an unbound ID-JAG.
+
 ### Security
 
 - **The issuer refuses an ID-JAG request that carries a DPoP proof** (D-066): `invalid_request`, "DPoP-bound ID-JAGs
