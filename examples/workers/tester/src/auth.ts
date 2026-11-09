@@ -46,8 +46,15 @@ export interface Env {
 /** What a registered client may be granted. Read-only: nothing an ID-JAG unlocks can store anything. */
 export const SCOPES = ["read"] as const;
 
-/** Per isolate: only in-process calls know it, so the admin client-creation endpoint is closed to the network. */
-export const INTERNAL_KEY = crypto.randomUUID();
+/**
+ * Per isolate: only in-process calls know it, so the admin client-creation endpoint is closed to the network. Made on
+ * first use: a Worker may not make random values while its modules load, only while it handles a request.
+ */
+let internalKeyValue: string | undefined;
+export const internalKey = (): string => {
+  internalKeyValue ??= crypto.randomUUID();
+  return internalKeyValue;
+};
 
 const sha256hex = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -132,7 +139,7 @@ export function createAuth(env: Env, origin: string) {
         allowDynamicClientRegistration: false,
         scopes: [...SCOPES],
         accessTokenExpiresIn: 300,
-        clientPrivileges: ({ headers }) => headers?.get("x-tester-internal") === INTERNAL_KEY,
+        clientPrivileges: ({ headers }) => headers?.get("x-tester-internal") === internalKey(),
       }) as unknown as BetterAuthPlugin,
       idJagGrant({
         trustedIssuerTable: true,

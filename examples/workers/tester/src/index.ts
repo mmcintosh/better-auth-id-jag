@@ -10,7 +10,7 @@ import { createLocalJWKSet, jwtVerify } from "jose";
 import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import pkg from "../../../../package.json";
 import { withExecutionContext } from "../../background";
-import { createAuth, type Env, INTERNAL_KEY, providers, SCOPES } from "./auth";
+import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
 import { LOGO_SVG } from "./logo";
@@ -211,7 +211,7 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   const auth = authFor(env, origin);
   let clientId: string | undefined;
   try {
-    const headers = new Headers({ cookie: request.headers.get("cookie") ?? "", "x-tester-internal": INTERNAL_KEY });
+    const headers = new Headers({ cookie: request.headers.get("cookie") ?? "", "x-tester-internal": internalKey() });
     const api = auth.api as unknown as { adminCreateOAuthClient(o: { headers: Headers; body: Record<string, unknown> }): Promise<{ client_id: string; client_secret: string }> };
     const client = await api.adminCreateOAuthClient({
       headers,
