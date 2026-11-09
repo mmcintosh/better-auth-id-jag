@@ -1496,7 +1496,7 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   the server advertises. docs/interop.md records the run (PR #91).
 - **Evidence:** one test pins the refusal (`test/receiver/grant.test.ts`, "an ID-JAG with no scope claim is refused").
 
-## D-068: the receiver compares the account key exactly, sees every trust row, undoes a JIT user whose link failed, and uses keys it just fetched (2026-11-09)
+## D-068: the receiver compares the account key exactly, sees every trust row, undoes a JIT user whose link failed, and refuses JWKS options that leave no keys between refetches (2026-11-09)
 
 - **Account key, exactly.** Subjects are found by a database lookup on `(providerId, accountId = sub)`. A database
   whose collation ignores case or accents (MySQL's default) also returns another subject's row: a lookup for `José`
