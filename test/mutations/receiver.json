@@ -805,13 +805,13 @@
   "edits": [
    {
     "file": "src/receiver/resolve.ts",
-    "a": "    if (membershipFailed) refuse(\"subject_unavailable\", \"JIT: organization membership failed\");\n    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n",
-    "b": "    if (membershipFailed) refuse(\"subject_unavailable\", \"JIT: organization membership failed\");\n"
+    "a": "    let account: AccountRow;\n    try {\n      account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    } catch (e) {",
+    "b": "    const account: AccountRow = early;\n    try {\n      void 0;\n    } catch (e) {"
    },
    {
     "file": "src/receiver/resolve.ts",
     "a": "    let membershipFailed = false;\n",
-    "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    let membershipFailed = false;\n"
+    "b": "    const early: AccountRow = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    let membershipFailed = false;\n"
    }
   ],
   "paths": [
@@ -887,8 +887,8 @@
  {
   "name": "D-A24 lookup: duplicates in the adapter's order (no deterministic sort)",
   "file": "src/receiver/resolve.ts",
-  "a": "return [...rows].sort(byAge);",
-  "b": "return rows;",
+  "a": "r.accountId === accountId).sort(byAge);",
+  "b": "r.accountId === accountId);",
   "paths": [
    "test/receiver/concurrency.test.ts"
   ]
@@ -923,7 +923,7 @@
  {
   "name": "D-A24 JIT: no convergence after linking",
   "file": "src/receiver/resolve.ts",
-  "a": "const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId: membership === \"added\" ? trust.organizationId : undefined } });",
+  "a": "const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId } });",
   "b": "const winner = user;",
   "paths": [
    "test/receiver/concurrency.test.ts"
@@ -932,7 +932,7 @@
  {
   "name": "D-A24 converge: the loser keeps its JIT user",
   "file": "src/receiver/resolve.ts",
-  "a": "      await internalAdapter.deleteUser(mine.user.id);\n",
+  "a": "  await ctx.context.internalAdapter.deleteUser(userId);\n",
   "b": "",
   "paths": [
    "test/receiver/concurrency.test.ts"
@@ -941,8 +941,8 @@
  {
   "name": "D-A24 converge: the loser keeps its JIT membership",
   "file": "src/receiver/resolve.ts",
-  "a": "      if (organizationId !== undefined)\n        await adapter.deleteMany({",
-  "b": "      if (organizationId === \"never\")\n        await adapter.deleteMany({",
+  "a": "  if (membershipOrganizationId !== undefined)\n    await ctx.context.adapter.deleteMany({",
+  "b": "  if (membershipOrganizationId === \"never\")\n    await ctx.context.adapter.deleteMany({",
   "paths": [
    "test/receiver/concurrency.test.ts"
   ]
@@ -1019,7 +1019,7 @@
  {
   "name": "D-A25 JWKS: stale keys never discarded (used indefinitely while the JWKS is down)",
   "file": "src/receiver/jwks.ts",
-  "a": "    if (entry.keys !== null && !this.usable(entry)) entry.keys = null;\n",
+  "a": "    if (entry.keys !== null && !fetchedNow && !this.usable(entry)) entry.keys = null;\n",
   "b": "",
   "paths": [
    "test/receiver/jwks.test.ts"
@@ -1289,9 +1289,18 @@
  },
  {
   "name": "R3-S7 JIT links under (accountProviderId, sub), not the mapping key",
-  "file": "src/receiver/resolve.ts",
-  "a": "    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });\n    const winner = await converge(ctx, key, {",
-  "b": "    const account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });\n    const winner = await converge(ctx, { providerId: trust.accountProviderId, accountId: claims.sub, from: \"sub\" }, {",
+  "edits": [
+   {
+    "file": "src/receiver/resolve.ts",
+    "a": "      account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });",
+    "b": "      account = await internal.linkAccount({ userId: user.id, providerId: trust.accountProviderId, accountId: claims.sub });"
+   },
+   {
+    "file": "src/receiver/resolve.ts",
+    "a": "const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId } });",
+    "b": "const winner = await converge(ctx, { providerId: trust.accountProviderId, accountId: claims.sub, from: \"sub\" }, { account, user, created: { membershipOrganizationId } });"
+   }
+  ],
   "paths": [
    "test/receiver/sub-id.test.ts"
   ]
@@ -1937,6 +1946,42 @@
   "b": "stored === wanted",
   "paths": [
    "test/receiver/resolve.test.ts"
+  ]
+ },
+ {
+  "name": "resolve: an account the database matched only loosely (case, accents) is taken as this subject's",
+  "file": "src/receiver/resolve.ts",
+  "a": "  return rows.filter((r) => r.providerId === providerId && r.accountId === accountId).sort(byAge);",
+  "b": "  return [...rows].sort(byAge);",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "resolve: JIT leaves the new user behind when linking its account fails",
+  "file": "src/receiver/resolve.ts",
+  "a": "        await removeProvisioned(ctx, user.id, membershipOrganizationId);\n      } catch (e2)",
+  "b": "        void membershipOrganizationId;\n      } catch (e2)",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "trust: an issuer's trust rows cut at 10 before the tenant filter and the namespace check",
+  "file": "src/receiver/trust.ts",
+  "a": "const MAX_ROWS = 1000;",
+  "b": "const MAX_ROWS = 10;",
+  "paths": [
+   "test/receiver"
+  ]
+ },
+ {
+  "name": "jwks: keys fetched for this request discarded when the cache keeps nothing",
+  "file": "src/receiver/jwks.ts",
+  "a": "    const fetchedNow = entry.fetches !== fetchesBefore;",
+  "b": "    const fetchedNow = false;",
+  "paths": [
+   "test/receiver"
   ]
  }
 ]

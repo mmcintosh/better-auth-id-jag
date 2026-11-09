@@ -1495,3 +1495,24 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   empty-scope token with `allowEmptyScope`. The fix for Claude Code is on the client's side: ask the IdP for the scopes
   the server advertises. docs/interop.md records the run (PR #91).
 - **Evidence:** one test pins the refusal (`test/receiver/grant.test.ts`, "an ID-JAG with no scope claim is refused").
+
+## D-068: the receiver compares the account key exactly, sees every trust row, undoes a JIT user whose link failed, and uses keys it just fetched (2026-11-09)
+
+- **Account key, exactly.** Subjects are found by a database lookup on `(providerId, accountId = sub)`. A database
+  whose collation ignores case or accents (MySQL's default) also returns another subject's row: a lookup for `José`
+  returns `jose`'s. `sub` is case-sensitive (RFC 7519 section 4.1.2), and the receiver took the row as found, so an
+  ID-JAG for one subject could be accepted as another user. The rows are now compared exactly before one is chosen or
+  deleted (`src/receiver/resolve.ts`), as the email fallback already compared addresses (D-064).
+- **Every trust row for an issuer.** The `ssoProvider` and `idJagTrustedIssuer` lookups read at most 10 rows, before
+  the tenant filter and before the ambiguity and shared-namespace checks. One issuer with more than 10 tenant rows (a
+  shared, multi-tenant issuer) had tenants refused as `untrusted_issuer`, and a hidden row escaped the checks. They now
+  read up to 1000 rows per source and refuse (`untrusted_issuer`) when there are more, rather than decide on part of
+  the set (`src/receiver/trust.ts`).
+- **JIT undoes a user whose account link failed.** The user and the membership JIT just created stayed behind when
+  linking the account failed, so every retry was refused ("email belongs to an existing user"). They are now removed,
+  and the request is refused as `subject_unavailable`, which a retry can get past.
+- **Keys fetched for a request are used for it.** With `jwks.cacheTtlSeconds` and `jwks.maxStaleSeconds` both 0 (both
+  allowed), freshly fetched keys counted as stale and were discarded, so every redemption failed with
+  `jwks_unavailable` (`src/receiver/jwks.ts`).
+- **Evidence:** a test for each, and each fails with its fix taken out (test/mutations/receiver.json lists them);
+  `test/adapters` runs the account-key case on real databases, MySQL included.

@@ -252,6 +252,18 @@ describe("JwksCache: caching and refetch (S4)", () => {
     expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/^jwks_unavailable/);
   });
 
+  it("no caching (cacheTtl 0, maxStale 0): the keys fetched for a request are used for it; each request fetches", async () => {
+    const idp = await testIdp();
+    const net = network(idp);
+    const cache = new JwksCache(net.fetch, { ...SETTINGS, cacheTtlMs: 0, maxStaleMs: 0, minRefetchMs: 0 }, clock().now);
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toBe("ok");
+    expect(net.calls).toHaveLength(2);
+    // Nothing kept: with the JWKS down, the next request has no keys.
+    idp.override = () => new Response("down", { status: 503 });
+    expect(await reasonOf(cache.keysFor(idp, idp.key.kid))).toMatch(/^jwks_unavailable/);
+  });
+
   it("concurrent lookups share one fetch", async () => {
     const idp = await testIdp();
     const net = network(idp);

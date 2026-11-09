@@ -107,6 +107,8 @@ const sameAddress = (stored: unknown, wanted: string): boolean => typeof stored 
 interface AccountRow {
   id: string;
   userId: string;
+  providerId?: unknown;
+  accountId?: unknown;
   createdAt?: Date | string | number | null;
 }
 
@@ -126,7 +128,12 @@ function byAge(a: AccountRow, b: AccountRow): number {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-/** Every account linking this subject at this issuer, the winner first. Never throws on duplicates. */
+/**
+ * Every account linking this subject at this issuer, the winner first. Never throws on duplicates. Only exact matches:
+ * a database whose collation ignores case or accents (MySQL's default) also answers with another subject's row (a
+ * lookup for "José" returns "jose"), and `sub` is case-sensitive (RFC 7519 section 4.1.2), so that row would hand
+ * this token another user. Nothing here selects or deletes a row the database matched only loosely.
+ */
 async function linkedAccounts(ctx: GenericEndpointContext, providerId: string, accountId: string): Promise<AccountRow[]> {
   const rows = await ctx.context.adapter.findMany<AccountRow>({
     model: "account",
@@ -137,7 +144,7 @@ async function linkedAccounts(ctx: GenericEndpointContext, providerId: string, a
     sortBy: { field: "createdAt", direction: "asc" },
     limit: MAX_LINKED_ROWS,
   });
-  return [...rows].sort(byAge);
+  return rows.filter((r) => r.providerId === providerId && r.accountId === accountId).sort(byAge);
 }
 
 type Owner = { kind: "owned"; user: User } | { kind: "orphaned" } | null;
@@ -174,18 +181,7 @@ async function converge(ctx: GenericEndpointContext, key: SubjectKey, mine: Link
   logger.warn(`[id-jag] ${rows.length} accounts link one subject of ${key.providerId} (concurrent first use); keeping the oldest`);
   try {
     for (const r of remove) await adapter.delete({ model: "account", where: [{ field: "id", value: r.id }] });
-    if (lost && mine.created) {
-      const organizationId = mine.created.membershipOrganizationId;
-      if (organizationId !== undefined)
-        await adapter.deleteMany({
-          model: "member",
-          where: [
-            { field: "organizationId", value: organizationId },
-            { field: "userId", value: mine.user.id },
-          ],
-        });
-      await internalAdapter.deleteUser(mine.user.id);
-    }
+    if (lost && mine.created) await removeProvisioned(ctx, mine.user.id, mine.created.membershipOrganizationId);
   } catch (e) {
     // Leftovers don't break lookups (the winner is still found first); an administrator can see them here.
     logger.error(`[id-jag] removing the losing link of a concurrent first use failed (account ${mine.account.id}, user ${mine.user.id})`, e);
@@ -194,6 +190,19 @@ async function converge(ctx: GenericEndpointContext, key: SubjectKey, mine: Link
   const user = await internalAdapter.findUserById(winner.userId);
   if (!user) refuse("unknown_subject", "the winning account's user is gone");
   return user;
+}
+
+/** Removes a user JIT just created, and the membership it added (if any): the request didn't end with them linked. */
+async function removeProvisioned(ctx: GenericEndpointContext, userId: string, membershipOrganizationId: string | undefined): Promise<void> {
+  if (membershipOrganizationId !== undefined)
+    await ctx.context.adapter.deleteMany({
+      model: "member",
+      where: [
+        { field: "organizationId", value: membershipOrganizationId },
+        { field: "userId", value: userId },
+      ],
+    });
+  await ctx.context.internalAdapter.deleteUser(userId);
 }
 
 export async function resolveSubject(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, trust: TrustEntry, claims: IdJagClaims, clientId: string): Promise<ResolvedSubject> {
@@ -298,8 +307,23 @@ async function resolve(ctx: GenericEndpointContext, o: ResolvedReceiverOptions, 
       }
     }
     if (membershipFailed) refuse("subject_unavailable", "JIT: organization membership failed");
-    const account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });
-    const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId: membership === "added" ? trust.organizationId : undefined } });
+    const membershipOrganizationId = membership === "added" ? trust.organizationId : undefined;
+    // If the link fails (a database error, or a concurrent first use that linked this subject first), the user and
+    // membership just created are removed: left behind, the user would hold this email with no link, and every retry
+    // would be refused as "email belongs to an existing user". The refusal is subject_unavailable, so a retry can work.
+    let account: AccountRow;
+    try {
+      account = await internal.linkAccount({ userId: user.id, providerId: key.providerId, accountId: key.accountId });
+    } catch (e) {
+      ctx.context.logger.error(`[id-jag] JIT: linking the new user failed (${e instanceof Error ? e.message : "error"}); removing the user and refusing`, e);
+      try {
+        await removeProvisioned(ctx, user.id, membershipOrganizationId);
+      } catch (e2) {
+        ctx.context.logger.error(`[id-jag] JIT: removing the half-provisioned user ${user.id} failed; it has no linked account and won't be accepted`, e2);
+      }
+      refuse("subject_unavailable", "JIT: linking the account failed");
+    }
+    const winner = await converge(ctx, key, { account, user, created: { membershipOrganizationId } });
     return { user: assertNotBanned(winner, now), via: "jit" };
   }
 
