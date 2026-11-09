@@ -1,10 +1,10 @@
 {
-  "triggerOnDrafts": true,
-  "autoReview": ["open", "push"],
+  "autoReview": [],
   "excludeAuthors": ["dependabot[bot]"],
   "shouldUpdateDescription": false,
   "statusCheck": false,
   "fixWithAI": false,
+  "hideFooter": true,
   "autoApprove": { "enabled": false },
   "strictness": 2,
   "ignorePatterns": "pnpm-lock.yaml",
