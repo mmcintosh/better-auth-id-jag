@@ -15,6 +15,12 @@
 - **JIT removes the user and membership it created when linking the account fails** (D-068), so a retry works.
 - **JWKS options whose keys can't outlive the refetch interval are refused at startup** (D-068): with
   `cacheTtlSeconds + maxStaleSeconds` below `minRefetchIntervalSeconds` (both 0, for one), every redemption failed.
+- **create-from-jti refuses an audit row whose values were cut** (D-069): an audience over 300 characters made a block
+  that matched nothing, and the call reported success.
+- **The issuer's authorize hook must return scope tokens, and a grant over 4096 characters is refused** (D-069),
+  instead of a scope split in two or an empty server error.
+- **The registry directory refuses past its bounds** (D-069): over 100 resource servers for an audience, or 1000
+  policies for a resource server, is refused rather than decided on part of them.
 
 ## [0.7.0] - 2026-11-09
 

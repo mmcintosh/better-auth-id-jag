@@ -67,6 +67,25 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(host.recorded.issued[0]).toMatchObject({ clientId: client.client_id, clientIdAtResource: client.client_id });
   });
 
+  it("the authorize hook's scopes must be scope tokens (RFC 6749 section 3.3): \"read write\" as one scope is a malformed verdict", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes: ["read write"] }) } });
+    const { client, idToken } = await setup(host);
+    takeReasons(host);
+    const r = await exchange(host, client, idToken, { scope: undefined });
+    expect(r.status).toBe(400);
+    expect(host.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: "authorize returned a malformed verdict" });
+  });
+
+  it("a grant longer than the scope claim holds (4096 characters) is refused, not an empty server error", async () => {
+    const scopes = Array.from({ length: 20 }, (_, i) => `${i}`.padEnd(256, "x"));
+    const host = await createIssuerHost({ issuer: { authorize: () => ({ decision: "allow", scopes }) } });
+    const { client, idToken } = await setup(host);
+    takeReasons(host);
+    const r = await exchange(host, client, idToken, { scope: undefined });
+    expect(r.status).toBe(400);
+    expect(host.recorded.refused.at(-1)).toMatchObject({ reason: "policy_denied", detail: "the granted scopes are longer than 4096 characters" });
+  });
+
   it("the authorize hook sees the request, and the ID-JAG's scopes only narrow (requested ∩ allowed)", async () => {
     const seen: AuthorizeInput[] = [];
     const host = await createIssuerHost({

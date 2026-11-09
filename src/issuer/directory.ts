@@ -2,6 +2,7 @@
 // its enabled, valid policies. Cached per isolate (hits and misses, capped), so unknown audiences
 // don't each cost a read; other isolates see a change within `cacheSeconds` (D-027's design).
 import type { GenericEndpointContext } from "better-auth";
+import { refuse } from "../core";
 import { POLICY_MODEL, RESOURCE_SERVER_MODEL } from "./schema";
 import { type PolicyConfig, type PolicyRecord, readPolicy, readResourceServer, type ResourceServerConfig, type ResourceServerRecord } from "./records";
 
@@ -38,7 +39,10 @@ export class RegistryDirectory {
 
   private async load(ctx: GenericEndpointContext, audience: string): Promise<AudienceEntry[]> {
     const adapter = ctx.context.adapter;
-    const rows = await adapter.findMany<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, where: [{ field: "audience", value: audience }], limit: MAX_PER_AUDIENCE });
+    // Each lookup reads one more than its bound and refuses past it, as blocks do: a decision on part of the rows could
+    // miss the one that matters (and a collation that ignores case can fill the bound with other audiences' rows).
+    const rows = await adapter.findMany<Record<string, unknown>>({ model: RESOURCE_SERVER_MODEL, where: [{ field: "audience", value: audience }], limit: MAX_PER_AUDIENCE + 1 });
+    if (rows.length > MAX_PER_AUDIENCE) refuse("policy_denied", `more than ${MAX_PER_AUDIENCE} resource servers match this audience`);
     const entries: AudienceEntry[] = [];
     // Exact match, whatever the collation (a case-insensitive one would widen the lookup).
     for (const row of rows.filter((r) => r.audience === audience)) {
@@ -48,7 +52,8 @@ export class RegistryDirectory {
         continue;
       }
       if (!rs.enabled) continue;
-      const policyRows = await adapter.findMany<Record<string, unknown>>({ model: POLICY_MODEL, where: [{ field: "resourceServerId", value: rs.id }], limit: MAX_POLICIES });
+      const policyRows = await adapter.findMany<Record<string, unknown>>({ model: POLICY_MODEL, where: [{ field: "resourceServerId", value: rs.id }], limit: MAX_POLICIES + 1 });
+      if (policyRows.length > MAX_POLICIES) refuse("policy_denied", `more than ${MAX_POLICIES} policies for resource server ${rs.id}`);
       const policies: UsablePolicy[] = [];
       for (const pr of policyRows) {
         const p = readPolicy(pr);

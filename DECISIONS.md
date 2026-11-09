@@ -1519,3 +1519,20 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   change (`src/receiver/options.ts`).
 - **Evidence:** a test for each, and each fails with its fix taken out (test/mutations/receiver.json lists them);
   `test/adapters` runs the account-key case on real databases, MySQL included.
+
+## D-069: the issuer refuses a cut audit value for create-from-jti, a malformed or over-long grant, and a directory past its bounds (2026-11-09)
+
+- **create-from-jti and a cut audit row.** After an ID-JAG's jti row expires, `/id-jag/blocks/create-from-jti` reads its
+  user, client and audience from the `id-jag.issued` audit row. The audit log keeps at most 300 characters of a string
+  (and marks the cut with "…"), while an audience can be 2048. A cut audience made a block that matched nothing, and
+  the call reported success. It is now refused (400) and says to block by user, client and audience instead
+  (`src/issuer/registry.ts`).
+- **The authorize hook's scopes are scope tokens.** RFC 6749 section 3.3, as the registry already requires: `"read
+  write"` returned as one scope became two once joined.
+- **A grant longer than the scope claim holds is refused.** The ID-JAG's `scope` holds at most 4096 characters. A longer
+  grant (possible when no scope is requested) failed as an empty server error when the ID-JAG was built; it is now
+  refused as `policy_denied` (`src/issuer/exchange.ts`).
+- **The registry directory refuses past its bounds.** It read at most 100 resource servers per audience and 1000
+  policies per resource server, and decided on what it read. It now reads one more and refuses (`policy_denied`)
+  when a bound is exceeded, as blocks already do (`src/issuer/directory.ts`).
+- **Evidence:** a test for each, and each fails with its fix taken out (test/mutations/issuer.json).

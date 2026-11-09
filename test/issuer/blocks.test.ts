@@ -226,6 +226,24 @@ describe("blocks: the API", () => {
     expect(await w.status("a", OTHER_AUDIENCE)).toEqual([200, 200]);
   });
 
+  it("create-from-jti from an audit row whose audience was cut (over 300 characters): refused, not a block that matches nothing", async () => {
+    const h = await host({ auditLog: true });
+    const w = await world(h);
+    const long = `https://rs.example/${"a".repeat(400)}`;
+    const jti = decodeJwt((await exchange(h, w.a.client, w.a.idToken, { audience: long })).body.access_token as string).jti as string;
+    await sweepJtis(h.ctx.adapter, new Date(Date.now() + 3600_000));
+    const r = await api(w.admin.browser, "/blocks/create-from-jti", { jti, reason: "seen in the audit log" });
+    expect(r.status, JSON.stringify(r.body)).toBe(400);
+    expect(r.body.message).toMatch(/longer than the audit log keeps/);
+    // No block was made (in workerd every host shares one database: only this admin's count).
+    expect(((await api(w.admin.browser, "/blocks")).body.blocks as Json[]).filter((b) => b.createdBy === w.admin.id)).toEqual([]);
+    // While the jti row lasts, the exact audience is known, and the block is made.
+    const fresh = decodeJwt((await exchange(h, w.a.client, w.a.idToken, { audience: long })).body.access_token as string).jti as string;
+    const ok = await api(w.admin.browser, "/blocks/create-from-jti", { jti: fresh, reason: "r" });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.block.audience).toBe(long);
+  });
+
   it("create-from-jti uses only id-jag.issued audit rows (not a jti a receiver accepted or refused)", async () => {
     const h = await host({ auditLog: true });
     const admin = await signUp(h, { role: "admin" });

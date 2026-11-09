@@ -86,7 +86,8 @@ const stepUpSchema = z.strictObject({
 const verdictSchema = z.discriminatedUnion("decision", [
   z.object({
     decision: z.literal("allow"),
-    scopes: z.array(z.string().min(1).max(256)).max(1000),
+    // Scope tokens (RFC 6749 section 3.3), as the registry's: "read write" as one scope would become two once joined.
+    scopes: z.array(z.string().regex(/^[\x21\x23-\x5b\x5d-\x7e]{1,256}$/)).max(1000),
     resource: z.string().refine(isResourceUri).optional(),
     lifetimeSeconds: z.number().int().min(1).optional(),
     clientIdAtResource: z.string().min(1).max(512).optional(),
