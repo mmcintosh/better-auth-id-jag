@@ -123,7 +123,10 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(await home.clone().text()).toContain('<link rel="icon" href="/logo.svg"');
     const logo = await call("/logo.svg");
     expect(logo.headers.get("content-type")).toBe("image/svg+xml");
-    expect(await logo.text()).toMatch(/^<svg /);
+    const svg = await logo.text();
+    expect(svg).toMatch(/^<svg /);
+    // The same drawing as the PNG the sign-in apps show: the full-size background square included.
+    expect(svg).toContain('<rect width="512" height="512" rx="112"');
     const start = await call("/signin", { method: "POST", headers: { origin: ORIGIN, "content-type": "application/x-www-form-urlencoded" }, body: "provider=github" });
     expect(start.status).toBe(302);
     const authorize = new URL(start.headers.get("location") ?? "");
