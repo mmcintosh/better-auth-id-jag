@@ -40,6 +40,11 @@
   rate limits and daily budgets, a blocklist, a stored and a deploy-level kill switch, admin keys that can close but
   not reopen. Privacy: no email, picture, provider token or IP address is stored; what is personal lasts a day at most
   or until "delete my data now"; an abuse record of fingerprints (keyed hashes) lasts 7 days. Not deployed yet.
+- **The tester is plug and play:** paste an ID-JAG into "Check an ID-JAG" and the tester redeems it with the
+  registration's own client (its secret kept encrypted while the registration lasts); every value to configure has a
+  copy button, and all of them come as one JSON template; the client-authentication choice moved under "Advanced".
+  Each check on the results page shows its own decision (a redeemed ID-JAG no longer shows its later replay's
+  refusal), and HEAD is answered like GET.
 
 ## [0.6.0] - 2026-11-04
 

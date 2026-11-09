@@ -8,7 +8,7 @@ export const esc = (v: unknown): string =>
 
 // form-action also applies to where a form's answer redirects (Chrome checks it): the sign-in form posts here and is
 // redirected to GitHub or GitLab, so those two are allowed, on the home page only.
-const csp = (formAction: string) => `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`;
+const csp = (formAction: string) => `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src https://challenges.cloudflare.com; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`;
 const SIGN_IN_FORM_ACTION = "'self' https://github.com https://gitlab.com";
 
 const STYLE = `
@@ -27,16 +27,29 @@ input[type=url], select { width: 100%; padding: 8px; font: inherit; border: 1px 
 button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); cursor: pointer; }
 .box { border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin: 16px 0; }
 .wrap { overflow-x: auto; }
+.copy { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+button.small { padding: 2px 8px; font-size: 0.8rem; background: var(--bg); color: var(--fg); border-color: var(--line); }
+textarea { width: 100%; font: 0.88em ui-monospace, monospace; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 `;
 
 export function page(title: string, body: string, { turnstile = false, status = 200, headers = {} as Record<string, string>, formAction = "'self'" } = {}): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><style>${STYLE}</style><script src="/app.js" defer></script>${turnstile ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' : ""}</head><body><main>${body}</main></body></html>`;
   // Referrer-Policy same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" on a form post (the
   // Fetch standard), and every form here is checked for this site's own origin. Other sites still get no referrer.
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "same-origin", "cache-control": "no-store", ...headers } });
 }
 
 const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it (<a href="https://github.com/mmcintosh/better-auth-id-jag/tree/main/examples/workers/tester">the rules' code</a>). A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
+
+/** A value with a copy button (the script at /app.js). */
+const copyable = (value: string) => `<span class="copy"><code>${esc(value)}</code><button type="button" class="small" data-copy="${esc(value)}">Copy</button></span>`;
+
+/** Paste an ID-JAG and the tester redeems it with this registration's own client: no curl, no secret to handle. */
+const checkForm = (registrationId: string) => `<form method="post" action="/check" class="box">
+<input type="hidden" name="registration" value="${esc(registrationId)}">
+<p><label><strong>Check an ID-JAG.</strong> Paste one your IdP minted for this registration, then press Check: the tester redeems it with your client here and adds the report below.<br><textarea name="assertion" rows="4" required maxlength="16384" placeholder="eyJ..."></textarea></label></p>
+<p><button>Check</button></p>
+</form>`;
 
 const PROVIDER_NAMES = { github: "GitHub", gitlab: "GitLab" } as const;
 
@@ -64,7 +77,9 @@ ${error ? `<p class="fail">${esc(error)}</p>` : ""}
 <form method="post" action="/register" class="box">
 <p><label>Issuer identifier (exactly as your ID-JAGs' <code>iss</code>)<br><input type="url" name="issuer" required maxlength="512" placeholder="https://idp.example.com"></label></p>
 <p class="muted">The tester reads your metadata (RFC 8414's location, else OpenID Connect Discovery's), checks it, and fetches your JWKS. https only, a public DNS name, no redirects.</p>
-<p><label>How your client authenticates here<br><select name="authMethod"><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
+<details><summary class="muted">Advanced</summary>
+<p><label>Only if you will also redeem from your own code: how that code authenticates its client here<br><select name="authMethod"><option value="client_secret_basic">client_secret_basic (HTTP Basic, the default)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
+</details>
 <div class="cf-turnstile" data-sitekey="${esc(siteKey)}"></div>
 <p><button>Register</button></p>
 </form>
@@ -77,34 +92,43 @@ ${FOOTER}`,
 const ruleRows = (results: RuleResult[]) =>
   results.map((r) => `<tr><td class="${esc(r.outcome)}">${esc(r.outcome)}</td><td><code>${esc(r.id)}</code><br><span class="muted">${esc(r.level)}, ${esc(r.cite)}</span></td><td>${esc(r.message)}</td></tr>`).join("");
 
-export function registered(o: { origin: string; clientId: string; clientSecret: string; authMethod: string; issuer: string; expiresAt: number; report: RuleResult[] }): Response {
+export function registered(o: { origin: string; registrationId: string; clientId: string; clientSecret: string; authMethod: string; issuer: string; expiresAt: number; report: RuleResult[] }): Response {
   const audience = `${o.origin}/api/auth`;
+  const resource = `${o.origin}/mcp`;
+  const template = JSON.stringify({ header: { typ: "oauth-id-jag+jwt" }, claims: { iss: o.issuer, aud: audience, client_id: o.clientId, resource, scope: "read" } }, null, 2);
   const auth = o.authMethod === "client_secret_post" ? `-d client_id=${o.clientId} -d client_secret=YOUR_SECRET` : `-u ${o.clientId}:YOUR_SECRET`;
   return page(
     "Registered",
     `<h1>Registered, pending</h1>
-<p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer) and is redeemed as usual. Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
-<div class="box"><p><strong>Client secret, shown once:</strong> copy it now.</p><pre>${esc(o.clientSecret)}</pre></div>
-<h2>Mint your ID-JAG with</h2>
-<table><tr><td><code>iss</code></td><td><code>${esc(o.issuer)}</code></td></tr>
-<tr><td><code>aud</code></td><td><code>${esc(audience)}</code> (this authorization server's issuer)</td></tr>
-<tr><td><code>client_id</code></td><td><code>${esc(o.clientId)}</code> (your client here)</td></tr>
-<tr><td><code>resource</code></td><td><code>${esc(o.origin)}/mcp</code> (optional)</td></tr>
-<tr><td><code>scope</code></td><td><code>read</code></td></tr>
-<tr><td>header <code>typ</code></td><td><code>oauth-id-jag+jwt</code></td></tr></table>
-<h2>Redeem it</h2>
+<p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer). Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
+<h2>1. Have your IdP mint an ID-JAG with these values</h2>
+<table><tr><td><code>aud</code></td><td>${copyable(audience)}<br><span class="muted">this authorization server's issuer, exactly</span></td></tr>
+<tr><td><code>client_id</code></td><td>${copyable(o.clientId)}<br><span class="muted">your client here, not your IdP's own</span></td></tr>
+<tr><td><code>resource</code></td><td>${copyable(resource)} <span class="muted">(optional)</span></td></tr>
+<tr><td><code>scope</code></td><td>${copyable("read")}</td></tr>
+<tr><td>header <code>typ</code></td><td>${copyable("oauth-id-jag+jwt")}</td></tr></table>
+<p>All of it at once, for your IdP's configuration: <button type="button" class="small" data-copy="${esc(template)}">Copy as JSON</button></p>
+<pre>${esc(template)}</pre>
+<h2>2. Paste it here</h2>
+${checkForm(o.registrationId)}
+<p>Every check is kept on <a href="/results">your results page</a>, with each rule and the receiver's own decision.</p>
+<details><summary>Redeem from your own code instead</summary>
+<p><strong>Client secret, shown once:</strong> ${copyable(o.clientSecret)}</p>
 <pre>curl ${esc(o.origin)}/api/auth/oauth2/token ${esc(auth)} \\
   -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \\
   -d assertion=YOUR_ID_JAG</pre>
-<p>Then, optionally, call the MCP server at <code>${esc(o.origin)}/mcp</code> with the access token (tools <code>whoami</code> and <code>checks</code>).</p>
+<p>Then, optionally, call the MCP server at <code>${esc(resource)}</code> with the access token (tools <code>whoami</code> and <code>checks</code>).</p>
+</details>
 <h2>Your metadata and keys</h2>
 <div class="wrap"><table>${ruleRows(o.report)}</table></div>
-<p><a href="/results">Your results</a></p>
 ${FOOTER}`,
   );
 }
 
 export interface ResultView {
+  registrationId: string;
+  /** Still active: the "Check an ID-JAG" box is shown. */
+  active: boolean;
   issuer: string;
   clientId: string;
   expiresAt: number;
@@ -121,6 +145,7 @@ export function results(views: ResultView[], name: string): Response {
           (v) => `<div class="box"><h2 style="margin-top:0">${esc(v.issuer)}</h2>
 <p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
 <details><summary>Metadata and keys</summary><div class="wrap"><table>${ruleRows(v.metadata)}</table></div></details>
+${v.active ? checkForm(v.registrationId) : ""}
 ${
   v.checks.length
     ? v.checks

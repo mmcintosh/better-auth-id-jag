@@ -5,7 +5,7 @@
 // Routes: / (home), POST /signin, POST /signout, /register, /results, POST /delete, POST /api/auth/oauth2/token (the
 // receiver, wrapped), /mcp, the Better Auth paths a sign-in and a client need (nothing else under /api/auth), /admin/*
 // (bearer keys). While the tester is closed, only /, /admin, sign-out and /delete answer. Limits are in LIMITS.
-import { decodeBasicCredentials } from "@better-auth/core/oauth2";
+import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/core/oauth2";
 import { createLocalJWKSet, jwtVerify } from "jose";
 import { JWT_BEARER_GRANT, SUPPORTED_DRAFT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import pkg from "../../../../package.json";
@@ -13,9 +13,11 @@ import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
 import { checkIdJag, checkIssuerMetadata, type RuleResult } from "./checks";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
+import { APP_JS } from "./app";
 import { LOGO_SVG } from "./logo";
 import { landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
+import { open, seal } from "./seal";
 import * as store from "./store";
 
 /** Every limit in one place. The rate-limit bindings (wrangler.jsonc) add per-minute limits on top. */
@@ -218,9 +220,9 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
       body: { client_name: `Tester registration ${id}`, grant_types: [JWT_BEARER_GRANT], response_types: [], token_endpoint_auth_method: authMethod, scope: SCOPES.join(" ") },
     });
     clientId = client.client_id;
-    await store.setClient(env.DB, id, clientId);
+    await store.setClient(env.DB, id, clientId, await seal(env.BETTER_AUTH_SECRET, client.client_secret));
     console.log(JSON.stringify({ event: "tester.registered", id, issuerHost: urlCheck.url.host }));
-    return registered({ origin, clientId, clientSecret: client.client_secret, authMethod, issuer, expiresAt, report: check.results });
+    return registered({ origin, registrationId: id, clientId, clientSecret: client.client_secret, authMethod, issuer, expiresAt, report: check.results });
   } catch (e) {
     await store.abandon(env.DB, id, clientId);
     throw e;
@@ -451,18 +453,57 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
   const views: ResultView[] = [];
   for (const reg of await store.byUser(env.DB, s.user.id)) {
     if (!reg.clientId) continue;
-    const decisions = await store.receiverDecisions(env.DB, reg.clientId);
+    const refusals = await store.receiverRefusals(env.DB, reg.clientId);
     views.push({
+      registrationId: reg.id,
+      active: reg.revokedAt === null && reg.expiresAt > now && !!reg.clientSecretEnc,
       issuer: reg.issuer,
       clientId: reg.clientId,
       expiresAt: reg.expiresAt,
       pending: reg.confirmedAt === null,
       ended: reg.revokedAt ? `revoked (${reg.revokedReason ?? "no reason given"})` : reg.expiresAt <= now ? "expired; deleted within minutes" : null,
       metadata: JSON.parse(reg.metadataReport) as RuleResult[],
-      checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: c.jti ? (decisions.get(c.jti) ?? null) : null })),
+      checks: (await store.recentChecks(env.DB, reg.id)).map((c) => ({ at: c.at, checkedAgainst: c.checkedAgainst, jti: c.jti, httpStatus: c.httpStatus, error: c.error, results: JSON.parse(c.results) as RuleResult[], receiver: TESTER_REFUSALS.has(c.error ?? "") ? null : store.decisionFor(c, refusals) })),
     });
   }
   return results(views, s.user.name);
+}
+
+/** Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's. */
+const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming"]);
+
+/**
+ * "Check an ID-JAG": the tester redeems a pasted ID-JAG with the registration's own client, through the same token
+ * endpoint (limits, report, confirmation and all), then shows the results page.
+ */
+async function checkPasted(request: Request, env: Env, origin: string, ctx: ExecutionContext): Promise<Response> {
+  if (!sameOrigin(request, origin)) return message("Not allowed", "Check from this site's own page.", 403);
+  const s = await session(env, origin, request);
+  if (!s) return redirect("/");
+  const body = await readBody(request);
+  if (body === null) return message("Too large", "That's larger than any ID-JAG.", 400);
+  const form = new URLSearchParams(body);
+  const now = Date.now();
+  const reg = await store.byId(env.DB, form.get("registration") ?? "");
+  if (!reg || reg.userId !== s.user.id || reg.revokedAt !== null || reg.expiresAt <= now || !reg.clientId || !reg.clientSecretEnc) return message("Not found", "No such active registration of yours.", 404);
+  const secret = await open(env.BETTER_AUTH_SECRET, reg.clientSecretEnc);
+  if (!secret) return message("Can't check", "This registration's client can't be used here. Register again.", 409);
+  const params = new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion: (form.get("assertion") ?? "").replace(/\s+/g, "") });
+  const headers = new Headers({ "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": clientIp(request) });
+  if (reg.authMethod === "client_secret_post") {
+    params.set("client_id", reg.clientId);
+    params.set("client_secret", secret);
+  } else headers.set("authorization", encodeBasicCredentials(reg.clientId, secret));
+  // The report is written in the background: wait for it, so the results page shows it.
+  const pending: Promise<unknown>[] = [];
+  const local = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
+  const response = await token(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers, body: params.toString() }), env, origin, local);
+  await Promise.allSettled(pending);
+  if (response.status === 429 || response.status === 503) {
+    const answer = (await response.json().catch(() => ({}))) as { error_description?: string };
+    return message("Not checked", answer.error_description ?? "Try again in a minute.", response.status);
+  }
+  return redirect("/results");
 }
 
 /** "Delete my data now": the tester's registrations, everything they made, and the tester's own records, at once. */
@@ -552,6 +593,7 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
   const path = url.pathname;
   if (path.startsWith("/admin/")) return admin(request, env, url);
   if (path === "/logo.svg" && request.method === "GET") return new Response(LOGO_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+  if (path === "/app.js" && request.method === "GET") return new Response(APP_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
   if (!(await env.IP_LIMIT.limit({ key: `ip:${clientIp(request)}` })).success) {
     store.bump("ratelimited.ip");
     return new Response("Too many requests from your address. Try again in a minute.", { status: 429 });
@@ -566,6 +608,7 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
   if (path === "/signin" && request.method === "POST") return signIn(request, env, origin);
   if (path === "/register" && (request.method === "GET" || request.method === "POST")) return register(request, env, origin);
   if (path === "/results" && request.method === "GET") return resultsPage(request, env, origin);
+  if (path === "/check" && request.method === "POST") return checkPasted(request, env, origin, ctx);
   if (path === "/mcp") return mcpEndpoint(request, env, origin);
   if (path === "/api/auth/oauth2/token" && request.method === "POST") return token(request, env, origin, ctx);
   if (request.method === "GET" && (AUTH_GET.test(path) || path.startsWith("/.well-known/"))) return authFor(env, origin).handler(request);
@@ -576,6 +619,11 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return withExecutionContext(ctx, async () => {
       try {
+        // HEAD is answered as GET without the body (link checkers and uptime monitors send it).
+        if (request.method === "HEAD") {
+          const got = await dispatch(new Request(request.url, { method: "GET", headers: request.headers }), env, new URL(request.url), ctx);
+          return new Response(null, { status: got.status, headers: got.headers });
+        }
         return await dispatch(request, env, new URL(request.url), ctx);
       } catch (e) {
         console.error(JSON.stringify({ event: "tester.error", message: e instanceof Error ? e.message : String(e) }));

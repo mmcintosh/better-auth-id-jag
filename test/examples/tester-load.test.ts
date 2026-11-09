@@ -17,7 +17,7 @@ describe("tester: nothing random while the modules load", () => {
       calls.push("getRandomValues");
       throw new Error("getRandomValues at load time");
     });
-    for (const m of ["index", "auth", "checks", "guard", "pages", "privacy", "store", "logo"]) await import(`../../examples/workers/tester/src/${m}.ts`);
+    for (const m of ["index", "auth", "checks", "guard", "pages", "privacy", "store", "logo", "app", "seal"]) await import(`../../examples/workers/tester/src/${m}.ts`);
     expect(calls).toEqual([]);
   });
 });
