@@ -29,6 +29,7 @@ const authFor = (env: Env, origin: string) => {
   return auth;
 };
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const oauthError = (status: number, error: string, description: string) => Response.json({ error, error_description: description }, { status, headers: { "cache-control": "no-store" } });
 const clientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown";
 const newId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 20);
@@ -171,7 +172,7 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   const jwksUri = typeof metadata.jwks_uri === "string" ? metadata.jwks_uri : "";
   const jwks = jwksUri ? await fetchJsonCapped(fetch, jwksUri) : ({ ok: false, why: "no jwks_uri" } as const);
   const check = checkIssuerMetadata({ issuer, source, metadata, jwks: jwks.ok ? jwks.json : null });
-  if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 7.1", outcome: "fail", message: `Your JWKS ${jwks.why}.` });
+  if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 4.4.1; RFC 7521 section 5.2", outcome: "fail", message: `Your JWKS ${jwks.why}: a receiver verifies the ID-JAG's signature with these keys.` });
   if (check.blocking.length > 0 || !jwks.ok) return registerForm(env.TURNSTILE_SITE_KEY, `Not registered: ${check.results.filter((r) => r.outcome === "fail").map((r) => r.message).join(" ")}`);
 
   // Reserve the registration (pending) and its abuse record first, in one transaction that checks every limit: two
@@ -225,32 +226,51 @@ async function createTrustRow(env: Env, origin: string, reg: store.Registration,
  * so the request the tester charges is the request the receiver authenticates. An Authorization header together with
  * client fields in the body is refused (RFC 6749 section 2.3: one method), whatever the header's scheme.
  */
-function requestClientId(request: Request, form: URLSearchParams): { clientId?: string; both: boolean } {
+function requestClient(request: Request, form: URLSearchParams): { clientId?: string; clientSecret?: string | undefined; both: boolean } {
   const authorization = request.headers.get("authorization");
   const inBody = form.has("client_id") || form.has("client_secret") || form.has("client_assertion");
   if (authorization) {
     if (inBody) return { both: true };
     try {
-      return { clientId: decodeBasicCredentials(authorization).clientId, both: false };
+      const c = decodeBasicCredentials(authorization);
+      return { clientId: c.clientId, clientSecret: c.clientSecret, both: false };
     } catch {
       return { both: false };
     }
   }
   const id = form.get("client_id");
-  return id ? { clientId: id, both: false } : { both: false };
+  return id ? { clientId: id, clientSecret: form.get("client_secret") ?? undefined, both: false } : { both: false };
 }
 
 /**
- * The receiver's token endpoint, with limits in front and the rule-by-rule report recorded after. Only a request the
- * receiver authenticated is counted or recorded: a client id is no secret (it is in every ID-JAG), so nobody else's
- * requests can use up a tester's budget or appear in their results.
+ * Whether the request carries the registration's client secret, compared in constant time (as SHA-256 digests). The
+ * tester checks it before anything is charged or fetched; the receiver then authenticates the client again itself.
+ */
+async function secretMatches(env: Env, reg: store.Registration, presented: string | undefined): Promise<boolean> {
+  if (!presented || !reg.clientSecretEnc) return false;
+  const stored = await open(env.BETTER_AUTH_SECRET, reg.clientSecretEnc);
+  if (stored === null) return false;
+  const digest = async (v: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)));
+  const [a, b] = await Promise.all([digest(presented), digest(stored)]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= (a[i] as number) ^ (b[i] as number);
+  return diff === 0;
+}
+
+/** The receiver's own key cache keeps keys this long (auth.ts, jwks.cacheTtlSeconds): the report's keys are no older. */
+const REPORT_KEYS_MAX_AGE_MS = 300_000;
+
+/**
+ * The receiver's token endpoint, with limits in front and the rule-by-rule report recorded after. Only a request with
+ * the registration's client secret is counted or recorded: a client id is no secret (it is in every ID-JAG), so nobody
+ * else's requests can use up a tester's budget or appear in their results.
  */
 async function token(request: Request, env: Env, origin: string, ctx: ExecutionContext): Promise<Response> {
   const body = await readBody(request);
   if (body === null) return oauthError(400, "invalid_request", "The request is too large.");
   const form = new URLSearchParams(body);
   if (form.get("grant_type") !== JWT_BEARER_GRANT) return oauthError(400, "unsupported_grant_type", `This tester only redeems ID-JAGs (grant_type ${JWT_BEARER_GRANT}).`);
-  const named = requestClientId(request, form);
+  const named = requestClient(request, form);
   if (named.both) return oauthError(400, "invalid_request", "Use one client authentication method, not two (RFC 6749 section 2.3).");
   const clientId = named.clientId;
   const now = Date.now();
@@ -264,13 +284,40 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
     store.bump("ratelimited.client");
     return oauthError(429, "slow_down", "At most 10 redemptions a minute per client.");
   }
+  // The client's secret, checked here first: a client id is no secret (it is in every ID-JAG), so a request without the
+  // secret is refused before it can use up an allowance, add a report or make the tester fetch keys. The receiver
+  // authenticates the client again; whatever it refuses as invalid_client gives the allowance back below.
+  if (!(await secretMatches(env, reg, named.clientSecret))) {
+    store.bump("token.auth_failed");
+    ctx.waitUntil(store.flushCounters(env.DB, Date.now()));
+    return oauthError(401, "invalid_client", "Client authentication failed.");
+  }
+  // Today's allowances, taken atomically, and given back if the request doesn't count (or fails on the way).
   const day = store.utcDayStart(now);
-  if ((await store.countChecks(env.DB, day, reg.id)) >= LIMITS.redemptionsPerRegistrationPerDay) return oauthError(429, "slow_down", `At most ${LIMITS.redemptionsPerRegistrationPerDay} redemptions a day per registration; more after 00:00 UTC.`);
-  if ((await store.countChecks(env.DB, day)) >= LIMITS.redemptionsPerDay) {
+  const allowance = { registration: `registration:${reg.id}:${day}`, everyone: `everyone:${day}` };
+  if (!(await store.takeAllowance(env.DB, allowance.registration, day, LIMITS.redemptionsPerRegistrationPerDay))) return oauthError(429, "slow_down", `At most ${LIMITS.redemptionsPerRegistrationPerDay} redemptions a day per registration; more after 00:00 UTC.`);
+  const everyone = await store.takeAllowance(env.DB, allowance.everyone, day, LIMITS.redemptionsPerDay).catch(async (e: unknown) => {
+    await store.giveBackAllowance(env.DB, allowance.registration);
+    throw e;
+  });
+  if (!everyone) {
+    await store.giveBackAllowance(env.DB, allowance.registration);
     store.bump("token.daily_budget");
     console.log(JSON.stringify({ event: "tester.budget_reached", day: new Date(day).toISOString().slice(0, 10) }));
     return oauthError(503, "temporarily_unavailable", "Today's redemptions are used up; more after 00:00 UTC.");
   }
+  const giveBack = () => Promise.all([store.giveBackAllowance(env.DB, allowance.registration), store.giveBackAllowance(env.DB, allowance.everyone)]);
+  try {
+    return await redeem(request, env, origin, ctx, { form, body, reg, clientId, now, giveBack });
+  } catch (e) {
+    await giveBack();
+    throw e;
+  }
+}
+
+/** The redemption itself, once the client's secret is checked and today's allowances are taken. */
+async function redeem(request: Request, env: Env, origin: string, ctx: ExecutionContext, r: { form: URLSearchParams; body: string; reg: store.Registration; clientId: string; now: number; giveBack: () => Promise<unknown> }): Promise<Response> {
+  const { form, body, reg, clientId, now, giveBack } = r;
 
   // The report: every rule, with the issuer's keys (refetched at most once a minute when the kid is new).
   const assertion = form.get("assertion") ?? "";
@@ -287,11 +334,24 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
       return undefined;
     }
   })();
-  if ((!isJwks(jwks) || (typeof kid === "string" && !jwks.keys.some((k) => k.kid === kid))) && now - reg.jwksFetchedAt > 60_000) {
+  // Refetched when the stored keys aren't a JWKS, don't name this kid, or were fetched longer ago than the receiver keeps
+  // its own (5 minutes: a key rotated under the same kid, or a token named by x5t). One request a minute claims the
+  // fetch, failed or not; jwksFetchedAt stays the last success, so a failure doesn't make old keys look fresh.
+  const stale = !isJwks(jwks) || (typeof kid === "string" && !jwks.keys.some((k) => k.kid === kid)) || now - reg.jwksFetchedAt > REPORT_KEYS_MAX_AGE_MS;
+  if (stale && (await store.claimJwksFetch(env.DB, reg.id, now))) {
     const fresh = await fetchJsonCapped(fetch, reg.jwksUri);
     if (fresh.ok && isJwks(fresh.json)) {
       jwks = fresh.json;
       await store.updateJwks(env.DB, reg.id, JSON.stringify(fresh.json), now);
+    }
+  } else if (stale) {
+    // Another request has this minute's fetch: use what it stored, if it has finished (the report is a diagnostic;
+    // the receiver, with its own key cache, decides).
+    const latest = await store.byId(env.DB, reg.id);
+    try {
+      if (latest) jwks = JSON.parse(latest.jwks);
+    } catch {
+      // keep the keys read before
     }
   }
   const report = await checkIdJag(assertion, {
@@ -313,6 +373,7 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   let response = await forward();
   let answer = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
   if (response.status === 401 || answer?.error === "invalid_client") {
+    await giveBack();
     store.bump("token.auth_failed");
     ctx.waitUntil(store.flushCounters(env.DB, Date.now()));
     return response;
@@ -392,12 +453,15 @@ async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<
   }
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });
   const raw = await readBody(request);
-  let rpc: { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string } } = {};
+  let parsed: unknown = {};
   try {
-    rpc = raw ? JSON.parse(raw) : {};
+    parsed = raw ? JSON.parse(raw) : {};
   } catch {
-    rpc = {};
+    parsed = {};
   }
+  // Valid JSON need not be an object (null, a number, a batch array): that is an invalid request, not a crash.
+  if (!isObject(parsed)) return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid request: not a JSON-RPC object" } }, { status: 400 });
+  const rpc = parsed as { id?: unknown; method?: string; params?: { protocolVersion?: string; name?: string } };
   const reply = (result: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id ?? null, result });
   const text = (value: unknown) => ({ content: [{ type: "text", text: JSON.stringify(value) }] });
   switch (rpc.method) {
@@ -531,7 +595,8 @@ async function admin(request: Request, env: Env, url: URL): Promise<Response> {
   const raw = await readBody(request);
   let body: { reason?: unknown; registrationId?: unknown; kinds?: unknown } = {};
   try {
-    body = raw ? JSON.parse(raw) : {};
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    body = isObject(parsed) ? parsed : {};
   } catch {
     body = {};
   }

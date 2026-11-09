@@ -1553,3 +1553,34 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   failed in a checkout such as `~/My Projects/`. It uses `fileURLToPath`.
 - **Evidence:** tests in `test/core/check.test.ts`, each failing with its fix taken out (two entries in
   test/mutations/core.json); `test/build-script.test.ts` fails if the build goes back to `URL.pathname`.
+
+## D-071: the public tester counts only authenticated requests, takes its allowances atomically, keeps no orphan report, and bounds its key fetches (2026-11-09)
+
+The public tester (`examples/workers/tester`):
+
+- **The client's secret first.** It counted and recorded any answer but a 401 or `invalid_client`, and a client id is
+  no secret. A request Better Auth refuses before the grant handler runs (a `resource` that isn't an absolute URI)
+  passed that test without credentials, so a stranger could use up a registration's allowance and add reports to its
+  results. The tester now checks the registration's client secret itself (it keeps it sealed for "Check an ID-JAG";
+  read as the receiver reads it, compared in constant time) before anything is charged or fetched; the receiver then
+  authenticates the client again, and an `invalid_client` from it gives the allowance back (`src/index.ts`).
+- **Allowances are taken atomically.** The daily limits counted the reports already written: concurrent requests at
+  the limit all passed, and deleting reports gave allowance back. A `testerAllowance` row per registration and per day
+  is now taken atomically once the secret is checked, and given back if the receiver refuses the client or the
+  redemption fails on the way. Migration 0004 seeds the rows from the reports already written, so deploying it doesn't
+  reset the day's usage.
+- **No report outlives its registration.** A redemption still running when its registration was deleted wrote its
+  report afterwards, and nothing removed it. The insert now requires the registration, and the purge deletes reports
+  whose registration is gone (`src/store.ts`).
+- **Key fetches are bounded and current.** A failed JWKS fetch didn't record the attempt, so an issuer that was down was
+  fetched on every request, and concurrent requests all fetched. One request a minute now claims the fetch with a
+  conditional update of a new `jwksAttemptAt` (migration 0004), whether the fetch then succeeds or not;
+  `jwksFetchedAt` stays the last success. The report's stored keys are also refetched once older than the receiver
+  keeps its own (5 minutes), so a key rotated under the same `kid`, or a token named by `x5t`, is checked with the
+  current keys, and a failed refresh doesn't make old keys count as fresh.
+- **A JSON-RPC body that isn't an object** (`null`, a number, an array) is an invalid request (-32600), not a server
+  error, at the tester's `/mcp` and the example MCP server; the admin endpoints treat it as an empty body.
+- **`jwks.fetch` cites draft -06 section 4.4.1 and RFC 7521 section 5.2** (a receiver verifies the signature with these
+  keys), as the id-jag-check Action does, rather than section 7.1.
+- **Evidence:** `test/examples/tester-worker.test.ts` (workerd, D1), a test for each, each failing with its fix taken
+  out.
