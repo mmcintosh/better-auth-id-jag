@@ -41,7 +41,7 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 
 ## Contents
 
-[Install](#install) · [Quick start](#quick-start) · [Issuer](#issuer-idjagissuer) · [Receiver](#receiver-idjaggrant) · [Database tables](#database-tables) · [Audit events](#audit-events) · [Errors](#errors) · [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#conformance) · [Interoperability](#interoperability) · [Example](#example-two-workers) · [Runtimes and databases](#runtimes-and-databases) · [Not yet](#not-yet) · [Security](#security) · [Development](#development)
+[Install](#install) · [Quick start](#quick-start) · [Issuer](#issuer-idjagissuer) · [Receiver](#receiver-idjaggrant) · [Checking an ID-JAG](#checking-an-id-jag-checkidjag) · [Database tables](#database-tables) · [Audit events](#audit-events) · [Errors](#errors) · [What ID-JAG controls](#what-id-jag-controls-and-what-your-mcp-server-still-must) · [Conformance](#conformance) · [Interoperability](#interoperability) · [Example](#example-two-workers) · [Runtimes and databases](#runtimes-and-databases) · [Not yet](#not-yet) · [Security](#security) · [Development](#development)
 
 ## Install
 
@@ -143,7 +143,7 @@ The `authorize` hook gets the user as the database has it now, the requesting cl
 
 | Field | |
 |---|---|
-| `scopes` | The most this policy allows. The ID-JAG gets these ∩ the requested ones (when any were requested). |
+| `scopes` | The most this policy allows, as scope tokens (RFC 6749 section 3.3: no spaces). The ID-JAG gets these ∩ the requested ones (when any were requested). A grant longer than the ID-JAG's `scope` claim holds (4096 characters, joined) is refused (`policy_denied`). |
 | `resource` | Only when the client sent none; otherwise it must equal the one it sent. |
 | `lifetimeSeconds` | At most 900. The shortest wins when several sources allow. |
 | `clientIdAtResource` | The client's id **at the resource authorization server**, which is usually not its id here. Default: its id here. |
@@ -180,11 +180,13 @@ await authClient.idJag.blocks.create({ block: { userId, clientId, audience, reas
 await authClient.idJag.blocks.createFromJti({ jti, reason });
 ```
 
+An audience can have at most 100 resource servers, and a resource server at most 1000 policies: past either bound, exchanges for it are refused (`policy_denied`) rather than decided on part of them.
+
 With both `authorize` and `registry`, both must allow. Without a `canManage` its routes aren't mounted, but the tables are still read: blocks are checked on every exchange whether or not `blocks.canManage` is set.
 
 ### Blocks
 
-A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an ID-JAG this issuer minted: from its `jti` row while that lasts (until a few minutes after the token expires), then from its `id-jag.issued` audit row, so blocking from a `jti` seen in the audit log needs `auditLog`. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
+A block (`idJagBlock`) refuses new ID-JAGs for a user, optionally narrowed to a client and an audience, until `expiresAt` or until it is deleted. `createFromJti` builds one from an ID-JAG this issuer minted: from its `jti` row while that lasts (until a few minutes after the token expires), then from its `id-jag.issued` audit row, so blocking from a `jti` seen in the audit log needs `auditLog`. The audit log keeps at most 300 characters of a value: when the ID-JAG's user, client or audience was longer, `createFromJti` from its audit row is refused (400), and the block is made with `userId`, `clientId` and `audience` instead. A block stops **issuance**: an ID-JAG already issued lives at most its lifetime (300 s by default), and an access token already issued by the receiver is the receiver's to revoke.
 
 **What stops an exchange:** a ban, a block, an ID token older than `maxIdTokenAgeSeconds` (an hour by default), an ID token whose session has ended (only for clients whose ID tokens carry `sid`: those with `enable_end_session` or a back-channel logout URI), and revoking the refresh token at `/oauth2/revoke`. Signing out alone doesn't stop an ID token without `sid` (it works until the age cap), nor an `offline_access` refresh token (revoke it, or block the user).
 
@@ -295,7 +297,7 @@ idJagGrant({
 });
 ```
 
-`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. A multi-tenant IdP's `sub` is unique only within its tenant, so **each tenant of one issuer needs its own `accountProviderId`**: two entries for one issuer with different tenants (or one with a tenant and one without) that share it are a startup error, and table rows that do are refused (`untrusted_issuer`) until each has its own `ssoProviderId`. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused.
+`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. A multi-tenant IdP's `sub` is unique only within its tenant, so **each tenant of one issuer needs its own `accountProviderId`**: two entries for one issuer with different tenants (or one with a tenant and one without) that share it are a startup error, and table rows that do are refused (`untrusted_issuer`) until each has its own `ssoProviderId`. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused. Up to 1000 `ssoProvider` rows and 1000 enabled `idJagTrustedIssuer` rows are read for one issuer, all of them before the tenant and namespace checks; with more, the issuer is refused (`untrusted_issuer`).
 
 **Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14). The whole Okta setup, with the console values and what each refusal means: [docs/okta.md](docs/okta.md).
 
@@ -303,9 +305,9 @@ idJagGrant({
 
 1. `resolveSubject`, if set, can link, reject, or continue.
 2. With `scim` on the trust entry (after the `sub_id` rules, when the entry has `samlSubjects`): the user that SCIM connection provisioned with `externalId` = `sub`, while active. If there's none, the grant is refused, and steps 3–5 don't run, unless `scim.required` is `false`. See [SCIM-provisioned users](#scim-provisioned-users).
-3. A linked account: `providerId` = `accountProviderId` (default `id-jag:<issuer>`), `accountId` = the ID-JAG's `sub`.
+3. A linked account: `providerId` = `accountProviderId` (default `id-jag:<issuer>`), `accountId` = the ID-JAG's `sub`, compared exactly. `sub` is case-sensitive (RFC 7519 section 4.1.2): on a database whose collation ignores case or accents (MySQL's default), the account linked for `jose` is never taken for `José`.
 4. Only if `emailFallback` lists the domain: a local user with that verified email, which is then linked. Only that exact address (Unicode-normalized, case ignored), even on a database whose collation ignores accents.
-5. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`.
+5. Only if `jitProvisioning` is on: a new user, from the `email` claim, marked verified only with `trustEmailVerified`, and linked. With `organizationId` and the organization plugin, they become a member with `jitRole`. If the membership can't be added or the account can't be linked, the new user is removed and the grant refused, so a retry can work.
 
 Otherwise the grant is refused (`unknown_subject`). A banned user (the admin plugin) is refused too.
 
@@ -357,6 +359,27 @@ trustedIssuers: [{
 }],
 ```
 
+## Checking an ID-JAG: `checkIdJag()`
+
+The receiver stops at the first refusal. `checkIdJag` runs every rule that can be checked from the ID-JAG itself, the issuer's keys and the time, and reports them all, so an IdP builder sees everything wrong at once. It doesn't see the receiver's own state: whether the `jti` was used before, how the client authenticated, whether `iss` is the receiver itself, or who the subject is there. So it is a report, not a gate: the receiver's decision is what counts. It is pure (no network, no clock of its own), so you pass the issuer's keys and the time. The [public tester](docs/test-your-idp.md) reports with it.
+
+```ts
+import { checkIdJag, checkIssuerMetadata } from "better-auth-id-jag";
+
+const { results } = await checkIdJag(token, {
+  issuer: "https://idp.example.com",            // iss must equal it exactly
+  audience: "https://mcp.example.com/api/auth", // this receiver's issuer identifier
+  resource: "https://mcp.example.com/mcp",
+  grantableScopes: ["read", "write"],
+  clientId: undefined,                          // the client that authenticated, when known
+  jwks,                                         // the issuer's JWKS, or null: the signature rule is then skipped
+  now: Math.floor(Date.now() / 1000),
+});
+for (const r of results) if (r.outcome === "fail") console.log(r.id, r.level, r.cite, r.message);
+```
+
+Each result has an `id` (such as `claim.client_id` or `signature`), a `level` (`MUST`, `SHOULD`, `RECOMMENDED`, `OPTIONAL`, or `POLICY` for this receiver's own choices, which the draft allows), its source (`cite`: a section of draft -06 or an RFC), an `outcome` (`pass`, `fail`, `warn`, `info` or `skip`) and a message. `checkIssuerMetadata({ issuer, source, metadata, jwks })` checks an IdP's metadata and keys the same way; its `blocking` lists the rules that would stop a receiver from using them. Given arguments of the types they declare, neither throws, whatever the token, metadata or keys contain. A rule's id, level and source are part of the API; its message wording isn't ([docs/versioning.md](docs/versioning.md)).
+
 ## Database tables
 
 | Table | Side | When |
@@ -397,7 +420,7 @@ betterAuth({ advanced: { backgroundTasks: { handler: waitUntil } } /* … */ });
 Refusals are standard RFC 6749 / RFC 8693 error responses (`invalid_request`, `invalid_client`, `invalid_grant`, `unauthorized_client`, `invalid_scope`, `invalid_target`, `access_denied`, and `server_error` with HTTP 500), plus RFC 9470's `insufficient_user_authentication` for a step-up, with the codes draft -06 profiles, so the client knows what to do next:
 
 - **Issuer:** a subject token that failed validation (expired, malformed, issued to another client, revoked) is `invalid_request`: get a new one. More than one `audience`, an `authorization_details` parameter, or a DPoP proof (the issuer doesn't mint DPoP-bound ID-JAGs), is `invalid_request`. An audience with no resource server, or a resource it doesn't govern, is `invalid_target`. A valid subject token whose user or client isn't allowed (a policy deny, a block, a banned or deleted user, including behind a SAML Assertion) is `access_denied`: a new token won't help. Your `authorize` hook throwing, or the SAML verifier failing, is HTTP 500 `server_error`: try again later.
-- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. So is a SAML `sub_id` the trust entry can't use (draft -06 §3.2.2), and a client outside a trust entry's `allowedClientIds` (deliberately: `access_denied` there would tell the caller the issuer is trusted). A valid ID-JAG whose subject isn't allowed here (unknown, rejected by your `resolveSubject`, banned) is `access_denied`. A failure on our side (a concurrent first use, a database error, your `resolveSubject` throwing, a JIT organization membership that can't be added) stays `invalid_grant`, since a retry may help.
+- **Receiver:** an ID-JAG that failed a check (issuer, signature, `aud`, `client_id`, times, a replay, a resource that isn't ours) is `invalid_grant`: get a new one. So is a SAML `sub_id` the trust entry can't use (draft -06 §3.2.2), and a client outside a trust entry's `allowedClientIds` (deliberately: `access_denied` there would tell the caller the issuer is trusted). A valid ID-JAG whose subject isn't allowed here (unknown, rejected by your `resolveSubject`, banned) is `access_denied`. A failure on our side (a concurrent first use, a database error, your `resolveSubject` throwing, a JIT organization membership or account link that can't be made) stays `invalid_grant`, since a retry may help.
 
 The `error_description` names the problem only when the caller sent it: a missing parameter, a malformed JWT, a wrong `typ`, an expired assertion. Every other refusal gets the generic description for its code, so an agent can't tell an unknown user from a denied policy, or one trust failure from another. The specific reason (`untrusted_issuer`, `bad_signature`, `wrong_audience`, `client_mismatch`, `replay`, `unknown_subject`, `policy_denied`, `blocked`, …) is in the `onRefused` event and the audit table. The full list is `REASONS` in [src/core/errors.ts](src/core/errors.ts).
 
