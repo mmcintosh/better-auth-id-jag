@@ -246,6 +246,9 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
       metadata: typeof client.metadata === "string" ? safeJson(client.metadata) : (client.metadata as Record<string, unknown> | undefined),
     };
     const grant = await decide(options, state.directory, { ctx, user, client: policyClient, audience, resource, requestedScopes, subjectToken: subject });
+    // The ID-JAG's scope claim holds at most 4096 characters (the receiver's schema): a longer grant, from any policy
+    // source, is refused here rather than failing as an empty server error when the ID-JAG is built.
+    if (grant.scopes.join(" ").length > MAX_SCOPE_LENGTH) refuse("policy_denied", `the granted scopes are longer than ${MAX_SCOPE_LENGTH} characters`);
 
     // 5. Mint. buildIdJag checks the claims against the receiver's schema and the 900 s cap (S7).
     const jti = newJti();

@@ -2,9 +2,11 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: a checkout path with a space ("My Projects") stays a path, not "My%20Projects".
+const root = fileURLToPath(new URL("..", import.meta.url));
 rmSync(`${root}dist`, { recursive: true, force: true });
 await build({
   absWorkingDir: root,

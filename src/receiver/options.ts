@@ -407,6 +407,12 @@ export function resolveReceiverOptions(options: IdJagGrantOptions = {}): Resolve
     minRefetchMs: (options.jwks?.minRefetchIntervalSeconds ?? 60) * 1000,
     maxStaleMs: (options.jwks?.maxStaleSeconds ?? 3600) * 1000,
   };
+  // Keys are usable for cacheTtl + maxStale after a fetch, and refetched at most once per minRefetchInterval. A shorter
+  // life than the interval leaves no keys between refetches: redemptions would fail while the issuer is healthy.
+  if (settings.cacheTtlMs + settings.maxStaleMs < settings.minRefetchMs)
+    throw new Error(
+      `id-jag receiver: jwks.cacheTtlSeconds + jwks.maxStaleSeconds (${(settings.cacheTtlMs + settings.maxStaleMs) / 1000}) is less than jwks.minRefetchIntervalSeconds (${settings.minRefetchMs / 1000}): between refetches there would be no keys. Raise one of the first two, or lower the interval.`,
+    );
   const clock = options.clock ?? (() => new Date());
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
   return {

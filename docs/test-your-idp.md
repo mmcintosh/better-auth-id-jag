@@ -50,7 +50,7 @@ present but malformed, say) lists both.
 | `metadata.jwks_uri` | POLICY | draft -06 section 7.1 | `jwks_uri` is an https URL (blocks) |
 | `metadata.token_types` | SHOULD | draft -06 section 7.1 | `identity_chaining_requested_token_types_supported` lists the ID-JAG token type |
 | `metadata.signing_algs` | MUST, if present | draft -06 section 7.1 | `id_jag_signing_alg_values_supported`, if present, includes RS256 |
-| `jwks.fetch` | MUST | draft -06 section 7.1 | Your JWKS can be fetched (blocks) |
+| `jwks.fetch` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | Your JWKS can be fetched: a receiver verifies the ID-JAG's signature with these keys (blocks) |
 | `jwks.keys` | MUST | RFC 7517 section 5 | It is a JSON object with a non-empty `keys` array (blocks) |
 | `jwks.no_private` | MUST | RFC 7517 section 9.2 | No private or symmetric key material is published (blocks) |
 | `jwks.usable` | MUST | draft -06 section 3 | At least one RSA, EC or OKP key (blocks) |

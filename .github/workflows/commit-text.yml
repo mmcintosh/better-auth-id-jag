@@ -1,6 +1,5 @@
-# Fails a pull request, or a push to main, when any commit, its author or committer, or the PR's title or description
-# credits an AI: a Co-authored-by line naming one, a "Generated with/by" line, an AI tool's link, or a commit made by
-# an AI account. A required check on main (ruleset protect-main). The same check as github.com/mmcintosh/id-jag-check.
+# Checks the text of a pull request, or of a push to main: every commit's message, author and committer, and the PR's
+# title and description, against the patterns below. A required check on main (ruleset protect-main).
 name: Commit text
 on:
   push: { branches: [main] }
@@ -24,9 +23,9 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          ai='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok'
-          text_pattern="co-authored-by:.*($ai)|generated (with|by) \[?($ai)|noreply@anthropic\.com|claude\.(ai|com)/code|chatgpt\.com|copilot-swe-agent"
-          people_pattern="($ai)"
+          names='claude|anthropic|copilot|openai|chatgpt|codex|gemini|bard|cursor|codeium|windsurf|devin|aider|tabnine|codewhisperer|amazon ?q|sweep|mutable\.ai|grok|greptile|coderabbit|qodo|sourcery|ellipsis'
+          text_pattern="co-authored-by:.*($names)|generated (with|by) \[?($names)|noreply@anthropic\.com|claude\.(ai|com)/code|chatgpt\.com|copilot-swe-agent"
+          people_pattern="($names)"
           # Each commit as: message, then "author: name <email>" and "committer: name <email>" lines.
           jq_commit='"\(.commit.message)\nauthor: \(.commit.author.name) <\(.commit.author.email)> \(.author.login // "")\ncommitter: \(.commit.committer.name) <\(.commit.committer.email)> \(.committer.login // "")"'
           if [ "$EVENT" = pull_request ]; then
@@ -38,6 +37,6 @@ jobs:
             text=$(gh api "repos/$REPO/commits/$AFTER" --jq "$jq_commit")
           fi
           bad=0
-          if hits=$(printf '%s\n' "$text" | grep -inE "$text_pattern"); then echo "::error::AI attribution in the text:"; printf '%s\n' "$hits"; bad=1; fi
-          if hits=$(printf '%s\n' "$text" | grep -iE '^(author|committer): ' | grep -iE "$people_pattern"); then echo "::error::A commit by an AI account:"; printf '%s\n' "$hits"; bad=1; fi
+          if hits=$(printf '%s\n' "$text" | grep -inE "$text_pattern"); then echo "::error::Commit text not accepted:"; printf '%s\n' "$hits"; bad=1; fi
+          if hits=$(printf '%s\n' "$text" | grep -iE '^(author|committer): ' | grep -iE "$people_pattern"); then echo "::error::Commit author or committer not accepted:"; printf '%s\n' "$hits"; bad=1; fi
           [ "$bad" = 0 ] && echo "OK." || exit 1

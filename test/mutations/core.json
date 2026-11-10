@@ -604,5 +604,32 @@
   "paths": [
    "test/core/errors.test.ts"
   ]
+ },
+ {
+  "name": "check: a certificate that isn't base64 throws out of the report",
+  "file": "src/core/check.ts",
+  "a": "    try {\n      der = cert ? Uint8Array.from(atob(cert), (c) => c.charCodeAt(0)) : undefined;\n    } catch {\n      der = undefined;\n    }",
+  "b": "    der = cert ? Uint8Array.from(atob(cert), (c) => c.charCodeAt(0)) : undefined;",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "check: show throws on a value nested too deeply",
+  "file": "src/core/check.ts",
+  "a": "    s = \"(a value too deeply nested to show)\";",
+  "b": "    s = String(v);",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "check: metadata that isn't a JSON object throws out of checkIssuerMetadata",
+  "file": "src/core/check.ts",
+  "a": "  const m: Record<string, unknown> = isObject(input.metadata) ? input.metadata : {};",
+  "b": "  const m = input.metadata as Record<string, unknown>;",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
  }
 ]
