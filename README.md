@@ -578,6 +578,6 @@ MIT © Mark McIntosh
 
 ## Related
 
-- [id-jag-check](https://github.com/mmcintosh/id-jag-check): a GitHub Action for your IdP's CI that checks the ID-JAGs it issues, rule by rule, with this package's `checkIdJag` and `checkIssuerMetadata`.
+- [id-jag-check](https://github.com/mmcintosh/id-jag-check): a GitHub Action for your IdP's CI that checks the ID-JAGs it issues, rule by rule, with this package's `checkIdJag` and `checkIssuerMetadata`. On the [GitHub Marketplace](https://github.com/marketplace/actions/id-jag-check).
 - [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp): your Better Auth server as a SAML 2.0 identity provider.
 - [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning): provision users to the apps they sign in to, over SCIM 2.0, Google Workspace, Microsoft Entra ID and webhooks.
