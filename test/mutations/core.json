@@ -622,5 +622,14 @@
   "paths": [
    "test/core/check.test.ts"
   ]
+ },
+ {
+  "name": "check: metadata that isn't a JSON object throws out of checkIssuerMetadata",
+  "file": "src/core/check.ts",
+  "a": "  const m: Record<string, unknown> = isObject(input.metadata) ? input.metadata : {};",
+  "b": "  const m = input.metadata as Record<string, unknown>;",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
  }
 ]
