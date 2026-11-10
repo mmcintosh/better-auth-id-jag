@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-10
+
+The receiver compares the account key exactly: on a case- or accent-insensitive database, an ID-JAG's sub could match another subject's account.
+
 ### Security
 
 - **The receiver compares the account key exactly** (D-068): on a database whose collation ignores case or accents
