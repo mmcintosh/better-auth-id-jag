@@ -297,7 +297,7 @@ idJagGrant({
 });
 ```
 
-`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. A multi-tenant IdP's `sub` is unique only within its tenant, so **each tenant of one issuer needs its own `accountProviderId`**: two entries for one issuer with different tenants (or one with a tenant and one without) that share it are a startup error, and table rows that do are refused (`untrusted_issuer`) until each has its own `ssoProviderId`. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused. Up to 1000 `ssoProvider` rows and 1000 `idJagTrustedIssuer` rows are read for one issuer, all of them before the tenant and namespace checks; with more, the issuer is refused (`untrusted_issuer`).
+`issuer` and `tenant` (for multi-tenant IdPs) together identify an entry; listing one twice is a startup error. A multi-tenant IdP's `sub` is unique only within its tenant, so **each tenant of one issuer needs its own `accountProviderId`**: two entries for one issuer with different tenants (or one with a tenant and one without) that share it are a startup error, and table rows that do are refused (`untrusted_issuer`) until each has its own `ssoProviderId`. `jwksUri` and `discoveryUri` must be https; a discovery document's `issuer` must equal `issuer` exactly, and it must have a `jwks_uri`. An ID-JAG whose `iss` is this server itself is refused. Up to 1000 `ssoProvider` rows and 1000 enabled `idJagTrustedIssuer` rows are read for one issuer, all of them before the tenant and namespace checks; with more, the issuer is refused (`untrusted_issuer`).
 
 **Okta:** Cross App Access ID-JAGs come from the org authorization server, so `iss` is `https://<org>.okta.com`, not a custom authorization server such as `/oauth2/default`, and its keys are at `https://<org>.okta.com/oauth2/v1/keys`. For discovery, use the org's `/.well-known/openid-configuration`: its `/.well-known/oauth-authorization-server` has no `jwks_uri` (checked 2026-10-14). The whole Okta setup, with the console values and what each refusal means: [docs/okta.md](docs/okta.md).
 
@@ -361,7 +361,7 @@ trustedIssuers: [{
 
 ## Checking an ID-JAG: `checkIdJag()`
 
-The receiver stops at the first refusal. `checkIdJag` runs every rule an ID-JAG is held to and reports them all, so an IdP builder sees everything wrong at once. It is a report, not a gate: the receiver's decision is what counts. It is pure (no network, no clock of its own), so you pass the issuer's keys and the time. The [public tester](docs/test-your-idp.md) reports with it.
+The receiver stops at the first refusal. `checkIdJag` runs every rule that can be checked from the ID-JAG itself, the issuer's keys and the time, and reports them all, so an IdP builder sees everything wrong at once. It doesn't see the receiver's own state: whether the `jti` was used before, how the client authenticated, whether `iss` is the receiver itself, or who the subject is there. So it is a report, not a gate: the receiver's decision is what counts. It is pure (no network, no clock of its own), so you pass the issuer's keys and the time. The [public tester](docs/test-your-idp.md) reports with it.
 
 ```ts
 import { checkIdJag, checkIssuerMetadata } from "better-auth-id-jag";
@@ -378,7 +378,7 @@ const { results } = await checkIdJag(token, {
 for (const r of results) if (r.outcome === "fail") console.log(r.id, r.level, r.cite, r.message);
 ```
 
-Each result has an `id` (such as `claim.client_id` or `signature`), a `level` (`MUST`, `SHOULD`, `RECOMMENDED`, `OPTIONAL`, or `POLICY` for this receiver's own choices, which the draft allows), its source (`cite`: a section of draft -06 or an RFC), an `outcome` (`pass`, `fail`, `warn`, `info` or `skip`) and a message. `checkIssuerMetadata({ issuer, source, metadata, jwks })` checks an IdP's metadata and keys the same way; its `blocking` lists the rules that would stop a receiver from using them. Neither throws, whatever it is given. A rule's id, level and source are part of the API; its message wording isn't ([docs/versioning.md](docs/versioning.md)).
+Each result has an `id` (such as `claim.client_id` or `signature`), a `level` (`MUST`, `SHOULD`, `RECOMMENDED`, `OPTIONAL`, or `POLICY` for this receiver's own choices, which the draft allows), its source (`cite`: a section of draft -06 or an RFC), an `outcome` (`pass`, `fail`, `warn`, `info` or `skip`) and a message. `checkIssuerMetadata({ issuer, source, metadata, jwks })` checks an IdP's metadata and keys the same way; its `blocking` lists the rules that would stop a receiver from using them. Given arguments of the types they declare, neither throws, whatever the token, metadata or keys contain. A rule's id, level and source are part of the API; its message wording isn't ([docs/versioning.md](docs/versioning.md)).
 
 ## Database tables
 
