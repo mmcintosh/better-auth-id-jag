@@ -361,7 +361,7 @@ trustedIssuers: [{
 
 ## Checking an ID-JAG: `checkIdJag()`
 
-The receiver stops at the first refusal. `checkIdJag` runs every rule that can be checked from the ID-JAG itself, the issuer's keys and the time, and reports them all, so an IdP builder sees everything wrong at once. It doesn't see the receiver's own state: whether the `jti` was used before, how the client authenticated, whether `iss` is the receiver itself, or who the subject is there. So it is a report, not a gate: the receiver's decision is what counts. It is pure (no network, no clock of its own), so you pass the issuer's keys and the time. The [public tester](docs/test-your-idp.md) reports with it.
+The receiver stops at the first refusal. `checkIdJag` runs every rule that can be checked from the ID-JAG itself, the issuer's keys and the time, and reports them all, so an IdP builder sees everything wrong at once. It doesn't see the receiver's own state: whether the `jti` was used before, how the client authenticated, whether `iss` is the receiver itself, or who the subject is there. So it is a report, not a gate: the receiver's decision is what counts. It is pure (no network, no clock of its own), so you pass the issuer's keys and the time. The [public tester](docs/test-your-idp.md) reports with it, and so does [id-jag-check](https://github.com/mmcintosh/id-jag-check), a GitHub Action that runs these rules in your IdP's CI.
 
 ```ts
 import { checkIdJag, checkIssuerMetadata } from "better-auth-id-jag";
@@ -578,5 +578,6 @@ MIT © Mark McIntosh
 
 ## Related
 
+- [id-jag-check](https://github.com/mmcintosh/id-jag-check): a GitHub Action for your IdP's CI that checks the ID-JAGs it issues, rule by rule, with this package's `checkIdJag` and `checkIssuerMetadata`.
 - [better-auth-saml-idp](https://github.com/mmcintosh/better-auth-saml-idp): your Better Auth server as a SAML 2.0 identity provider.
 - [better-auth-scim-provisioning](https://github.com/mmcintosh/better-auth-scim-provisioning): provision users to the apps they sign in to, over SCIM 2.0, Google Workspace, Microsoft Entra ID and webhooks.
