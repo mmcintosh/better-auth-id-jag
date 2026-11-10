@@ -230,7 +230,8 @@ export interface MetadataCheckInput {
   issuer: string;
   /** Which well-known location answered: RFC 8414's, or OpenID Connect Discovery's (the fallback). */
   source: "oauth-authorization-server" | "openid-configuration";
-  metadata: Record<string, unknown>;
+  /** The metadata document as fetched: anything that isn't a JSON object fails metadata.issuer (and blocks). */
+  metadata: unknown;
   jwks: unknown;
 }
 
@@ -238,10 +239,13 @@ export interface MetadataCheckInput {
 export function checkIssuerMetadata(input: MetadataCheckInput): { results: RuleResult[]; blocking: string[] } {
   const results: RuleResult[] = [];
   const add = (id: string, level: RuleLevel, cite: string, outcome: RuleOutcome, message: string) => results.push({ id, level, cite, outcome, message });
-  const m = input.metadata;
+  // Metadata as fetched can be any JSON (null, an array, a string): read as an empty document, so every rule still
+  // reports, and metadata.issuer says why it fails.
+  const metadataIsObject = isObject(input.metadata);
+  const m: Record<string, unknown> = isObject(input.metadata) ? input.metadata : {};
 
   add("metadata.location", "SHOULD", `${D("7.1")}; RFC 8414 section 3`, input.source === "oauth-authorization-server" ? "pass" : "warn", input.source === "oauth-authorization-server" ? "Found at RFC 8414's location." : "Found only at OpenID Connect Discovery's location: allowed as a fallback (MAY), but RFC 8414's is what receivers SHOULD use.");
-  add("metadata.issuer", "MUST", "RFC 8414 section 3.3", m.issuer === input.issuer ? "pass" : "fail", m.issuer === input.issuer ? "The metadata's issuer is exactly the issuer you entered." : `The metadata's issuer must be exactly ${show(input.issuer)}; it is ${show(m.issuer)}.`);
+  add("metadata.issuer", "MUST", "RFC 8414 section 3.3", m.issuer === input.issuer ? "pass" : "fail", m.issuer === input.issuer ? "The metadata's issuer is exactly the issuer you entered." : metadataIsObject ? `The metadata's issuer must be exactly ${show(input.issuer)}; it is ${show(m.issuer)}.` : `The metadata must be a JSON object with an issuer of exactly ${show(input.issuer)}; it is ${show(input.metadata)}.`);
   const jwksUri = m.jwks_uri;
   add("metadata.jwks_uri", "POLICY", D("7.1"), typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "pass" : "fail", typeof jwksUri === "string" && jwksUri.startsWith("https://") ? "jwks_uri is an https URL." : `jwks_uri must be an https URL; it is ${show(jwksUri)}.`);
   const chaining = m[ISSUER_METADATA_FIELD];

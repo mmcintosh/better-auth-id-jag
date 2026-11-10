@@ -25,6 +25,8 @@
   instead of throwing.
 - **The checker's messages name the receiver, not the tester** (D-070).
 - **`pnpm build` works in a checkout whose path has a space** (D-070).
+- **`checkIssuerMetadata` returns a report for metadata that isn't a JSON object** (D-070), such as `null`, instead
+  of throwing; `metadata.issuer` fails and blocks. Its `metadata` input is now typed `unknown`, like `jwks`.
 
 ## [0.7.0] - 2026-11-09
 

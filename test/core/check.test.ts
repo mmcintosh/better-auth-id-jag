@@ -143,6 +143,16 @@ describe("checkIssuerMetadata", () => {
     expect(r.results.filter((x) => x.outcome === "fail")).toEqual([]);
   });
 
+  it("metadata that isn't a JSON object (null, an array, a string, a number) gives a report that blocks, never a throw", () => {
+    for (const metadata of [null, undefined, [meta], "metadata", 42]) {
+      const r = checkIssuerMetadata({ issuer: ISSUER, source: "oauth-authorization-server", metadata, jwks });
+      expect(r.blocking, JSON.stringify(metadata)).toContain("metadata.issuer");
+      expect(r.results.find((x) => x.id === "metadata.issuer")?.message).toMatch(/must be a JSON object/);
+      // The keys are still checked.
+      expect(r.results.find((x) => x.id === "jwks.keys")?.outcome).toBe("pass");
+    }
+  });
+
   it("an issuer mismatch, private key material, or an empty JWKS blocks the registration", () => {
     expect(checkIssuerMetadata({ issuer: ISSUER, source: "oauth-authorization-server", metadata: { ...meta, issuer: `${ISSUER}/` }, jwks }).blocking).toContain("metadata.issuer");
     expect(checkIssuerMetadata({ issuer: ISSUER, source: "oauth-authorization-server", metadata: meta, jwks: { keys: [{ ...jwks.keys[0], d: "secret" }] } }).blocking).toContain("jwks.no_private");

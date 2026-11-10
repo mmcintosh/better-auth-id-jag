@@ -1551,7 +1551,11 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   lookup depends on the receiver's configuration: a receiver with `samlSubjects` looks users up by `sub_id`.
 - **The build.** `scripts/build.mjs` took its root from `URL.pathname`, which leaves a space as `%20`, so `pnpm build`
   failed in a checkout such as `~/My Projects/`. It uses `fileURLToPath`.
-- **Evidence:** tests in `test/core/check.test.ts`, each failing with its fix taken out (two entries in
+- **Metadata that isn't a JSON object.** `checkIssuerMetadata` read `metadata.issuer` without checking that the
+  metadata was an object, so `null` (valid JSON, as a fetch can return) threw. It is now read as an empty document:
+  every rule still reports, and `metadata.issuer` fails, saying the metadata must be a JSON object, which blocks a
+  registration. The input is typed `unknown`, like `jwks`, so a caller can pass a fetched body as it is.
+- **Evidence:** tests in `test/core/check.test.ts`, each failing with its fix taken out (three entries in
   test/mutations/core.json); `test/build-script.test.ts` fails if the build goes back to `URL.pathname`.
 
 ## D-071: the public tester counts only authenticated requests, takes its allowances atomically, keeps no orphan report, and bounds its key fetches (2026-11-09)
