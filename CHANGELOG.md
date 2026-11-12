@@ -11,6 +11,12 @@
   what it doesn't check (the IdP's side of the exchange); a test keeps that list and the code in step.
 - **The accepted algorithms name `Ed25519` too** (RFC 9864's name for EdDSA with Ed25519, which the receiver already accepts)
   in `docs/test-your-idp.md` and `docs/security.md`, as the README and the code already did.
+- **Interoperability: Cloudflare's workers-oauth-provider.** The issuer's ID-JAGs were run by hand against its
+  experimental ID-JAG receiver (1.2.4). Locally: RS256 accepted, ES256 when the receiver lists it in `algorithms`,
+  EdDSA refused, and by default a lifetime over 360 seconds refused. With the receiver deployed: the ES256 flow, replay
+  and another client refused, and new signing keys accepted. `docs/interop.md` has the results and how the two
+  receivers differ. The README says where the package, the public tester and id-jag-check are listed on oauth.net's
+  Cross-App Access page as of 2026-11-12.
 
 ### Changed
 

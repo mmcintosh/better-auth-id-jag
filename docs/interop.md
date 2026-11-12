@@ -7,8 +7,9 @@ This page lists which other ID-JAG implementations our issuer (`idJagIssuer()`) 
 - **differs, because …**: the flow works, but the other side behaves differently in a way you should know;
 - **not possible, because …**: there's nothing to test against yet, with the reason and links.
 
-Nothing here is claimed from reading docs alone. Where a row says "verified", the test is in
-`test/interop/`, and the commands to run it are below.
+Nothing here is claimed from reading docs alone. Where a row says "verified", either the test is in
+`test/interop/` and the commands to run it are below, or the row says it was run live or by hand and its section
+says how.
 
 Most dated rows were run against releases that implemented draft -04. Draft -06 (0.6.0) changes no claim or URN.
 It changes some OAuth error codes (`access_denied`, `invalid_request`, `invalid_target` where `invalid_grant` was), adds
@@ -28,6 +29,7 @@ the two Claude Code rows are new on 0.6.0; the PingFederate and Oracle rows pred
 | Our issuer | Authelia receiver | **Not possible yet**, because no Authelia release or nightly includes ID-JAG support (see below). |
 | Authelia issuer | Our receiver | **Not possible yet**, for the same reason. |
 | Our issuer | node-oauth2-server receiver | **Verified** 2026-10-06 against the unreleased pull request [node-oauth/node-oauth2-server#462](https://github.com/node-oauth/node-oauth2-server/pull/462) at commit `0b7844f83f552d3acf50e13aca27f03c214fd825`. ES256 and RS256 accepted. **Differs:** EdDSA is refused (see below). |
+| Our issuer | Cloudflare workers-oauth-provider receiver (`enterpriseManagedAuthorization`, experimental) | **Verified** 2026-11-12, by hand, against **1.2.4 from npm**, with this repository at `3dcae55` (0.7.1's `src/`): locally, and with the receiver deployed (on `workers.dev` and on a custom domain) for the ES256 flow and key changes. The example IdP's ID-JAG → Cloudflare's access token → its protected resource; replay and another client refused. RS256 and ES256 accepted. **Differs:** ES256 must be listed in the receiver's `algorithms` (its default is RS256 only), EdDSA is refused, by default an ID-JAG that lives over 360 s is refused, and its replay check is best effort across Cloudflare locations, by its own documentation (see below). |
 | Microsoft Entra ID (issuer) | Our receiver | **Not possible yet**, because Entra doesn't issue ID-JAGs: its [release notes](https://learn.microsoft.com/en-us/entra/fundamentals/whats-new) don't mention them (checked 2026-10-10). `scripts/entra-watch.mjs` checks them weekly and fails at the first mention. Entra's on-behalf-of flow also uses the jwt-bearer grant but isn't ID-JAG: our receiver refuses its tokens (`typ`). |
 | Our receiver | Keycloak issuer | **Not possible**, because Keycloak doesn't issue ID-JAGs. Its guide lists the issuer side as "Not Yet Implemented". |
 | SAML IdP: better-auth-saml-idp (assertion exchange) → our issuer → our receiver | (both SAML paths) | **Verified** 2026-10-06 against **better-auth-saml-idp 1.2.0 from npm** (and before that its `feat/assertion-exchange` at `2d54cb4`), with this repository's main: every check passes (`test/interop/saml-idp-e2e`). |
@@ -411,6 +413,115 @@ All 5 passed:
 - **`aud` must equal `tokenEndpointUri` exactly.** The option's name notwithstanding, its comment says that value is
   the issuer identifier.
 - **The PR targets draft -03.** Its claim checks are the ones -06 still requires.
+
+## Our issuer → Cloudflare workers-oauth-provider
+
+[workers-oauth-provider](https://github.com/cloudflare/workers-oauth-provider) is Cloudflare's OAuth 2.1 provider
+library for Workers. Its documentation for 1.2.4
+([Enterprise-managed authorization](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/docs/advanced-configuration.md#enterprise-managed-authorization),
+read 2026-11-12) says its token endpoint "accepts a validated ID-JAG assertion using the JWT bearer grant and returns
+an opaque, resource-bound access token". The same page marks the `enterpriseManagedAuthorization` option experimental
+and "exempt from 1.x semver: they may change in a minor release". So these results are for 1.2.4.
+
+The runs were by hand; they aren't part of `test/interop/`. The issuer was `examples/workers/enterprise-idp` from this
+repository at `3dcae55`, where the package's `src/` is the same as in the 0.7.1 release, with Better Auth 1.7.18. Its
+configuration named the receiver as the audience. For the algorithm and lifetime cases, the run changed one line of
+the example's `auth.ts` and added one, to set its `jwt()` key algorithm and `idJagIssuer`'s `defaultLifetimeSeconds`.
+The receiver was a Worker using `OAuthProvider` from @cloudflare/workers-oauth-provider 1.2.4 (npm), trusting one
+issuer, our IdP, with `algorithms: ["ES256"]` in every case that doesn't name another value. It had a confidential
+client registered with `client_secret_basic`, whose id the IdP put in the ID-JAG's `client_id`, and a `mapClaims` that
+passed `sub`, `email` and `act` to the resource handler. The client steps ran on Node 24.12.0.
+
+They ran two ways. Locally, both Workers ran in `wrangler dev` (wrangler 4.158.0). The receiver trusts an issuer and a
+JWKS URL only if they use `https:`, with no exception for localhost
+([`isWellFormedTrustedIssuer`](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/src/ema/validators.ts)),
+so each Worker ran with `--local-upstream <host name> --upstream-protocol https`, which gives it an `https://` origin,
+and the receiver Worker replaced `fetch` so that its requests to the IdP's `https://` origin went to the IdP's local
+port over plain HTTP. The receiver's checks ran unchanged on what came back; TLS and Cloudflare's cache were not part
+of the local runs. Deployed, only the receiver ran on Cloudflare, once on `workers.dev` and once on a custom domain,
+with `fetch` left as it is (a wrapper only logged each JWKS response's status and headers). The IdP still ran in
+`wrangler dev` on the test machine, reachable over `https:` through a Cloudflare quick tunnel (`cloudflared`). The
+deployed runs covered the ES256 flow as the AI agent, replay, another client and key changes; every other case ran
+locally.
+
+### Result (2026-11-12, workers-oauth-provider 1.2.4)
+
+Every refusal in this table reached the client as `invalid_grant` "Invalid assertion". The reason in the table is the
+one the receiver passed to its `onError` hook. A case ran locally unless it says deployed.
+
+| Case | Cloudflare's answer |
+|---|---|
+| ES256 ID-JAG, AI agent (`act`), `read write`; local and deployed | Access token (opaque, 3600 s, its default; no refresh token) with `read write`; `sub`, `email` and `act` reach the resource handler |
+| ES256 ID-JAG, an app, a user the IdP grants `read` | Access token with `read`, no `act` |
+| RS256 ID-JAG, receiver `algorithms` unset or `["RS256"]` | Access token |
+| The same ID-JAG again, re-sent at once from the same place; local and deployed | Refused: `replayed` |
+| A fresh ID-JAG presented by another client registered at the receiver; local and deployed | Refused: `client_id_mismatch` |
+| ES256 ID-JAG, receiver `algorithms` unset | Refused: `invalid_alg` |
+| EdDSA ID-JAG, receiver `algorithms` `["RS256", "ES256"]` or `["EdDSA"]` | Refused: `invalid_alg` |
+| ID-JAG lifetime 300, 301 and 360 s | Access token |
+| ID-JAG lifetime 361 and 600 s | Refused: `lifetime_too_long` |
+| The IdP's signing key replaced, then an ID-JAG with the new key, within 30 s of the receiver's last JWKS fetch | Refused: `no_matching_key` |
+| The same, more than 30 s after that fetch | The receiver fetched the JWKS again; access token |
+| The IdP's signing key replaced, then an ID-JAG with the new key; deployed, seven times (two on `workers.dev`, five on the custom domain) | Access token each time, within seconds of the change; every JWKS fetch the receiver logged reached the IdP (see the JWKS paragraphs below for why) |
+
+### Where workers-oauth-provider differs
+
+A trusted issuer's `algorithms` defaults to `["RS256"]`, and the receiver supports RS256 and ES256 only
+(`EMA_DEFAULT_JWT_ALGORITHM` and `EMA_SUPPORTED_JWT_ALGORITHMS` in
+[`src/ema/constants.ts`](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/src/ema/constants.ts)). So
+for an issuer that signs ES256, as our example does, the receiver must list `"ES256"`; RS256 works with the default.
+EdDSA, the default of Better Auth's `jwt()`, can't be used with this receiver, as with node-oauth2-server. Our receiver
+accepts RS256, ES256 and EdDSA, by either name `EdDSA` or `Ed25519` (`ALLOWED_ALGORITHMS` in
+[`src/core/urns.ts`](../src/core/urns.ts)).
+
+It refuses an ID-JAG whose `exp` minus `iat` is more than its maximum lifetime plus its clock skew, 300 s and 60 s by
+default (`EMA_DEFAULT_MAX_ASSERTION_LIFETIME_SECONDS` and `EMA_DEFAULT_CLOCK_SKEW_SECONDS` in `src/ema/constants.ts`;
+the check is in `src/ema/validators.ts`), unless the receiver sets `maxAssertionLifetimeSeconds` or
+`clockSkewSeconds`. Our issuer's ID-JAGs live 300 s by default and up to 900 s if configured
+(`DEFAULT_LIFETIME_SECONDS` and `MAX_LIFETIME_SECONDS` in [`src/core/urns.ts`](../src/core/urns.ts)), so above 360 s
+this receiver needs its limit raised.
+
+Its documentation says its replay check is best effort: "The default replay marker uses KV and is best effort across
+Cloudflare locations because KV is eventually consistent." The replay case in the table was a re-send at once from
+the same place. Ours inserts a hash that includes the issuer and `jti` under a unique database key, and a duplicate is
+a replay, on a database that enforces unique keys ([`src/core/replay.ts`](../src/core/replay.ts), index
+`id_jag_jti_key_unique`; the same file names the adapter that doesn't).
+
+Both receivers cache an issuer's JWKS in memory, one cache per instance, and fetch it again when an ID-JAG names a
+`kid` they don't have, but not straight after a fetch. workers-oauth-provider caches for 5 minutes by default
+(`jwksCacheTtlSeconds`), one cache per `OAuthProvider` instance (`createDefaultJwksProvider` in
+[`src/ema/jwks.ts`](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/src/ema/jwks.ts)), and doesn't
+fetch again within 30 s of its last fetch, a fixed value (`EMA_JWKS_FORCE_REFRESH_COOLDOWN_SECONDS` in
+`src/ema/constants.ts`, used in `src/ema/jwks.ts`; the refetch is in `verifyAssertionSignature`,
+[`src/oauth-provider.ts`](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/src/oauth-provider.ts)).
+Ours caches for 10 minutes and doesn't fetch again within 60 s, both by default and both settable
+(`jwks.cacheTtlSeconds` and `jwks.minRefetchIntervalSeconds` in [`src/receiver/options.ts`](../src/receiver/options.ts);
+the rule is in [`src/receiver/jwks.ts`](../src/receiver/jwks.ts)). So with either receiver, an ID-JAG signed with a
+new key is refused if it reaches an instance that fetched the JWKS within that interval, as in the local rows. In the
+deployed runs the receiver's JWKS fetches came 8 to 9 s apart at times, which one instance doesn't do, so requests
+were reaching different instances, and each new key was accepted. Those runs were from one location over about 10
+minutes; which instance a request reaches isn't up to the client.
+
+Its JWKS request also asks Cloudflare's cache to store the response (`cf: { cacheEverything: true }` in
+`src/ema/jwks.ts`), and Better Auth's JWKS response has no `Cache-Control` header (the `jwt()` plugin's `/jwks`
+handler returns the keys with `ctx.json` and sets none). In the deployed runs, on `workers.dev` and on a custom domain
+with that zone's cache settings, the IdP received every JWKS fetch the receiver logged, so that cache didn't answer in
+their place.
+
+For most failed validation checks it answers `invalid_grant` "Invalid assertion" and gives the reason only to its
+`onError` hook; a resource problem is `invalid_target`, a refusal by the deployer's `mapClaims` has its own
+description, and a missing assertion or a malformed `scope` is `invalid_request` (`emaErrorToWire` in
+[`src/ema/result.ts`](https://github.com/cloudflare/workers-oauth-provider/blob/v1.2.4/src/ema/result.ts)). Ours names
+the defect when it is in the assertion as sent, for example "The assertion's signature algorithm is not accepted." or
+"The assertion's lifetime is too long.", and answers "The grant is invalid." for trust and binding failures: an
+untrusted issuer, a bad signature, another client, a replay. The reason code goes to the audit event (`REASONS` in
+[`src/core/errors.ts`](../src/core/errors.ts)).
+
+Like ours (`assertHttps` in [`src/receiver/jwks.ts`](../src/receiver/jwks.ts)), it needs `https:` for the issuer and
+the JWKS URL, even when testing locally, as described above.
+
+These weren't run: `OAuthAuthorizationServer` with `OAuthResourceServer` (the runs used `OAuthProvider`), and public
+clients (`allowPublicClients`).
 
 ## MCPJam → our receiver
 
