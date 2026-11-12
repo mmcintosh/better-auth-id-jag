@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
+  builders to the tester, and the section to the id-jag-check Action for their CI; "Examples" covers its three
+  Workers; Interoperability has VS Code 1.145.0 through to `tools/call` and both Claude Code rows.
+  `docs/test-your-idp.md` gives the tester's address, lists every rule it reports with its level and source, and says
+  what it doesn't check (the IdP's side of the exchange); a test keeps that list and the code in step.
+
 ## [0.7.1] - 2026-11-10
 
 The receiver compares the account key exactly: on a case- or accent-insensitive database, an ID-JAG's sub could match another subject's account.
