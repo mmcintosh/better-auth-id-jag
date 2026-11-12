@@ -9,6 +9,13 @@
   Workers; Interoperability has VS Code 1.145.0 through to `tools/call` and both Claude Code rows.
   `docs/test-your-idp.md` gives the tester's address, lists every rule it reports with its level and source, and says
   what it doesn't check (the IdP's side of the exchange); a test keeps that list and the code in step.
+- **The accepted algorithms name `Ed25519` too** (RFC 9864's name for EdDSA with Ed25519, which the receiver already accepts)
+  in `docs/test-your-idp.md` and `docs/security.md`, as the README and the code already did.
+
+### Changed
+
+- **The public tester's report lists `jwks.fetch` when it passes**, not only when it fails, first among the JWKS rules,
+  so a registration's report shows every rule the tester checked.
 
 ## [0.7.1] - 2026-11-10
 

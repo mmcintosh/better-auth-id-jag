@@ -62,7 +62,7 @@ present but malformed, say) lists both.
 |---|---|---|---|
 | `jwt.structure` | MUST | RFC 7519 section 7.2 | A compact JWT with a JSON header and claims; nothing else is checked without it |
 | `header.typ` | MUST | draft -06 sections 4.4.1, 3.1; RFC 7515 section 4.1.9 | `typ` is `oauth-id-jag+jwt` (any case, `application/` optional) |
-| `header.alg` | POLICY | draft -06 sections 3, 4.4.1 | An algorithm this receiver accepts: RS256, ES256, EdDSA (never `none` or HS*); notes that RS256 is the one every IdP and receiver must implement |
+| `header.alg` | POLICY | draft -06 sections 3, 4.4.1 | An algorithm this receiver accepts: RS256, ES256, EdDSA or Ed25519 (RFC 9864's name for EdDSA with Ed25519), never `none` or HS*; notes that RS256 is the one every IdP and receiver must implement |
 | `header.kid` | POLICY; MUST for a thumbprint's form | RFC 7515 sections 4.1.4, 4.1.7, 4.1.8 | The header names the key: a `kid`, or else an `x5t` / `x5t#S256` of the right form |
 | `header.crit` | MUST | RFC 7515 section 4.1.11 | No `crit` (this receiver understands no critical parameters) |
 | `signature` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | The signature verifies with a key from your JWKS, chosen as the receiver chooses it (signing keys only, by `kid`, else by thumbprint) |
