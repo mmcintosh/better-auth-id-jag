@@ -23,6 +23,8 @@ person ─sign in─▶ IdP ─ID token─▶ agent ─token exchange─▶ IdP 
 
 > **Unofficial community plugin.** This project isn't affiliated with or endorsed by Better Auth. Status: **0.x, before 1.0**. It implements [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/) (exported as `SUPPORTED_DRAFT`). [What is and isn't implemented](#conformance). Verified live against **Okta Cross App Access** and Okta's **xaa.dev** testers (OIDC and SAML), with the MCP clients **VS Code** and **Claude Code**, against **Keycloak 26.8** and node-oauth2-server in an interop suite that runs weekly in CI with Docker, and end to end with **better-auth-saml-idp 1.2.0** for SAML ([what exactly](#interoperability)). Building an ID-JAG issuer? [Test it against this receiver](#test-your-idp). Every design decision and its evidence is in [DECISIONS.md](DECISIONS.md); every change is in the [CHANGELOG](CHANGELOG.md).
 
+As of 2026-11-12, listed on oauth.net's [Cross-App Access page](https://oauth.net/cross-app-access/): this package under SDKs and Libraries, and the [public tester](#test-your-idp) and [id-jag-check](https://github.com/marketplace/actions/id-jag-check) under Test Tools.
+
 ## Features
 
 - **Both roles in one package**: `idJagIssuer()` turns a Better Auth IdP (on `@better-auth/oauth-provider`) into an ID-JAG issuer over RFC 8693 token exchange; `idJagGrant()` lets an MCP server's authorization server (on `mcp()` or `oauthProvider()`) redeem them over the RFC 7523 jwt-bearer grant. Use either alone with any other implementation of the draft.
@@ -512,6 +514,7 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | Issuer | Our receiver | ✅ Verified, in every CI run, on Node and in workerd |
 | Issuer | Keycloak 26.8.0 (`identity-assertion-jwt`, experimental) | ✅ Verified; ES256, RS256 and EdDSA. Keycloak ignores `scope` and `resource` |
 | Issuer | node-oauth2-server ([PR #462](https://github.com/node-oauth/node-oauth2-server/pull/462), unreleased) | ✅ Verified; ES256 and RS256 (no EdDSA there) |
+| Issuer | Cloudflare [workers-oauth-provider](https://github.com/cloudflare/workers-oauth-provider) 1.2.4 (`enterpriseManagedAuthorization`, experimental) | ✅ Verified by hand, locally, and with the receiver deployed on `workers.dev` and on a custom domain for the ES256 flow and key changes; RS256, and ES256 when the receiver lists it in `algorithms` (its default is RS256 only); no EdDSA there. By default it refuses an ID-JAG that lives over 360 s (our issuer's default: 300 s) |
 | **Okta Cross App Access** | Receiver on Workers + D1 | ✅ **Verified live**, RS256, with Okta's `act` carried into the access token; refresh-token subjects; Okta's connection, assignment and deactivation controls; our replay and `client_id` checks. Setup: [docs/okta.md](docs/okta.md) |
 | **xaa.dev** (Okta's playground), OIDC and SAML | Receiver on Workers + D1 | ✅ **Verified live** with its resource-app tester through to an MCP `tools/call`; SAML users resolved by NameID (`sub_id`) |
 | **MCPJam** (its Cross App Access debugger), OIDC and SAML | Receiver | ✅ Verified weekly: the whole flow to an MCP `initialize`, and each of its ten attacks refused with the matching reason |
@@ -526,9 +529,9 @@ Against [draft-ietf-oauth-identity-assertion-authz-grant-06](https://datatracker
 | Issuer / receiver | Authelia | ⏳ Not possible yet: no release ships ID-JAG (checked 2026-11-07: v4.39.28, the latest) |
 | Receiver | Keycloak as issuer | ⏳ Not possible: Keycloak doesn't issue ID-JAGs |
 
-Each row's date, version, commands and the ways the other side differs are in [docs/interop.md](docs/interop.md). Nothing there is claimed from reading docs alone.
+Each row's date, version, how it was run (with the commands, for the tests in `test/interop/`) and the ways the other side differs are in [docs/interop.md](docs/interop.md). Nothing there is claimed from reading docs alone.
 
-**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server, among others, refuses it. Setting `keyPairConfig.alg` makes the choice yours either way. Draft -06 makes RS256 the one algorithm every receiver must accept, so for a receiver you know nothing about, RS256 is the safe choice.
+**Sign with ES256 or RS256** unless every receiver you target accepts EdDSA: Better Auth's `jwt()` defaults to EdDSA (1.7, and still in the 1.8 betas), and node-oauth2-server and Cloudflare's workers-oauth-provider, among others, refuse it. Setting `keyPairConfig.alg` makes the choice yours either way. Draft -06 makes RS256 the one algorithm every receiver must accept, so for a receiver you know nothing about, RS256 is the safe choice.
 
 ## Test your IdP
 
