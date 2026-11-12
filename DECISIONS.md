@@ -1588,3 +1588,17 @@ The public tester (`examples/workers/tester`):
   keys), as the id-jag-check Action does, rather than section 7.1.
 - **Evidence:** `test/examples/tester-worker.test.ts` (workerd, D1), a test for each, each failing with its fix taken
   out.
+
+## D-072: a development `fast-xml-parser` override, as D-051 (2026-11-11)
+
+GHSA-474x-hrwr-fgx4 (low, published 2026-11-10): `fast-xml-parser` up to 5.11.2 spends quadratic CPU on a stop-node
+body with many unterminated tags, and only with the non-default `stopNodes` option. Fixed in 5.12.0. The path is
+`@better-auth/sso` (a development dependency here, `^5.8.0`) → `fast-xml-parser` 5.11.2. This package ships none of
+it, and `@better-auth/sso` 1.7.18 builds both of its `XMLParser`s without `stopNodes`, so the advisory can't be
+reached here either. Dependabot's security update for it failed.
+
+The fix is the D-051 kind: `fast-xml-parser@<5.12.0 → ^5.12.0`. `pnpm update fast-xml-parser` was tried first; as with
+D-051's `fast-uri`, it also moved `rolldown`, so it wasn't used. The lockfile now has `fast-xml-parser` 5.12.0 with its
+own dependencies `strnum` 2.5.1 and `is-unsafe` 2.0.3, and nothing else changes; `pnpm audit` is clean at every level.
+`@better-auth/sso`'s `^5.8.0` already allows 5.12.0, so the override can go at any later lockfile refresh that
+keeps 5.12.0 or newer.
