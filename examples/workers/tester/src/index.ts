@@ -9,7 +9,7 @@
 // /delete answer. Limits are in LIMITS.
 import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/core/oauth2";
 import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose";
-import { checkExchange, checkIdJag, checkIssuerMetadata, ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, JWT_BEARER_GRANT, type RuleResult, TOKEN_EXCHANGE_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
+import { checkExchange, checkIdJag, checkIssuerMetadata, ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, JWT_BEARER_GRANT, REFRESH_TOKEN_TOKEN_TYPE, type RuleResult, TOKEN_EXCHANGE_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl, postFormCapped } from "./guard";
@@ -648,11 +648,12 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
     verifierEnc: await seal(env.BETTER_AUTH_SECRET, verifier),
     nonce,
     probes: form.get("probes") === "1" ? 1 : 0,
+    refresh: form.get("refresh") === "1" ? 1 : 0,
     createdAt: now,
     expiresAt: now + LIMITS.runMinutes * 60_000,
   });
   const to = authorize.url;
-  for (const [k, v] of Object.entries({ response_type: "code", client_id: idpClientId, redirect_uri: `${origin}/flow/callback`, scope: "openid", state, nonce, code_challenge: b64url(await sha256(verifier)), code_challenge_method: "S256" })) to.searchParams.set(k, v);
+  for (const [k, v] of Object.entries({ response_type: "code", client_id: idpClientId, redirect_uri: `${origin}/flow/callback`, scope: form.get("refresh") === "1" ? "openid offline_access" : "openid", state, nonce, code_challenge: b64url(await sha256(verifier)), code_challenge_method: "S256" })) to.searchParams.set(k, v);
   console.log(JSON.stringify({ event: "tester.flow_started", id: reg.id }));
   // A page with a link, not a redirect: the pages' Content-Security-Policy allows forms to post only to this site, and
   // browsers apply that to where a form's answer redirects.
@@ -733,6 +734,21 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
       }
       const answer = await postFormCapped(fetch, flow.tokenEndpoint, probeForm, probe.anonymous ? userAgent : { ...userAgent, ...idpClientAuth(flow, secret, probeForm) });
       probed.push(gradeProbe(probe, answer.ok ? { ok: true, status: answer.status, json: answer.json } : answer));
+    }
+  }
+  // A refresh token as the subject, if asked for (section 4.3: IdPs MUST accept ID tokens and MAY accept refresh
+  // tokens), reported as supported or not. The refresh token is never stored.
+  if (flow.refresh === 1) {
+    const r = (outcome: RuleResult["outcome"], message: string): RuleResult => ({ id: "exchange.refresh_subject", level: "OPTIONAL", cite: "draft -06 sections 4.3, 4.3.2", outcome, message });
+    const refreshToken = typeof signedIn.refresh_token === "string" && signedIn.refresh_token ? signedIn.refresh_token : null;
+    if (!refreshToken) probed.push(r("info", "The sign-in (with offline_access) gave no refresh token, so none was tried as the subject."));
+    else {
+      const refreshForm = new URLSearchParams({ grant_type: TOKEN_EXCHANGE_GRANT, requested_token_type: ID_JAG_TOKEN_TYPE, audience: `${origin}/api/auth`, resource, scope: flow.scope, subject_token: refreshToken, subject_token_type: REFRESH_TOKEN_TOKEN_TYPE });
+      const answer = await postFormCapped(fetch, flow.tokenEndpoint, refreshForm, { ...userAgent, ...idpClientAuth(flow, secret, refreshForm) });
+      const body = answer.ok && isObject(answer.json) ? answer.json : {};
+      if (!answer.ok) probed.push(r("skip", `Not graded: your IdP's token endpoint ${answer.why}.`));
+      else if (answer.status === 200 && typeof body.access_token === "string") probed.push(r("info", "Supported: your IdP issued an ID-JAG for a refresh token as the subject."));
+      else probed.push(r("info", `Not supported: refused${typeof body.error === "string" ? ` with ${JSON.stringify(body.error.slice(0, 64))}` : ` (HTTP ${answer.status})`}. Allowed: an IdP MAY accept refresh tokens as the subject.`));
     }
   }
   const before = [...report.results, ...probed];

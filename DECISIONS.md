@@ -1751,3 +1751,19 @@ at a time after the good exchange and before the redemption; each request carrie
   probe passes), one that accepts anything (every probe fails), one that always answers `invalid_grant` (the four
   named codes fail, the three profiled ones warn); the probes only when asked for; the ID-JAG probe skipped when the
   IdP issued none. 8 more entries in `test/mutations/tester.json`, all caught.
+
+## D-077: a refresh token as the subject, in the tester's run (2026-11-13)
+
+Draft -06 section 4.3 (`subject_token`): implementations MUST accept identity assertions and MAY accept refresh
+tokens, so an IdP builder may want to know whether theirs does; section 4.3.2 is the example.
+
+- **Opt-in, a second checkbox in the run's form.** The sign-in then asks for `openid offline_access`. If the IdP gave
+  a refresh token, one more token exchange sends it as the subject (`subject_token_type`
+  `urn:ietf:params:oauth:token-type:refresh_token`), with the run's audience, resource and scope, after the probes.
+- **Reported as information only:** `exchange.refresh_subject`, OPTIONAL: "Supported" when the IdP issues an
+  ID-JAG for it, "Not supported" with the IdP's error when it refuses, and a note when the sign-in gave no refresh
+  token. The ID-JAG it may issue isn't checked or redeemed: the good exchange's ID-JAG is. The refresh token is
+  never stored or shown.
+- **Evidence:** `test/examples/tester-flow.test.ts`: supported (the third exchange carries the refresh token type,
+  and no refresh token is in the database), not supported (`unsupported_token_type` in the message), and not asked
+  for (no `offline_access`, no rule). 3 more entries in `test/mutations/tester.json`, all caught.

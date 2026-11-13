@@ -258,5 +258,35 @@
   "paths": [
    "test/examples/tester-flow.test.ts"
   ]
+ },
+ {
+  "name": "refresh: the sign-in doesn't ask for offline_access",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "scope: form.get(\"refresh\") === \"1\" ? \"openid offline_access\" : \"openid\"",
+  "b": "scope: \"openid\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: sent as an ID token",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "subject_token: refreshToken, subject_token_type: REFRESH_TOKEN_TOKEN_TYPE",
+  "b": "subject_token: refreshToken, subject_token_type: ID_TOKEN_TOKEN_TYPE",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: tried without being asked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (flow.refresh === 1) {",
+  "b": "if (true) {",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
  }
 ]

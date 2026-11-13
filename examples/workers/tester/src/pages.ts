@@ -69,6 +69,7 @@ const runForm = (origin: string, registrationId: string, clientId: string) => `<
 <p><label>How it authenticates at your token endpoint<br><select name="auth_method"><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
 <p><label>Scope to ask for<br><input type="text" name="scope" value="read" maxlength="256"></label></p>
 <p><label><input type="checkbox" name="probes" value="1"> Also send 7 deliberately wrong token exchanges, which your IdP must refuse (each with one thing wrong: no client authentication, two audiences, an untrusted audience, a foreign resource, and the wrong kind of subject token). They may appear in your IdP's security logs.</label></p>
+<p><label><input type="checkbox" name="refresh" value="1"> Also try a refresh token as the subject (the sign-in then asks for <code>offline_access</code>; the draft lets an IdP accept refresh tokens, and the report says whether yours does).</label></p>
 <p><button>Run</button></p>
 </form>`;
 

@@ -29,6 +29,9 @@
   wrong each (no client authentication, two audiences, an untrusted audience, a foreign resource, an access token, an
   ID-JAG or a mislabelled ID token as the subject token), each graded `probe.*` on the IdP's refusal and its error code
   (draft -06 sections 4.3.3, 4.3.4.3).
+- **A refresh token as the subject** (opt-in, D-077): the run's sign-in then asks for `offline_access`, and one more
+  exchange sends the refresh token as the subject; `exchange.refresh_subject` says whether the IdP supports it, as
+  information (draft -06 section 4.3: IdPs MAY accept refresh tokens).
 
 ### Documentation
 

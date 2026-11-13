@@ -71,14 +71,16 @@ export interface FlowRow {
   nonce: string;
   /** 1: send the refusal probes (src/probes.ts) too. */
   probes: number;
+  /** 1: the sign-in asks for offline_access, and a refresh token is tried as the subject too. */
+  refresh: number;
   createdAt: number;
   expiresAt: number;
 }
 
 export async function insertFlow(db: D1Database, f: FlowRow): Promise<void> {
   await db
-    .prepare(`insert into testerFlow (stateHash, registrationId, userId, tokenEndpoint, idpClientId, idpSecretEnc, authMethod, scope, verifierEnc, nonce, probes, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(f.stateHash, f.registrationId, f.userId, f.tokenEndpoint, f.idpClientId, f.idpSecretEnc, f.authMethod, f.scope, f.verifierEnc, f.nonce, f.probes, f.createdAt, f.expiresAt)
+    .prepare(`insert into testerFlow (stateHash, registrationId, userId, tokenEndpoint, idpClientId, idpSecretEnc, authMethod, scope, verifierEnc, nonce, probes, refresh, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(f.stateHash, f.registrationId, f.userId, f.tokenEndpoint, f.idpClientId, f.idpSecretEnc, f.authMethod, f.scope, f.verifierEnc, f.nonce, f.probes, f.refresh, f.createdAt, f.expiresAt)
     .run();
 }
 

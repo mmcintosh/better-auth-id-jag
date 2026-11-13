@@ -24,7 +24,7 @@ const IDP_SECRET = "idp secret+/:%";
 
 // good: an IdP that refuses what it must, with the draft's codes. lax: accepts any exchange. wrong-codes: refuses
 // what it must, always with invalid_grant.
-type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token";
+type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token" | "no-refresh-subject";
 
 describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   let env: Record<string, unknown> & { DB: Cloudflare.Env["DB"] };
@@ -40,7 +40,9 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     /** Each issuer's client at the tester, which its ID-JAGs name in client_id. */
     testerClientIds: new Map<string, string>(),
     /** Codes the "browser" brought back from sign-in: the PKCE challenge and nonce they were issued for. */
-    codes: new Map<string, { challenge: string; nonce: string; redirectUri: string }>(),
+    codes: new Map<string, { challenge: string; nonce: string; redirectUri: string; scope: string }>(),
+    /** Refresh tokens issued (for a sign-in with offline_access). */
+    refreshTokens: new Set<string>(),
     requests: [] as { grant: string | null; form: URLSearchParams; authorization: string | null; userAgent: string | null }[],
   };
 
@@ -72,7 +74,9 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       if (!issued || issued.challenge !== challenge || issued.redirectUri !== form.get("redirect_uri")) return Response.json({ error: "invalid_grant" }, { status: 400 });
       if (idp.mode === "no-id-token") return Response.json({ access_token: "at", token_type: "Bearer" }, { headers: { "cache-control": "no-store" } });
       const idToken = await sign({ iss: issuer, sub: "u1", aud: idp.mode === "other-audience" ? "another-client" : IDP_CLIENT, nonce: idp.mode === "wrong-nonce" ? "another" : issued.nonce, iat: now(), exp: now() + 300, email: "u1@idp.example.org" });
-      return Response.json({ access_token: "at", token_type: "Bearer", id_token: idToken }, { headers: { "cache-control": "no-store" } });
+      const refreshToken = issued.scope.split(" ").includes("offline_access") ? `rt-${crypto.randomUUID()}` : undefined;
+      if (refreshToken) idp.refreshTokens.add(refreshToken);
+      return Response.json({ access_token: "at", token_type: "Bearer", id_token: idToken, ...(refreshToken ? { refresh_token: refreshToken } : {}) }, { headers: { "cache-control": "no-store" } });
     }
     if (form.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange") {
       if (idp.mode === "refuse") return Response.json({ error: "access_denied", error_description: "not assigned" }, { status: 400, headers: { "cache-control": "no-store" } });
@@ -83,8 +87,11 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
         if (audiences.length !== 1) return refuse("invalid_request");
         if (audiences[0] !== `${ORIGIN}/api/auth`) return refuse("invalid_target");
         if (form.getAll("resource").some((r) => r !== `${ORIGIN}/mcp`)) return refuse("invalid_target");
-        if (form.get("subject_token_type") !== "urn:ietf:params:oauth:token-type:id_token") return refuse("invalid_request");
-        try {
+        if (form.get("subject_token_type") === "urn:ietf:params:oauth:token-type:refresh_token") {
+          if (idp.mode === "no-refresh-subject") return refuse("unsupported_token_type");
+          if (!idp.refreshTokens.has(form.get("subject_token") ?? "")) return refuse("invalid_request");
+        } else if (form.get("subject_token_type") !== "urn:ietf:params:oauth:token-type:id_token") return refuse("invalid_request");
+        else try {
           const { protectedHeader } = await jwtVerify(form.get("subject_token") ?? "", createLocalJWKSet(jwks as JSONWebKeySet), { issuer, audience: IDP_CLIENT });
           if (protectedHeader.typ !== undefined) return refuse("invalid_request");
         } catch {
@@ -143,7 +150,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     return { response, html, to: href ? new URL(href) : null };
   };
   const signInAtIdp = (to: URL, code = `code-${crypto.randomUUID()}`) => {
-    idp.codes.set(code, { challenge: to.searchParams.get("code_challenge") ?? "", nonce: to.searchParams.get("nonce") ?? "", redirectUri: to.searchParams.get("redirect_uri") ?? "" });
+    idp.codes.set(code, { challenge: to.searchParams.get("code_challenge") ?? "", nonce: to.searchParams.get("nonce") ?? "", redirectUri: to.searchParams.get("redirect_uri") ?? "", scope: to.searchParams.get("scope") ?? "" });
     return code;
   };
   const callback = (cookie: string, params: Record<string, string>) => call(`/flow/callback?${new URLSearchParams(params)}`, { cookie });
@@ -399,5 +406,29 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     if (!to) throw new Error("no link");
     await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
     expect(idp.requests).toHaveLength(2);
+  });
+
+  it("a refresh token as the subject, asked for: supported or not, as information; the refresh token never stored", async () => {
+    const run = async (login: string, mode: Mode, refresh = true) => {
+      const t = await registeredTester(login);
+      idp.mode = mode;
+      idp.requests.length = 0;
+      const { to } = await start(t, refresh ? { refresh: "1" } : {});
+      if (!to) throw new Error("no link");
+      expect(to.searchParams.get("scope")).toBe(refresh ? "openid offline_access" : "openid");
+      await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+      const check = await lastCheck(t.registrationId);
+      return { check, rule: (JSON.parse(check?.results ?? "[]") as { id: string; outcome: string; message: string }[]).find((r) => r.id === "exchange.refresh_subject") };
+    };
+    const yes = await run("refresher", "good");
+    expect(yes.rule).toMatchObject({ outcome: "info" });
+    expect(yes.rule?.message).toContain("Supported");
+    expect(idp.requests.map((r) => r.form.get("subject_token_type"))).toEqual([null, "urn:ietf:params:oauth:token-type:id_token", "urn:ietf:params:oauth:token-type:refresh_token"]);
+    expect(yes.check?.httpStatus).toBe(200);
+    for (const rt of idp.refreshTokens) expect(JSON.stringify(await rows(`select * from testerCheck`))).not.toContain(rt);
+    const no = await run("norefresh", "no-refresh-subject");
+    expect(no.rule?.message).toContain("Not supported");
+    expect(no.rule?.message).toContain("unsupported_token_type");
+    expect((await run("unasked2", "good", false)).rule).toBeUndefined();
   });
 });
