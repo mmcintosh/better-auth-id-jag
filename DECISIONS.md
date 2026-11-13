@@ -1648,3 +1648,36 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   package is left in the floor tree; the suite passes on it locally with the same counts as on 1.7.22.
 - **Evidence:** typecheck, lint, `docs:check`, `pack:check`; the suite in both projects; the SAML end-to-end project
   on 1.7.22, 19 passed; one `better-auth` and one `@better-auth/core` in the lockfile.
+
+## D-074: `checkExchange`, the rules for an IdP's token-exchange answer (2026-11-13)
+
+- **What:** `checkExchange({ status, contentType, cacheControl, body, requestedScope, requestedResources })` checks an
+  IdP's answer to the token exchange that asks for an ID-JAG (draft -06 section 4.3.4) the way `checkIdJag` checks
+  the ID-JAG: nine rules, `exchange.*`, each with its level and source. Pure, and never throws (as D-070). It returns
+  `idJag` (the answer's `access_token`) for `checkIdJag`, and for a refusal `error` (the OAuth error code and
+  description, RFC 6749 section 5.2), so a caller can tell a refusal from a broken answer.
+- **Exported** beside `checkIdJag`, so whoever runs an exchange against an IdP (a test client, a CI check) can check
+  the answer without the tester. A rule's id, level and source are part of the API (docs/versioning.md); these nine
+  are too.
+- **How the rules read the draft:**
+  - **A 200 with a JSON object, sent as `application/json`** (RFC 8693 section 2.2.1, RFC 6749 section 5.1), is
+    `exchange.status`. Any other status fails it, with the IdP's error if it sent one, and nothing else is checked.
+  - **`token_type` in any case:** RFC 6749 section 5.1 says the value is case-insensitive.
+  - **`scope` as a set of space-separated values.** When the answer has one, it must be the ID-JAG's `scope` claim:
+    both name the scopes granted (sections 4.3.3, 4.3.4). When it has none, the ID-JAG's scope must be the requested
+    one, since the answer's `scope` is REQUIRED when they differ.
+  - **`expires_in`** is RECOMMENDED: absent is a warn. Present, it must be a positive whole number. More than 5
+    seconds from the ID-JAG's `exp - iat` is a warn: the draft doesn't say they must be equal, and the two are
+    measured at different moments.
+  - **`refresh_token`** present is a warn (SHOULD NOT, section 4.3.4).
+  - **`Cache-Control: no-store`** is a MUST (RFC 6749 section 5.1). `Pragma: no-cache`, which RFC 6749 also asks for,
+    isn't checked: RFC 9111 section 5.4 deprecates `Pragma`.
+  - **Each resource exactly as sent** (section 4.3.3): every value in the ID-JAG's `resource` must be one the client
+    sent, character for character. A request with `resource` that succeeds without a `resource` claim fails, since an
+    IdP that grants none of them refuses with `invalid_target`. A request without `resource` is info: the IdP MAY
+    choose a default.
+- **Not here:** the rules for the requests an IdP must refuse (section 4.3.3), and docs/test-your-idp.md, which lists
+  the rules the tester reports; these nine aren't among them.
+- **Evidence:** `test/core/check.test.ts`, both projects (a correct answer passes every rule; each rule fails or warns
+  for its own reason; never throws). 15 entries in `test/mutations/core.json`, all caught. Typecheck, lint,
+  docs:check and pack:check pass; the suite has 1197 passed and 167 skipped.

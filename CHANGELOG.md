@@ -11,6 +11,15 @@
   which starts and answers its own SCIM routes with 501 (better-auth/better-auth#12413); its
   `acquireActiveSCIMUserLink` doesn't check, so the receiver now does.
 
+### Added
+
+- **`checkExchange`: the rules for an IdP's answer to a token exchange** (D-074). It checks the answer to a request
+  for an ID-JAG (draft -06 section 4.3.4) as `checkIdJag` checks the ID-JAG: nine `exchange.*` rules (a 200 with
+  JSON, `issued_token_type`, `token_type`, `access_token`, `scope`, `expires_in`, `refresh_token`,
+  `Cache-Control: no-store`, and each resource in the ID-JAG exactly as the client sent it), each with its level and
+  source. It returns the ID-JAG, for `checkIdJag`, and for a refusal the OAuth error. Pure, and never throws. Its
+  types are `ExchangeCheckInput` and `ExchangeReport`.
+
 ### Documentation
 
 - **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer

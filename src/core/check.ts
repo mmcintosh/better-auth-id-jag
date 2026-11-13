@@ -267,3 +267,117 @@ export function checkIssuerMetadata(input: MetadataCheckInput): { results: RuleR
   const blocking = results.filter((r) => r.outcome === "fail" && ["metadata.issuer", "metadata.jwks_uri", "jwks.keys", "jwks.no_private", "jwks.usable"].includes(r.id)).map((r) => r.id);
   return { results, blocking };
 }
+
+/** The IdP's answer to a token exchange for an ID-JAG, as the client received it (draft -06 section 4.3.4). */
+export interface ExchangeCheckInput {
+  /** The HTTP status. */
+  status: number;
+  /** The answer's Content-Type header, or null when it has none. */
+  contentType: string | null;
+  /** The answer's Cache-Control header, or null when it has none. */
+  cacheControl: string | null;
+  /** The body, parsed as JSON; undefined when it isn't JSON. */
+  body: unknown;
+  /** The scope the client sent, or undefined when it sent none. */
+  requestedScope: string | undefined;
+  /** The resource values the client sent, as sent (empty when it sent none). */
+  requestedResources: readonly string[];
+}
+
+export interface ExchangeReport {
+  results: RuleResult[];
+  /** The ID-JAG (the answer's access_token), for checkIdJag; null when the answer has none. */
+  idJag: string | null;
+  /** The IdP's OAuth error, when it refused (RFC 6749 section 5.2). */
+  error: { code: string; description: string | null } | null;
+}
+
+const scopeSet = (s: string) => new Set(s.split(" ").filter(Boolean));
+const sameScopes = (a: string, b: string) => {
+  const x = scopeSet(a);
+  const y = scopeSet(b);
+  return x.size === y.size && [...x].every((s) => y.has(s));
+};
+/** How far expires_in may be from the ID-JAG's exp - iat before the report says so (the two are measured apart). */
+const EXPIRES_IN_TOLERANCE_SECONDS = 5;
+
+/**
+ * Checks an IdP's answer to a token exchange for an ID-JAG: the answer's own rules. The ID-JAG in it is checked with
+ * checkIdJag. Pure; never throws.
+ */
+export function checkExchange(input: ExchangeCheckInput): ExchangeReport {
+  const results: RuleResult[] = [];
+  const add = (id: string, level: RuleLevel, cite: string, outcome: RuleOutcome, message: string) => results.push({ id, level, cite, outcome, message });
+  const body = isObject(input.body) ? input.body : null;
+  const statusCite = `${D("4.3.4")}; RFC 8693 section 2.2.1`;
+
+  if (input.status !== 200) {
+    const code = body && isNonEmptyString(body.error) ? body.error : null;
+    const description = body && typeof body.error_description === "string" ? body.error_description : null;
+    add("exchange.status", "MUST", statusCite, "fail", code ? `The IdP refused the exchange: HTTP ${input.status}, error ${show(code)}${description === null ? "" : ` (${show(description)})`}.` : `The IdP answered HTTP ${input.status} without an OAuth error response (RFC 6749 section 5.2).`);
+    return { results, idJag: null, error: code ? { code, description } : null };
+  }
+  if (!body) {
+    add("exchange.status", "MUST", statusCite, "fail", "HTTP 200, but the body isn't a JSON object.");
+    return { results, idJag: null, error: null };
+  }
+  const json = /^application\/json\s*(;|$)/i.test(input.contentType ?? "");
+  add("exchange.status", "MUST", `${statusCite}; RFC 6749 section 5.1`, json ? "pass" : "fail", json ? "HTTP 200 with a JSON object." : `HTTP 200 with a JSON object, but Content-Type is ${show(input.contentType)}: it must be application/json.`);
+
+  add("exchange.issued_token_type", "MUST", D("4.3.4"), body.issued_token_type === ID_JAG_TOKEN_TYPE ? "pass" : "fail", body.issued_token_type === ID_JAG_TOKEN_TYPE ? `issued_token_type is ${ID_JAG_TOKEN_TYPE}.` : `issued_token_type is REQUIRED: ${ID_JAG_TOKEN_TYPE}; it is ${show(body.issued_token_type)}.`);
+  // token_type is case-insensitive (RFC 6749 section 5.1).
+  const nA = typeof body.token_type === "string" && body.token_type.toLowerCase() === "n_a";
+  add("exchange.token_type", "MUST", `${D("4.3.4")}; RFC 8693 section 2.2.1`, nA ? "pass" : "fail", nA ? "token_type is N_A (an ID-JAG isn't an access token)." : `token_type is REQUIRED: N_A, because an ID-JAG isn't an access token; it is ${show(body.token_type)}.`);
+
+  const idJag = isNonEmptyString(body.access_token) ? body.access_token : null;
+  add("exchange.access_token", "MUST", D("4.3.4"), idJag ? "pass" : "fail", idJag ? "access_token holds the ID-JAG (its own rules are below)." : "access_token is REQUIRED: the ID-JAG, as a string.");
+
+  // The ID-JAG's claims, read without checking them (checkIdJag does), to compare with the answer.
+  const parts = idJag && idJag.length <= MAX_TOKEN_CHARS ? idJag.split(".") : [];
+  const claims = parts.length === 3 ? decodePart(parts[1] as string) : null;
+  const unreadable = "Not compared: the ID-JAG's claims couldn't be read.";
+
+  // scope: OPTIONAL when the granted scope is the requested one, REQUIRED otherwise; it describes the same grant as the
+  // ID-JAG's scope claim, which carries the granted values (section 4.3.3).
+  const scopeCite = `${D("4.3.4")}; RFC 6749 section 5.1`;
+  const issued = claims && typeof claims.scope === "string" ? claims.scope : undefined;
+  if (body.scope !== undefined && typeof body.scope !== "string") add("exchange.scope", "MUST", scopeCite, "fail", "scope must be one string of space-separated scopes.");
+  else if (!claims) add("exchange.scope", "MUST", scopeCite, "skip", unreadable);
+  else if (typeof body.scope === "string") {
+    if (issued === undefined) add("exchange.scope", "MUST", `${D("4.3.3")}; ${scopeCite}`, "fail", `The answer grants scope ${show(body.scope)}, but the ID-JAG has no scope claim: the IdP includes the granted values in it.`);
+    else add("exchange.scope", "MUST", scopeCite, sameScopes(body.scope, issued) ? "pass" : "fail", sameScopes(body.scope, issued) ? `scope ${show(body.scope)}, the same as the ID-JAG's.` : `The answer's scope ${show(body.scope)} isn't the ID-JAG's scope ${show(issued)}: both name the scopes granted.`);
+  } else {
+    const same = sameScopes(input.requestedScope ?? "", issued ?? "");
+    add("exchange.scope", "MUST", scopeCite, same ? "pass" : "fail", same ? "No scope in the answer, and the ID-JAG's scope is the one requested (scope is then OPTIONAL)." : `scope is REQUIRED in the answer when the granted scope differs from the requested one: requested ${show(input.requestedScope ?? "")}, granted ${show(issued ?? "")}.`);
+  }
+
+  const expiresIn = body.expires_in;
+  if (expiresIn === undefined) add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), "warn", "No expires_in: RECOMMENDED, the ID-JAG's lifetime in seconds.");
+  else if (typeof expiresIn !== "number" || !Number.isInteger(expiresIn) || expiresIn <= 0) add("exchange.expires_in", "RECOMMENDED", `${D("4.3.4")}; RFC 6749 section 5.1`, "fail", `expires_in must be a positive whole number of seconds; it is ${show(expiresIn)}.`);
+  else if (!claims || !isNumericDate(claims.exp) || !isNumericDate(claims.iat)) add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), "pass", `expires_in ${expiresIn} s (not compared: the ID-JAG's exp or iat couldn't be read).`);
+  else {
+    const life = claims.exp - claims.iat;
+    const close = Math.abs(expiresIn - life) <= EXPIRES_IN_TOLERANCE_SECONDS;
+    add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), close ? "pass" : "warn", close ? `expires_in ${expiresIn} s, the ID-JAG's lifetime.` : `expires_in ${expiresIn} s, but the ID-JAG's lifetime (exp - iat) is ${life} s.`);
+  }
+
+  add("exchange.refresh_token", "SHOULD", `${D("4.3.4")}; RFC 8693 section 2.2.1`, body.refresh_token === undefined ? "pass" : "warn", body.refresh_token === undefined ? "No refresh_token." : "The answer has a refresh_token: SHOULD NOT be used with an ID-JAG.");
+
+  const noStore = (input.cacheControl ?? "").split(",").some((d) => d.trim().toLowerCase() === "no-store");
+  add("exchange.no_store", "MUST", `${D("4.3.4")}; RFC 6749 section 5.1`, noStore ? "pass" : "fail", noStore ? "Cache-Control: no-store." : `An answer with a token MUST have Cache-Control: no-store; it has ${show(input.cacheControl)}.`);
+
+  // resource: each requested resource the IdP grants appears in the claim exactly as sent; granting none is refused
+  // (invalid_target), so an answer to a request with resource grants at least one.
+  const echoCite = D("4.3.3");
+  if (input.requestedResources.length === 0) add("exchange.resource_echo", "OPTIONAL", echoCite, "info", "No resource was requested: the IdP MAY choose a default one.");
+  else if (!claims) add("exchange.resource_echo", "MUST", echoCite, "skip", unreadable);
+  else {
+    const r = claims.resource;
+    const list = typeof r === "string" ? [r] : Array.isArray(r) ? r : null;
+    const notSent = (list ?? []).filter((x) => typeof x !== "string" || !input.requestedResources.includes(x));
+    if (!list || list.length === 0) add("exchange.resource_echo", "MUST", echoCite, "fail", `resource was requested (${input.requestedResources.map(show).join(", ")}) and the exchange succeeded, but the ID-JAG has no resource claim: the IdP includes each granted resource in it.`);
+    else add("exchange.resource_echo", "MUST", echoCite, notSent.length === 0 ? "pass" : "fail", notSent.length === 0 ? "Each resource in the ID-JAG is one the client sent, exactly as sent." : `Each granted resource must appear exactly as the client sent it (${input.requestedResources.map(show).join(", ")}); not as sent: ${notSent.map(show).join(", ")}.`);
+  }
+
+  return { results, idJag, error: null };
+}
