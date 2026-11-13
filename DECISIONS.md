@@ -1639,5 +1639,12 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   resource-server challenges and introspection, 401 instead of 500) and #12319 (1.7.19, plugin schema overrides)
   are Better Auth's own paths: `src/` calls none of `verifyAccessToken`, the resource-server helpers or
   introspection, and before this decision's tests the suite passed on 1.7.22 with the same counts as on 1.7.18.
+- **CI's floor rows:** `scripts/use-better-auth.sh` now runs `pnpm dedupe` after installing the row's version. With
+  the 1.7.22 lockfile, the 1.7.16 rows failed to load every file importing `@better-auth/mcp`: `mcp` and `cimd` 1.7.16
+  take `@better-auth/oauth-provider` as `^1.7.16`, pnpm kept the lockfile's 1.7.22 for them, and that imports
+  `INSECURE_REDIRECT_URI_MESSAGE`, which `@better-auth/core` has only from 1.7.20. `better-auth-saml-idp`'s
+  `better-auth` and `@better-auth/core` peers had stayed on the lockfile's version the same way (1.7.18 before this
+  pin), so the issuer's SAML tests ran a second, newer Better Auth on the floor rows. After the dedupe no 1.7.22
+  package is left in the floor tree; the suite passes on it locally with the same counts as on 1.7.22.
 - **Evidence:** typecheck, lint, `docs:check`, `pack:check`; the suite in both projects; the SAML end-to-end project
   on 1.7.22, 19 passed; one `better-auth` and one `@better-auth/core` in the lockfile.
