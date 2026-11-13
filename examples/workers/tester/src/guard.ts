@@ -1,5 +1,7 @@
-// The only outbound requests the tester makes are to a tester's own issuer: its metadata and its JWKS, and in a run
-// of the whole flow its token endpoint, named by that metadata. This keeps them to public https hosts, small answers,
+// The only outbound requests the tester makes are to the addresses a registered issuer names: its metadata and its
+// JWKS, and in a run of the whole flow the token endpoint its metadata names, which may be on another host. A
+// registration is proven (confirmed) only by an ID-JAG signed with the issuer's key, so until then these may be
+// someone else's; the refusal probes wait for a confirmed registration (index.ts). This keeps them to public https hosts, small answers,
 // a short timeout, and no redirects, so the tester can't be pointed at arbitrary places or made to download much.
 // (Workers can't reach private networks anyway; this is the rest.)
 

@@ -53,7 +53,7 @@ const checkForm = (registrationId: string) => `<form method="post" action="/chec
 
 /**
  * "Run the whole flow": the tester plays the client. The tester's IdP needs a client for it, which this form names;
- * its secret is kept only for the run (sealed, at most 10 minutes).
+ * its secret is kept only for the run (sealed; the run expires after 10 minutes and is deleted within 5 more).
  */
 const runForm = (origin: string, registrationId: string, clientId: string) => `<form method="post" action="/flow/start" class="box">
 <input type="hidden" name="registration" value="${esc(registrationId)}">
@@ -62,13 +62,13 @@ const runForm = (origin: string, registrationId: string, clientId: string) => `<
 <table><tr><td>Redirect URI</td><td>${copyable(`${origin}/flow/callback`)}</td></tr>
 <tr><td>Grants</td><td>the authorization code grant (scope <code>openid</code>, PKCE S256) and the token exchange</td></tr>
 <tr><td>ID-JAGs for</td><td>audience ${copyable(`${origin}/api/auth`)}<br>resource ${copyable(`${origin}/mcp`)}<br><code>client_id</code> in the ID-JAG: ${copyable(clientId)}</td></tr></table>
-<p class="muted">The tester asks your IdP for the ID-JAG with that audience and resource, and redeems it with this registration's client. Your IdP's tokens are never stored or shown.</p>
+<p class="muted">The tester asks your IdP for the ID-JAG with that audience and resource, and redeems it with this registration's client. Your IdP's ID token, access token and refresh token are never stored or shown.</p>
 </details>
 <p><label>Your IdP client's id<br><input type="text" name="client_id" required maxlength="256" autocomplete="off"></label></p>
 <p><label>Its secret (kept only for this run)<br><input type="password" name="client_secret" required maxlength="512" autocomplete="off"></label></p>
 <p><label>How it authenticates at your token endpoint<br><select name="auth_method"><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
 <p><label>Scope to ask for<br><input type="text" name="scope" value="read" maxlength="256"></label></p>
-<p><label><input type="checkbox" name="probes" value="1"> Also send 7 deliberately wrong token exchanges, which your IdP must refuse (each with one thing wrong: no client authentication, two audiences, an untrusted audience, a foreign resource, and the wrong kind of subject token). They may appear in your IdP's security logs.</label></p>
+<p><label><input type="checkbox" name="probes" value="1"> Also send 7 deliberately wrong token exchanges, which your IdP should refuse (each with one thing wrong: no client authentication, two audiences, an untrusted audience, a foreign resource, and the wrong kind of subject token). Sent only once your IdP has issued an ID-JAG for the correct request and the registration is confirmed. They may appear in your IdP's security logs.</label></p>
 <p><label><input type="checkbox" name="refresh" value="1"> Also try a refresh token as the subject (the sign-in then asks for <code>offline_access</code>; the draft lets an IdP accept refresh tokens, and the report says whether yours does).</label></p>
 <p><button>Run</button></p>
 </form>`;
@@ -183,7 +183,7 @@ ${
   v.checks.length
     ? v.checks
         .map((c) => {
-          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : c.error === "not_redeemed" ? '<span class="warn">not reached: the tester\'s limits for today kept the ID-JAG back</span>' : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
           const run = c.results.some((r) => r.id.startsWith("exchange.")) ? " &middot; whole flow" : "";
           const fails = c.results.filter((r) => r.outcome === "fail").length;
           return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC${run} &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>

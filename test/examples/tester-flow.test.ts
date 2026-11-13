@@ -24,7 +24,7 @@ const IDP_SECRET = "idp secret+/:%";
 
 // good: an IdP that refuses what it must, with the draft's codes. lax: accepts any exchange. wrong-codes: refuses
 // what it must, always with invalid_grant.
-type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token" | "no-refresh-subject";
+type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token" | "no-refresh-subject" | "refresh-not-id-jag" | "foreign-key";
 
 describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   let env: Record<string, unknown> & { DB: Cloudflare.Env["DB"] };
@@ -43,12 +43,17 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     codes: new Map<string, { challenge: string; nonce: string; redirectUri: string; scope: string }>(),
     /** Refresh tokens issued (for a sign-in with offline_access). */
     refreshTokens: new Set<string>(),
+    /** Every ID token and access token issued: none may end up in the tester's database. */
+    issued: [] as string[],
+    /** Per issuer: fields that replace its metadata's. */
+    metadata: new Map<string, Record<string, unknown>>(),
     requests: [] as { grant: string | null; form: URLSearchParams; authorization: string | null; userAgent: string | null }[],
   };
 
   const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const now = () => Math.floor(Date.now() / 1000);
-  const sign = (claims: Record<string, unknown>, typ?: string) => new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: "k1", ...(typ ? { typ } : {}) }).sign(signer);
+  let otherSigner: CryptoKey;
+  const sign = (claims: Record<string, unknown>, typ?: string, key?: CryptoKey) => new SignJWT(claims).setProtectedHeader({ alg: "RS256", kid: "k1", ...(typ ? { typ } : {}) }).sign(key ?? signer);
 
   /** The IdP's client authentication, as an IdP reads it: Basic (form-decoded) or in the body. */
   const authenticated = (form: URLSearchParams, authorization: string | null) => {
@@ -72,11 +77,14 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       const verifier = form.get("code_verifier") ?? "";
       const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
       if (!issued || issued.challenge !== challenge || issued.redirectUri !== form.get("redirect_uri")) return Response.json({ error: "invalid_grant" }, { status: 400 });
-      if (idp.mode === "no-id-token") return Response.json({ access_token: "at", token_type: "Bearer" }, { headers: { "cache-control": "no-store" } });
+      const accessToken = `at-${crypto.randomUUID()}`;
+      idp.issued.push(accessToken);
+      if (idp.mode === "no-id-token") return Response.json({ access_token: accessToken, token_type: "Bearer" }, { headers: { "cache-control": "no-store" } });
       const idToken = await sign({ iss: issuer, sub: "u1", aud: idp.mode === "other-audience" ? "another-client" : IDP_CLIENT, nonce: idp.mode === "wrong-nonce" ? "another" : issued.nonce, iat: now(), exp: now() + 300, email: "u1@idp.example.org" });
+      idp.issued.push(idToken);
       const refreshToken = issued.scope.split(" ").includes("offline_access") ? `rt-${crypto.randomUUID()}` : undefined;
       if (refreshToken) idp.refreshTokens.add(refreshToken);
-      return Response.json({ access_token: "at", token_type: "Bearer", id_token: idToken, ...(refreshToken ? { refresh_token: refreshToken } : {}) }, { headers: { "cache-control": "no-store" } });
+      return Response.json({ access_token: accessToken, token_type: "Bearer", id_token: idToken, ...(refreshToken ? { refresh_token: refreshToken } : {}) }, { headers: { "cache-control": "no-store" } });
     }
     if (form.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange") {
       if (idp.mode === "refuse") return Response.json({ error: "access_denied", error_description: "not assigned" }, { status: 400, headers: { "cache-control": "no-store" } });
@@ -89,6 +97,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
         if (form.getAll("resource").some((r) => r !== `${ORIGIN}/mcp`)) return refuse("invalid_target");
         if (form.get("subject_token_type") === "urn:ietf:params:oauth:token-type:refresh_token") {
           if (idp.mode === "no-refresh-subject") return refuse("unsupported_token_type");
+          if (idp.mode === "refresh-not-id-jag") return Response.json({ issued_token_type: "urn:ietf:params:oauth:token-type:jwt", access_token: "x", token_type: "N_A" }, { headers: { "cache-control": "no-store" } });
           if (!idp.refreshTokens.has(form.get("subject_token") ?? "")) return refuse("invalid_request");
         } else if (form.get("subject_token_type") !== "urn:ietf:params:oauth:token-type:id_token") return refuse("invalid_request");
         else try {
@@ -99,7 +108,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
         }
       }
       const resource = form.get("resource") ?? "";
-      const idJag = await sign({ iss: issuer, sub: "u1", aud: form.get("audience"), client_id: idp.testerClientIds.get(issuer), jti: crypto.randomUUID(), iat: now(), exp: now() + 300, resource: idp.mode === "resource-normalised" ? `${resource}/` : resource, scope: form.get("scope"), email: "u1@idp.example.org" }, "oauth-id-jag+jwt");
+      const idJag = await sign({ iss: issuer, sub: "u1", aud: form.get("audience"), client_id: idp.testerClientIds.get(issuer), jti: crypto.randomUUID(), iat: now(), exp: now() + 300, resource: idp.mode === "resource-normalised" ? `${resource}/` : resource, scope: form.get("scope"), email: "u1@idp.example.org" }, "oauth-id-jag+jwt", idp.mode === "foreign-key" ? otherSigner : undefined);
       return Response.json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: idJag, token_type: "N_A", expires_in: 300 }, { headers: idp.mode === "no-store-missing" ? {} : { "cache-control": "no-store" } });
     }
     return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
@@ -164,13 +173,14 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     for (const sql of [init0001, init0002, init0003, init0004, init0005]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     const pair = await generateKeyPair("RS256", { extractable: true });
     signer = pair.privateKey;
+    otherSigner = (await generateKeyPair("RS256")).privateKey;
     jwks = { keys: [{ ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "RS256", use: "sig" }] };
     const real = globalThis.fetch;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       const url = request.url;
       const [, issuer, path] = url.match(IDP_URL) ?? [];
-      if (issuer && path === "/.well-known/oauth-authorization-server") return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, authorization_endpoint: `${issuer}/authorize?tenant=t1`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"] });
+      if (issuer && path === "/.well-known/oauth-authorization-server") return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, authorization_endpoint: `${issuer}/authorize?tenant=t1`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"], ...idp.metadata.get(issuer) });
       if (issuer && path === "/jwks") return Response.json(jwks);
       if (issuer && path === "/token" && request.method === "POST") return tokenEndpoint(request, issuer);
       if (url === "https://challenges.cloudflare.com/turnstile/v0/siteverify") return Response.json({ success: true });
@@ -228,9 +238,12 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect((await rows<{ confirmedAt: number | null }>(`select confirmedAt from testerRegistration where id = ?`, t.registrationId))[0]?.confirmedAt).not.toBeNull();
     // The run is gone; neither the IdP client's secret nor the IdP's tokens are anywhere in the database.
     expect(await rows(`select 1 from testerFlow`)).toEqual([]);
-    const dump = JSON.stringify(await Promise.all(["testerCheck", "testerRegistration", "idJagAudit"].map((t2) => rows(`select * from "${t2}"`))));
+    const tables = (await rows<{ name: string }>(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%'`)).map((r) => r.name);
+    expect(tables).toContain("testerCheck");
+    const dump = JSON.stringify(await Promise.all(tables.map((t2) => rows(`select * from "${t2}"`))));
     expect(dump).not.toContain(IDP_SECRET);
-    expect(dump).not.toContain("id_token");
+    expect(idp.issued.length).toBeGreaterThanOrEqual(2);
+    for (const token of idp.issued) expect(dump).not.toContain(token);
     const page = await (await call("/results", { cookie: t.cookie })).text();
     expect(page).toContain("whole flow");
   });
@@ -362,6 +375,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   const probeRun = async (login: string, mode: Mode) => {
     const t = await registeredTester(login);
     idp.mode = mode;
+    idp.requests.length = 0;
     const { to } = await start(t, { probes: "1" });
     if (!to) throw new Error("no link");
     expect((await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" })).status).toBe(302);
@@ -385,9 +399,10 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(ids.indexOf("probe.wrong_subject_type")).toBeLessThan(ids.indexOf("jwt.structure"));
   });
 
-  it("probes: an IdP that accepts them fails each one", async () => {
+  it("probes: an IdP that accepts them fails each one, but a SHOULD only warns", async () => {
     const { probes } = await probeRun("lax", "lax");
-    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "fail"])));
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, p.accepted])));
+    expect(probes["probe.resource_not_governed"]).toBe("warn");
   });
 
   it("probes: a refusal with another code fails where the draft names the code, and warns where it only profiles one", async () => {
@@ -395,10 +410,17 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, p.codeRequired ? "fail" : "warn"])));
   });
 
-  it("probes: only when asked for, and the ID-JAG one skipped when the IdP issued none", async () => {
-    const { probes } = await probeRun("refusing", "refuse");
-    expect(probes["probe.id_jag_as_id_token"]).toBe("skip");
-    expect(Object.keys(probes)).toHaveLength(7);
+  it("probes: only when asked for, only after an ID-JAG was issued, and only for a confirmed registration", async () => {
+    // The IdP refused the correct request: a refusal of a wrong one would prove nothing, so none is sent.
+    const refusing = await probeRun("refusing", "refuse");
+    expect(refusing.probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "skip"])));
+    expect(refusing.check?.results).toContain("issued no ID-JAG");
+    expect(idp.requests).toHaveLength(2);
+    // An ID-JAG that doesn't confirm the registration (not signed with the issuer's published key): none is sent.
+    const unproven = await probeRun("unproven", "foreign-key");
+    expect(unproven.probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "skip"])));
+    expect(unproven.check?.results).toContain("confirmed registration");
+    expect(idp.requests).toHaveLength(2);
     idp.requests.length = 0;
     idp.mode = "good";
     const t = await registeredTester("unasked");
@@ -416,6 +438,8 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       const { to } = await start(t, refresh ? { refresh: "1" } : {});
       if (!to) throw new Error("no link");
       expect(to.searchParams.get("scope")).toBe(refresh ? "openid offline_access" : "openid");
+      // OpenID Connect Core section 11: offline_access is asked for with prompt=consent.
+      expect(to.searchParams.get("prompt")).toBe(refresh ? "consent" : null);
       await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
       const check = await lastCheck(t.registrationId);
       return { check, rule: (JSON.parse(check?.results ?? "[]") as { id: string; outcome: string; message: string }[]).find((r) => r.id === "exchange.refresh_subject") };
@@ -429,6 +453,61 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     const no = await run("norefresh", "no-refresh-subject");
     expect(no.rule?.message).toContain("Not supported");
     expect(no.rule?.message).toContain("unsupported_token_type");
+    expect((await run("notidjag", "refresh-not-id-jag")).rule?.message).toContain("not an ID-JAG");
     expect((await run("unasked2", "good", false)).rule).toBeUndefined();
+  });
+
+  it("/flow/start: the metadata must name the registered issuer, and both endpoints must pass the guard", async () => {
+    const t = await registeredTester("badmeta");
+    const issuer = issuerOf("badmeta");
+    for (const [fields, says] of [
+      [{ issuer: `${issuer}/other` }, "doesn't name your registered issuer"],
+      [{ token_endpoint: "http://idp-badmeta.example.org/token" }, "token_endpoint must use https"],
+      [{ token_endpoint: "https://10.0.0.1/token" }, "token_endpoint must use a DNS name"],
+      [{ authorization_endpoint: "https://localhost/authorize" }, "authorization_endpoint must use a fully qualified DNS name"],
+      [{ authorization_endpoint: undefined }, "authorization_endpoint"],
+    ] as const) {
+      idp.metadata.set(issuer, fields);
+      const { response, html } = await start(t);
+      expect(response.status).toBe(502);
+      expect(html).toContain(says.replace(/'/g, "&#39;"));
+    }
+    idp.metadata.delete(issuer);
+    expect(await rows(`select 1 from testerFlow where registrationId = ?`, t.registrationId)).toEqual([]);
+  });
+
+  it("a run the tester's own limits keep from the receiver is still reported, with the IdP's answers", async () => {
+    const t = await registeredTester("overlimit");
+    const before = LIMITS.redemptionsPerRegistrationPerDay;
+    LIMITS.redemptionsPerRegistrationPerDay = 0;
+    try {
+      const { to } = await start(t, { probes: "1" });
+      if (!to) throw new Error("no link");
+      const r = await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+      expect(r.status).toBe(429);
+      expect(await r.text()).toContain("results page");
+    } finally {
+      LIMITS.redemptionsPerRegistrationPerDay = before as number;
+    }
+    const check = await lastCheck(t.registrationId);
+    expect(check).toMatchObject({ httpStatus: 0, error: "not_redeemed" });
+    expect(outcomes(check)["exchange.status"]).toBe("pass");
+    // Never redeemed, so not confirmed: no probe was sent.
+    expect(outcomes(check)["probe.no_client_auth"]).toBe("skip");
+    expect(await (await call("/results", { cookie: t.cookie })).text()).toContain("limits for today");
+  });
+
+  it("at most LIMITS.runsPerDay runs a day across everyone; the registration's run is given back", async () => {
+    const t = await registeredTester("everyone");
+    const before = LIMITS.runsPerDay;
+    const day = Date.now() - (Date.now() % 86_400_000);
+    const [used] = await rows<{ used: number }>(`select used from testerAllowance where key = ?`, `run:everyone:${day}`);
+    LIMITS.runsPerDay = used?.used ?? 0;
+    try {
+      expect((await start(t)).response.status).toBe(503);
+    } finally {
+      LIMITS.runsPerDay = before as number;
+    }
+    expect(await rows(`select used from testerAllowance where key = ?`, `run:registration:${t.registrationId}:${day}`)).toEqual([{ used: 0 }]);
   });
 });

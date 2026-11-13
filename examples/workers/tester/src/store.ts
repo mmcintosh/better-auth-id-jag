@@ -262,6 +262,13 @@ export async function insertCheck(db: D1Database, c: CheckRow): Promise<void> {
     .run();
 }
 
+export const checkById = (db: D1Database, id: string) => db.prepare(`select * from testerCheck where id = ?`).bind(id).first<CheckRow>();
+
+/** Replaces a report's rules (a run adds its probes' to the report its redemption wrote). */
+export async function setCheckResults(db: D1Database, id: string, results: string): Promise<void> {
+  await db.prepare(`update testerCheck set results = ? where id = ?`).bind(results, id).run();
+}
+
 export async function recentChecks(db: D1Database, registrationId: string, limit = 50): Promise<CheckRow[]> {
   return (await db.prepare(`select * from testerCheck where registrationId = ? order by at desc limit ?`).bind(registrationId, limit).all<CheckRow>()).results;
 }
@@ -317,7 +324,7 @@ export async function stats(db: D1Database, now: number) {
   const day = utcDayStart(now);
   const [state, active, abuse, blocks, checks, byStatus, counters, reasons] = await Promise.all([
     isClosed(db),
-    db.prepare(`select r.id, a.issuerHost, r.createdAt, r.expiresAt, r.confirmedAt, r.revokedAt, (select count(*) from testerCheck c where c.registrationId = r.id) as redemptions from testerRegistration r left join testerAbuse a on a.id = r.id order by r.createdAt desc limit 50`).all(),
+    db.prepare(`select r.id, a.issuerHost, r.createdAt, r.expiresAt, r.confirmedAt, r.revokedAt, (select count(*) from testerCheck c where c.registrationId = r.id and c.httpStatus <> 0) as redemptions from testerRegistration r left join testerAbuse a on a.id = r.id order by r.createdAt desc limit 50`).all(),
     db.prepare(`select id, at, provider, substr(accountFp, 1, 12) as account, substr(ipFp, 1, 12) as address, substr(netFp, 1, 12) as network, accountAge, issuerHost, confirmed, redemptions, refusals, ended from testerAbuse order by at desc limit 200`).all(),
     db.prepare(`select kind, count(*) as n from testerBlock where expiresAt > ? group by kind`).bind(now).all(),
     countChecks(db, day),

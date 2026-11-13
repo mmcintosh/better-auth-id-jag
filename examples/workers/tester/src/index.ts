@@ -18,7 +18,7 @@ import { CHECKED_AGAINST, LIMITS } from "./limits";
 import { LOGO_SVG } from "./logo";
 import { continueToIdp, landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
-import { gradeProbe, type ProbeContext, PROBES } from "./probes";
+import { gradeProbe, type ProbeContext, PROBES, skipProbe } from "./probes";
 import { open, seal } from "./seal";
 import * as store from "./store";
 
@@ -272,7 +272,7 @@ const REPORT_KEYS_MAX_AGE_MS = 300_000;
  * the registration's client secret is counted or recorded: a client id is no secret (it is in every ID-JAG), so nobody
  * else's requests can use up a tester's budget or appear in their results.
  */
-async function token(request: Request, env: Env, origin: string, ctx: ExecutionContext, prefix: RuleResult[] = []): Promise<Response> {
+async function token(request: Request, env: Env, origin: string, ctx: ExecutionContext, prefix: RuleResult[] = [], checkId?: string): Promise<Response> {
   const body = await readBody(request);
   if (body === null) return oauthError(400, "invalid_request", "The request is too large.");
   const form = new URLSearchParams(body);
@@ -315,7 +315,7 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   }
   const giveBack = () => Promise.all([store.giveBackAllowance(env.DB, allowance.registration), store.giveBackAllowance(env.DB, allowance.everyone)]);
   try {
-    return await redeem(request, env, origin, ctx, { form, body, reg, clientId, now, giveBack, prefix });
+    return await redeem(request, env, origin, ctx, { form, body, reg, clientId, now, giveBack, prefix, checkId });
   } catch (e) {
     await giveBack();
     throw e;
@@ -323,8 +323,8 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
 }
 
 /** The redemption itself, once the client's secret is checked and today's allowances are taken. */
-async function redeem(request: Request, env: Env, origin: string, ctx: ExecutionContext, r: { form: URLSearchParams; body: string; reg: store.Registration; clientId: string; now: number; giveBack: () => Promise<unknown>; prefix: RuleResult[] }): Promise<Response> {
-  const { form, body, reg, clientId, now, giveBack, prefix } = r;
+async function redeem(request: Request, env: Env, origin: string, ctx: ExecutionContext, r: { form: URLSearchParams; body: string; reg: store.Registration; clientId: string; now: number; giveBack: () => Promise<unknown>; prefix: RuleResult[]; checkId: string | undefined }): Promise<Response> {
+  const { form, body, reg, clientId, now, giveBack, prefix, checkId } = r;
 
   // The report: every rule, with the issuer's keys (refetched at most once a minute when the kid is new).
   const assertion = form.get("assertion") ?? "";
@@ -390,7 +390,7 @@ async function redeem(request: Request, env: Env, origin: string, ctx: Execution
     ctx.waitUntil(
       (async () => {
         // A run of the whole flow reports the IdP's exchange answer first (prefix), then the ID-JAG's rules.
-        await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: status, error, results: JSON.stringify([...prefix, ...report.results]), checkedAgainst: CHECKED_AGAINST });
+        await store.insertCheck(env.DB, { id: checkId ?? newId(), registrationId: reg.id, at: now, jti, httpStatus: status, error, results: JSON.stringify([...prefix, ...report.results]), checkedAgainst: CHECKED_AGAINST });
         if (status >= 500 && (await store.countServerErrors(env.DB, now - 600_000)) >= LIMITS.serverErrorsPer10Min) {
           await store.setClosed(env.DB, true, `${LIMITS.serverErrorsPer10Min} server errors in 10 minutes`, "worker", Date.now());
           console.log(JSON.stringify({ event: "tester.closed", by: "worker", reason: "server errors" }));
@@ -525,8 +525,9 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
 /**
  * Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's.
  * exchange_failed: a run of the whole flow in which the IdP issued no ID-JAG, so nothing reached the receiver.
+ * not_redeemed: a run whose ID-JAG the tester's own limits kept from the receiver.
  */
-const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming", "exchange_failed"]);
+const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming", "exchange_failed", "not_redeemed"]);
 
 /**
  * "Check an ID-JAG": the tester redeems a pasted ID-JAG with the registration's own client, through the same token
@@ -541,7 +542,17 @@ async function checkPasted(request: Request, env: Env, origin: string, ctx: Exec
   const form = new URLSearchParams(body);
   const reg = await activeRegistrationOf(env, form.get("registration") ?? "", s.user.id, Date.now());
   if (!reg) return message("Not found", "No such active registration of yours.", 404);
-  return redeemWithOwnClient(request, env, origin, reg, (form.get("assertion") ?? "").replace(/\s+/g, ""), []);
+  const response = await redeemWithOwnClient(request, env, origin, reg, (form.get("assertion") ?? "").replace(/\s+/g, ""), []);
+  if (!response) return message("Can't check", "This registration's client can't be used here. Register again.", 409);
+  const limited = await limitedBy(response);
+  return limited ? message("Not checked", limited, response.status) : redirect("/results");
+}
+
+/** The tester's own limits' message, when a redemption was stopped by them (429 or 503). */
+async function limitedBy(response: Response): Promise<string | null> {
+  if (response.status !== 429 && response.status !== 503) return null;
+  const answer = (await response.clone().json().catch(() => ({}))) as { error_description?: string };
+  return answer.error_description ?? "Try again in a minute.";
 }
 
 /** The signed-in tester's own registration, if it is active and has its client here. */
@@ -552,11 +563,12 @@ async function activeRegistrationOf(env: Env, id: string, userId: string, now: n
 
 /**
  * Redeems an ID-JAG with the registration's own client, through the same token endpoint (limits, report, confirmation
- * and all), then shows the results page. `prefix`: rules reported before the ID-JAG's (a run's exchange answer).
+ * and all), and waits for its report to be written. `prefix`: rules reported before the ID-JAG's (a run's exchange
+ * answer); `checkId`: the report's id. The token endpoint's response, or null when the client can't be used.
  */
-async function redeemWithOwnClient(request: Request, env: Env, origin: string, reg: store.Registration, assertion: string, prefix: RuleResult[]): Promise<Response> {
+async function redeemWithOwnClient(request: Request, env: Env, origin: string, reg: store.Registration, assertion: string, prefix: RuleResult[], checkId?: string): Promise<Response | null> {
   const secret = reg.clientSecretEnc ? await open(env.BETTER_AUTH_SECRET, reg.clientSecretEnc) : null;
-  if (!secret) return message("Can't check", "This registration's client can't be used here. Register again.", 409);
+  if (!secret) return null;
   const params = new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion });
   const headers = new Headers({ "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": clientIp(request) });
   if (reg.authMethod === "client_secret_post") {
@@ -566,13 +578,9 @@ async function redeemWithOwnClient(request: Request, env: Env, origin: string, r
   // The report is written in the background: wait for it, so the results page shows it.
   const pending: Promise<unknown>[] = [];
   const local = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
-  const response = await token(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers, body: params.toString() }), env, origin, local, prefix);
+  const response = await token(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers, body: params.toString() }), env, origin, local, prefix, checkId);
   await Promise.allSettled(pending);
-  if (response.status === 429 || response.status === 503) {
-    const answer = (await response.json().catch(() => ({}))) as { error_description?: string };
-    return message("Not checked", answer.error_description ?? "Try again in a minute.", response.status);
-  }
-  return redirect("/results");
+  return response;
 }
 
 const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -615,7 +623,18 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   if (!idpClientId || idpClientId.length > 256 || !idpSecret || idpSecret.length > 512) return message("Not started", "Enter your IdP client's id and secret.", 400);
   if (scope.length > 256 || !SCOPE.test(scope)) return message("Not started", "The scope must be scope names separated by single spaces (RFC 6749 section 3.3).", 400);
 
+  // Today's runs, taken before anything is fetched, and not given back: a run that never comes back still counts.
+  const day = store.utcDayStart(now);
+  const runKey = `run:registration:${reg.id}:${day}`;
+  if (!(await store.takeAllowance(env.DB, runKey, day, LIMITS.runsPerRegistrationPerDay))) return message("Not started", `At most ${LIMITS.runsPerRegistrationPerDay} runs a day per registration; more after 00:00 UTC.`, 429);
+  if (!(await store.takeAllowance(env.DB, `run:everyone:${day}`, day, LIMITS.runsPerDay))) {
+    await store.giveBackAllowance(env.DB, runKey);
+    store.bump("flow.daily_budget");
+    return message("Not started", "Today's runs are used up; more after 00:00 UTC.", 503);
+  }
+
   // The two endpoints, from the issuer's own metadata as it is now, which must still name the registered issuer.
+  // These, and the issuer's JWKS, are the only places a run sends requests to.
   const issuerUrl = new URL(reg.issuer);
   let meta = await fetchJsonCapped(fetch, oauthMetadataUrl(issuerUrl));
   if (!meta.ok) meta = await fetchJsonCapped(fetch, openIdConfigurationUrl(issuerUrl));
@@ -625,13 +644,6 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   const tokenEndpoint = checkPublicHttpsUrl(typeof m.token_endpoint === "string" ? m.token_endpoint : "");
   if (!authorize.ok || !tokenEndpoint.ok) return message("Not started", `Your issuer's metadata needs an authorization_endpoint and a token_endpoint the tester can use: ${!authorize.ok ? `authorization_endpoint ${authorize.why}` : `token_endpoint ${tokenEndpoint.ok ? "" : tokenEndpoint.why}`}.`, 502);
 
-  // Today's runs, taken here and not given back: a run that never comes back still counts.
-  const day = store.utcDayStart(now);
-  if (!(await store.takeAllowance(env.DB, `run:registration:${reg.id}:${day}`, day, LIMITS.runsPerRegistrationPerDay))) return message("Not started", `At most ${LIMITS.runsPerRegistrationPerDay} runs a day per registration; more after 00:00 UTC.`, 429);
-  if (!(await store.takeAllowance(env.DB, `run:everyone:${day}`, day, LIMITS.runsPerDay))) {
-    store.bump("flow.daily_budget");
-    return message("Not started", "Today's runs are used up; more after 00:00 UTC.", 503);
-  }
 
   const state = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -653,7 +665,7 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
     expiresAt: now + LIMITS.runMinutes * 60_000,
   });
   const to = authorize.url;
-  for (const [k, v] of Object.entries({ response_type: "code", client_id: idpClientId, redirect_uri: `${origin}/flow/callback`, scope: form.get("refresh") === "1" ? "openid offline_access" : "openid", state, nonce, code_challenge: b64url(await sha256(verifier)), code_challenge_method: "S256" })) to.searchParams.set(k, v);
+  for (const [k, v] of Object.entries({ response_type: "code", client_id: idpClientId, redirect_uri: `${origin}/flow/callback`, scope: form.get("refresh") === "1" ? "openid offline_access" : "openid", ...(form.get("refresh") === "1" ? { prompt: "consent" } : {}), state, nonce, code_challenge: b64url(await sha256(verifier)), code_challenge_method: "S256" })) to.searchParams.set(k, v);
   console.log(JSON.stringify({ event: "tester.flow_started", id: reg.id }));
   // A page with a link, not a redirect: the pages' Content-Security-Policy allows forms to post only to this site, and
   // browsers apply that to where a form's answer redirects.
@@ -722,18 +734,30 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   const report = checkExchange({ status: exchange.status, contentType: exchange.contentType, cacheControl: exchange.cacheControl, body: exchange.json, requestedScope: flow.scope, requestedResources: [resource] });
   console.log(JSON.stringify({ event: "tester.flow_exchanged", id: reg.id, issued: report.idJag !== null }));
 
-  // The refusal probes, if asked for: one at a time, each a token exchange with one thing wrong.
-  const probed: RuleResult[] = [];
+  // The redemption first, while the ID-JAG is fresh: its report (under checkId) gets the exchange's rules first.
+  const checkId = newId();
+  const redeemed = report.idJag ? await redeemWithOwnClient(request, env, origin, reg, report.idJag, report.results, checkId) : null;
+
+  // Then the refusal probes, if asked for: one at a time, each a token exchange with one thing wrong. Only after an
+  // ID-JAG was issued for the correct request (a refusal proves nothing from an IdP that refuses everything) and only
+  // for a confirmed registration, one whose issuer signed an ID-JAG here, so that they go only to an IdP the tester
+  // runs (D-076).
+  const later: RuleResult[] = [];
   if (flow.probes === 1) {
-    const context: ProbeContext = { audience: `${origin}/api/auth`, resource, scope: flow.scope, idToken, accessToken: typeof signedIn.access_token === "string" ? signedIn.access_token : undefined, idJag: report.idJag, untrustedAudience: `${origin}/probe/never-trusted`, foreignResource: "https://example.com/not-the-tester" };
-    for (const probe of PROBES) {
-      const probeForm = probe.form(context);
-      if (!probeForm) {
-        probed.push(gradeProbe(probe, null));
-        continue;
+    const confirmed = !!(await store.byId(env.DB, reg.id))?.confirmedAt;
+    if (!report.idJag) later.push(...PROBES.map((p) => skipProbe(p, "your IdP issued no ID-JAG for the correct request, so a refusal here would prove nothing")));
+    else if (!confirmed) later.push(...PROBES.map((p) => skipProbe(p, "the probes need a confirmed registration, and this one isn't: an ID-JAG signed with a key from your issuer's published JWKS confirms it")));
+    else {
+      const context: ProbeContext = { audience: `${origin}/api/auth`, resource, scope: flow.scope, idToken, accessToken: typeof signedIn.access_token === "string" ? signedIn.access_token : undefined, idJag: report.idJag, untrustedAudience: `${origin}/probe/never-trusted`, foreignResource: "https://example.com/not-the-tester" };
+      for (const probe of PROBES) {
+        const probeForm = probe.form(context);
+        if (!probeForm) {
+          later.push(gradeProbe(probe, null));
+          continue;
+        }
+        const answer = await postFormCapped(fetch, flow.tokenEndpoint, probeForm, probe.anonymous ? userAgent : { ...userAgent, ...idpClientAuth(flow, secret, probeForm) });
+        later.push(gradeProbe(probe, answer.ok ? { ok: true, status: answer.status, json: answer.json } : answer));
       }
-      const answer = await postFormCapped(fetch, flow.tokenEndpoint, probeForm, probe.anonymous ? userAgent : { ...userAgent, ...idpClientAuth(flow, secret, probeForm) });
-      probed.push(gradeProbe(probe, answer.ok ? { ok: true, status: answer.status, json: answer.json } : answer));
     }
   }
   // A refresh token as the subject, if asked for (section 4.3: IdPs MUST accept ID tokens and MAY accept refresh
@@ -741,23 +765,32 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   if (flow.refresh === 1) {
     const r = (outcome: RuleResult["outcome"], message: string): RuleResult => ({ id: "exchange.refresh_subject", level: "OPTIONAL", cite: "draft -06 sections 4.3, 4.3.2", outcome, message });
     const refreshToken = typeof signedIn.refresh_token === "string" && signedIn.refresh_token ? signedIn.refresh_token : null;
-    if (!refreshToken) probed.push(r("info", "The sign-in (with offline_access) gave no refresh token, so none was tried as the subject."));
+    if (!refreshToken) later.push(r("info", "The sign-in (with offline_access) gave no refresh token, so none was tried as the subject."));
     else {
       const refreshForm = new URLSearchParams({ grant_type: TOKEN_EXCHANGE_GRANT, requested_token_type: ID_JAG_TOKEN_TYPE, audience: `${origin}/api/auth`, resource, scope: flow.scope, subject_token: refreshToken, subject_token_type: REFRESH_TOKEN_TOKEN_TYPE });
       const answer = await postFormCapped(fetch, flow.tokenEndpoint, refreshForm, { ...userAgent, ...idpClientAuth(flow, secret, refreshForm) });
       const body = answer.ok && isObject(answer.json) ? answer.json : {};
-      if (!answer.ok) probed.push(r("skip", `Not graded: your IdP's token endpoint ${answer.why}.`));
-      else if (answer.status === 200 && typeof body.access_token === "string") probed.push(r("info", "Supported: your IdP issued an ID-JAG for a refresh token as the subject."));
-      else probed.push(r("info", `Not supported: refused${typeof body.error === "string" ? ` with ${JSON.stringify(body.error.slice(0, 64))}` : ` (HTTP ${answer.status})`}. Allowed: an IdP MAY accept refresh tokens as the subject.`));
+      if (!answer.ok) later.push(r("skip", `Not graded: your IdP's token endpoint ${answer.why}.`));
+      else if (answer.status === 200 && body.issued_token_type === ID_JAG_TOKEN_TYPE && typeof body.access_token === "string") later.push(r("info", "Supported: your IdP issued an ID-JAG for a refresh token as the subject."));
+      else if (answer.status === 200) later.push(r("info", `Not supported as asked: HTTP 200, but issued_token_type is ${JSON.stringify(body.issued_token_type ?? null)}, not an ID-JAG.`));
+      else later.push(r("info", `Not supported: refused${typeof body.error === "string" ? ` with ${JSON.stringify(body.error.slice(0, 64))}` : ` (HTTP ${answer.status})`}. Allowed: an IdP MAY accept refresh tokens as the subject.`));
     }
   }
-  const before = [...report.results, ...probed];
-  if (!report.idJag) {
-    // Nothing reached the receiver: the run's report is the exchange's rules (and the probes') alone.
-    await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: "exchange_failed", results: JSON.stringify(before), checkedAgainst: CHECKED_AGAINST });
-    return redirect("/results");
+
+  // The run's one report: the exchange's rules, then the probes' and the refresh token's, then the ID-JAG's.
+  const written = await store.checkById(env.DB, checkId);
+  if (written) {
+    if (later.length > 0) {
+      const results = JSON.parse(written.results) as RuleResult[];
+      await store.setCheckResults(env.DB, checkId, JSON.stringify([...results.slice(0, report.results.length), ...later, ...results.slice(report.results.length)]));
+    }
+  } else {
+    // Nothing reached the receiver: the IdP issued no ID-JAG, or the tester's own limits kept it back.
+    await store.insertCheck(env.DB, { id: checkId, registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: report.idJag ? "not_redeemed" : "exchange_failed", results: JSON.stringify([...report.results, ...later]), checkedAgainst: CHECKED_AGAINST });
   }
-  return redeemWithOwnClient(request, env, origin, reg, report.idJag, before);
+  const limited = redeemed ? await limitedBy(redeemed) : null;
+  if (limited) return message("Not redeemed", `${limited} Your IdP's answers are on your results page.`, redeemed?.status ?? 429);
+  return redirect("/results");
 }
 
 /** "Delete my data now": the tester's registrations, everything they made, and the tester's own records, at once. */

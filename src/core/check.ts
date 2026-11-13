@@ -314,7 +314,7 @@ export function checkExchange(input: ExchangeCheckInput): ExchangeReport {
   if (input.status !== 200) {
     const code = body && isNonEmptyString(body.error) ? body.error : null;
     const description = body && typeof body.error_description === "string" ? body.error_description : null;
-    add("exchange.status", "MUST", statusCite, "fail", code ? `The IdP refused the exchange: HTTP ${input.status}, error ${show(code)}${description === null ? "" : ` (${show(description)})`}.` : `The IdP answered HTTP ${input.status} without an OAuth error response (RFC 6749 section 5.2).`);
+    add("exchange.status", "MUST", statusCite, "fail", code ? `The IdP refused the exchange (HTTP ${input.status}, error ${show(code)}${description === null ? "" : `, ${show(description)}`}), so there is no answer to check. If it should allow this client this audience and resource, look at its policy.` : `The IdP answered HTTP ${input.status} without an OAuth error response (RFC 6749 section 5.2), so there is no answer to check.`);
     return { results, idJag: null, error: code ? { code, description } : null };
   }
   if (!body) {

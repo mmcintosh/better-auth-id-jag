@@ -1,4 +1,5 @@
--- One row per run of the whole flow, from /flow/start until /flow/callback takes it (at most 10 minutes): what the
+-- One row per run of the whole flow, from /flow/start until /flow/callback takes it (valid 10 minutes; the purge,
+-- every 5 minutes, deletes expired ones): what the
 -- callback needs. The IdP client's secret and the PKCE verifier are sealed (src/seal.ts). Deleted when the callback
 -- takes it, when it expires (the purge), or with its registration. probes: 1 when the tester asked for the refusal
 -- probes (src/probes.ts); refresh: 1 when they asked to try a refresh token as the subject.

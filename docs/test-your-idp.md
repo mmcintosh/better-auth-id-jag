@@ -112,16 +112,18 @@ the ID-JAG's own rules follow, as above.
 | `exchange.resource_echo` | MUST; OPTIONAL with no resource requested | draft -06 section 4.3.3 | Each resource in the ID-JAG is one the tester sent, exactly as sent |
 | `exchange.refresh_subject` | OPTIONAL | draft -06 sections 4.3, 4.3.2 | If you ask: whether your IdP issues an ID-JAG for a refresh token as the subject, as information |
 
-**In a run, if you ask: requests your IdP must refuse.** Each is a token exchange with one thing wrong. A refusal
-with another error code fails where the draft names the code for that case, and is a warn where it only profiles
-one (section 4.3.4.3: "Any OAuth error code MAY be returned"). Accepting one fails.
+**In a run, if you ask: requests your IdP must or should refuse.** Each is a token exchange with one thing wrong,
+sent only after your IdP issued an ID-JAG for the correct request and only for a confirmed registration (so they go
+only to an IdP whose key signed an ID-JAG here). Accepting one fails where the draft says MUST, and is a warn where it
+says SHOULD. A refusal with another error code fails where the draft names the code for that case, and is a warn where
+it only profiles one (section 4.3.4.3: "Any OAuth error code MAY be returned").
 
 | Rule | Level | Source | The request | Expected |
 |---|---|---|---|---|
 | `probe.no_client_auth` | MUST | draft -06 section 4.3.3 | No client authentication | `invalid_client` |
 | `probe.two_audiences` | MUST | draft -06 section 4.3.3 | Two `audience` values | `invalid_request` |
 | `probe.unknown_audience` | MUST | draft -06 section 4.3.3 | An `audience` no IdP has a trust relationship with | `invalid_target` |
-| `probe.resource_not_governed` | MUST | draft -06 section 4.3.3 | Only a `resource` the tester doesn't govern, so none can be granted | `invalid_target` |
+| `probe.resource_not_governed` | SHOULD | draft -06 section 4.3.3 | A `resource` the tester doesn't govern | `invalid_target`; accepting it, or another code, is a warn |
 | `probe.access_token_as_id_token` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The sign-in's access token as the subject token, said to be an ID token | refused; `invalid_request` profiled |
 | `probe.id_jag_as_id_token` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The ID-JAG your IdP just issued as the subject token, said to be an ID token | refused; `invalid_request` profiled |
 | `probe.wrong_subject_type` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The ID token, said to be a SAML 2.0 assertion | refused; `invalid_request` profiled |
@@ -163,16 +165,19 @@ above claim to cover every MUST in the draft.
 2. **Under "Run the whole flow" on your results page,** enter that client's id and secret, how it authenticates at
    your token endpoint (`client_secret_basic` or `client_secret_post`), and the scope to ask for (`read`). Two boxes
    are opt-in: the refusal probes (seven wrong requests, which may appear in your IdP's security logs), and a refresh
-   token as the subject (the sign-in then asks for `offline_access`).
+   token as the subject (the sign-in then asks for `offline_access`, with `prompt=consent`). If you pick
+   `client_secret_basic`, the tester sends the id and secret form-encoded, as RFC 6749 section 2.3.1 says.
 3. **Press Run, then Continue** to your IdP's sign-in, and sign in. Your IdP sends you back to the tester.
 4. **The tester does the rest:** it exchanges the code for an ID token and verifies it (your JWKS, `iss`, `aud` your
-   client, the `nonce`), asks your IdP for an ID-JAG by token exchange, checks the answer, sends the probes if you
-   asked, and redeems the ID-JAG here as a pasted one (it can confirm the registration too). One report on your
-   results page holds the answer's rules, the probes', and the ID-JAG's, next to the receiver's decision.
+   client, the `nonce`), asks your IdP for an ID-JAG by token exchange, checks the answer, and redeems the ID-JAG
+   here as a pasted one (it can confirm the registration too). Then, if you asked, it sends the probes (once the
+   registration is confirmed, which this run's ID-JAG may do) and tries the refresh token. One report on your results
+   page holds the answer's rules, the probes', and the ID-JAG's, next to the receiver's decision.
 
 A sign-in that doesn't complete (an error from your IdP, no ID token, one that doesn't verify) stops the run with a
 message, and records nothing: that part is OpenID Connect, not ID-JAG. If your IdP refuses the token exchange, the
-report shows the refusal, and nothing reaches the receiver.
+report shows the refusal, nothing reaches the receiver, and no probe is sent. If the tester's own daily limits keep
+the ID-JAG from the receiver, the report still shows your IdP's answers.
 
 **From your own code instead:** the registration page also shows the client secret, once, and how to redeem with it:
 
@@ -234,9 +239,11 @@ GitHub is asked only for `read:user`, GitLab for `read_user`.
 - the sandbox users;
 - each redemption's report and the receiver's logs of it.
 
-**About a run of the whole flow, for 10 minutes at most:** your IdP client's id and secret, and the run's PKCE
-verifier, both encrypted the same way; the run's nonce, and a hash of its `state`. They are deleted when your IdP
-sends you back, or after 10 minutes, or with "Delete my data now". Enter the secret again for the next run.
+**About a run of the whole flow, until your IdP sends you back, and at most 15 minutes:** your IdP client's secret
+and the run's PKCE verifier, both encrypted the same way; your IdP client's id, the token endpoint, the scope, the
+run's nonce, and a hash of its `state`. They are deleted when your IdP sends you back, or with "Delete my data now";
+a run nobody comes back to expires after 10 minutes and is deleted within the next 5. Enter the secret again for the
+next run.
 
 **An abuse record, for 7 days, that isn't about you as a person.** It holds fingerprints (keyed hashes) of the
 account, the address and its network: the same account always gives the same fingerprint, but a fingerprint can't
