@@ -32,7 +32,9 @@
 - **The example IdP also issues ID-JAGs for the public tester** (`TESTER_AS_ISSUER`, `TESTER_RESOURCE`): only to
   clients registered with `/setup`'s `"for": "tester"`, whose `clientIdAtResource` is the tester registration's client
   id, and with the `read` scope only. A client registered for the MCP server gets no ID-JAG for the tester, nor the
-  other way round. The policy is exported (`policy` in `enterprise-idp/src/auth.ts`) and tested.
+  other way round. Such a client's redirect URI is the tester's `/flow/callback` by default, for the tester's "Run
+  the whole flow". The policy and the redirect URI rule are exported (`policy` and `redirectUrisFor` in
+  `enterprise-idp/src/auth.ts`) and tested.
 
 ### Changed
 

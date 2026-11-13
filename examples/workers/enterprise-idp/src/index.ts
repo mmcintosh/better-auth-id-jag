@@ -1,14 +1,15 @@
 // Routes: Better Auth under /api/auth (and its /.well-known documents), plus POST /setup, which
 // creates a demo user and an OAuth client, an AI agent's or an app's (x-setup-key), and /login, the
 // sign-in page a browser is sent to during authorization. With `"for": "tester"`, /setup registers a client for the
-// public tester instead of the MCP server (auth.ts): `clientIdAtResource` is then the tester registration's client id.
+// public tester instead of the MCP server (auth.ts): `clientIdAtResource` is then the tester registration's client id,
+// and its sign-in comes back to the tester's /flow/callback.
 //
 // Every client here authenticates with client_secret_post, and the metadata says so. Claude Code's Cross
 // App Access picks Basic for its sign-in when the IdP lists it, but always sends the secret in the body
 // for the ID-JAG request; Better Auth holds a client to one registered method, so a client registered for
 // Basic would fail one of the two steps (examples/workers/README.md, "Claude Code").
 import { withExecutionContext } from "../../background";
-import { createAuth, type Env } from "./auth";
+import { createAuth, type Env, isNative, redirectUrisFor } from "./auth";
 
 const cache = new Map<string, ReturnType<typeof createAuth>>();
 const authFor = (env: Env, origin: string) => {
@@ -27,12 +28,9 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   const forTester = body.for === "tester";
   if (body.for !== undefined && !forTester) return new Response('for: only "tester"', { status: 400 });
   if (forTester && !(env.TESTER_AS_ISSUER && env.TESTER_RESOURCE)) return new Response("this IdP isn't set up for the tester (TESTER_AS_ISSUER, TESTER_RESOURCE)", { status: 400 });
-  // Our own /callback, or a native client's loopback redirect (Claude Code's is http://localhost:<port>/callback).
-  const redirectUris = body.redirectUris ?? [`${origin}/callback`];
-  const loopback = /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}\/callback$/;
-  if (!Array.isArray(redirectUris) || redirectUris.length === 0 || !redirectUris.every((u) => u === `${origin}/callback` || (typeof u === "string" && loopback.test(u))))
-    return new Response(`redirectUris: only ${origin}/callback or http://localhost:<port>/callback`, { status: 400 });
-  const native = new URL(origin).protocol === "http:" || redirectUris.some((u) => loopback.test(u));
+  const redirectUris = redirectUrisFor(env, origin, forTester, body.redirectUris);
+  if (!Array.isArray(redirectUris)) return new Response(redirectUris.error, { status: 400 });
+  const native = isNative(origin, redirectUris);
   const auth = authFor(env, origin);
   const ctx = await auth.$context;
   let user = (await ctx.internalAdapter.findUserByEmail(body.email, { includeAccounts: false }))?.user;
