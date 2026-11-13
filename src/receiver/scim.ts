@@ -7,13 +7,23 @@
 // revision), not only a lookup and a lifecycle change, so lookups of one user commit one at a time.
 // Hence (D-029, D-030): concurrent requests for the same user in this process share one in-flight
 // lookup, and a 409 SCIM conflict is retried from fresh state with jittered exponential backoff
-// within SCIM_RETRY_BUDGET_MS, then refused. A retry after a deprovisioning sees it and returns null. (@better-auth/scim itself refuses to start on an adapter without
-// native transactions, such as D1.) A database-level transaction error isn't a SCIM conflict: it
-// goes to resolveSubject's catch, an audited subject_unavailable.
+// within SCIM_RETRY_BUDGET_MS, then refused. A retry after a deprovisioning sees it and returns null.
+// Without native transactions (Cloudflare D1, for one) Better Auth's `transaction` runs the writes one
+// by one, so a concurrent lifecycle change would go unseen: the step is refused instead (D-073).
+// @better-auth/scim starts on such an adapter since 1.7.21 and answers its own routes with 501, but
+// acquireActiveSCIMUserLink doesn't check. A database-level transaction error isn't a SCIM conflict:
+// it goes to resolveSubject's catch, an audited subject_unavailable.
 import type { GenericEndpointContext } from "better-auth";
 import { isAPIError } from "better-auth/api";
 import { refuse } from "../core";
 import type { AcquireActiveScimUserLink } from "./options";
+
+/**
+ * True when the database adapter runs transactions natively: the check `@better-auth/scim` makes
+ * (`supportsNativeSCIMTransactions`, since 1.7.21). Otherwise Better Auth's `adapter.transaction`
+ * is a fallback that runs the callback without a transaction.
+ */
+export const hasNativeTransactions = (adapter: unknown): boolean => typeof (adapter as { options?: { adapterConfig?: { transaction?: unknown } } } | undefined)?.options?.adapterConfig?.transaction === "function";
 
 const isConflict = (e: unknown): boolean => isAPIError(e) && (e.statusCode === 409 || e.status === "CONFLICT");
 
@@ -57,6 +67,10 @@ async function acquireWithRetries(ctx: GenericEndpointContext, acquire: AcquireA
     // A table row with scimConnectionId on a host that didn't pass the function: fail closed.
     ctx.context.logger.error("[id-jag] a trusted issuer has a SCIM connection, but scim.acquireActiveSCIMUserLink is not set; refusing");
     refuse("subject_rejected", "SCIM: acquireActiveSCIMUserLink not configured");
+  }
+  if (!hasNativeTransactions(ctx.context.adapter)) {
+    ctx.context.logger.error("[id-jag] a trusted issuer has a SCIM connection, but the database adapter has no native transactions; refusing");
+    refuse("subject_unavailable", "SCIM: the database adapter has no native transactions");
   }
   const reference = { connectionId, externalId };
   const started = Date.now();
