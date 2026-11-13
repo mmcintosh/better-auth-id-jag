@@ -1681,3 +1681,48 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
 - **Evidence:** `test/core/check.test.ts`, both projects (a correct answer passes every rule; each rule fails or warns
   for its own reason; never throws). 15 entries in `test/mutations/core.json`, all caught. Typecheck, lint,
   docs:check and pack:check pass; the suite has 1197 passed and 167 skipped.
+
+## D-075: the public tester runs the whole flow as the client (2026-11-13)
+
+The tester judged ID-JAGs someone else made: the person had to get their IdP to mint one by hand and paste it. Now
+the tester can play the client (the AI agent's role) itself: the person's sign-in at their IdP, the token exchange,
+and the redemption here, in one run. That also shows the IdP's side of the exchange (draft -06 sections 4.3.3 and
+4.3.4), which pasting can't.
+
+- **The run:** `POST /flow/start` takes the registration, the IdP client's id and secret, how that client
+  authenticates, and the scope to ask for (`read` by default). It reads the issuer's metadata again (the registration
+  keeps only the JWKS), which must still name the registered issuer, and takes `authorization_endpoint` and
+  `token_endpoint` through the guard (public https, no redirects). The browser goes to the IdP's sign-in with
+  OpenID Connect's authorization code request: scope `openid`, PKCE S256, `state` and `nonce`. `GET /flow/callback`
+  exchanges the code for an ID token, verifies it (the issuer's JWKS, `iss` the registered issuer, `aud` the IdP
+  client, `nonce`), asks for an ID-JAG by token exchange (`audience` this receiver, `resource` its `/mcp`), checks the
+  answer with `checkExchange` (D-074), and redeems the ID-JAG with the registration's own client, as "Check an ID-JAG"
+  does. The report lists the answer's rules first, then the ID-JAG's.
+- **A page with a link to the IdP, not a redirect:** the pages' Content-Security-Policy has `form-action 'self'`, and
+  browsers apply it to where a form's answer redirects. The page names the IdP's host before the person goes there.
+- **What a run keeps, and for how long:** a `testerFlow` row (migration 0005) from start to callback, at most 10
+  minutes: the SHA-256 of `state` (never the state), the IdP client's secret and the PKCE verifier sealed (`seal.ts`,
+  as the registration's own secret), the nonce, the token endpoint. The callback deletes the row as it reads it, so
+  a state works once; the purge deletes expired rows, and they go with their registration and with "delete my data".
+  The IdP's ID token, access token and refresh token are never stored or shown. The secret is entered again for each
+  run, rather than kept for the registration's 24 hours.
+- **Bound to the tester who started it:** the callback needs the same signed-in tester; another browser with the
+  state is refused, and the run is spent. An `iss` on the way back must be the registered issuer (RFC 9207).
+- **Preconditions, not rules:** a sign-in that fails (an error from the IdP, no code, no ID token for the code, an ID
+  token that doesn't verify) stops the run with a message and records nothing: that is OpenID Connect, not ID-JAG. A
+  token exchange the IdP refuses is recorded: its report is the exchange's rules alone, with `error`
+  `exchange_failed` and `httpStatus` 0, since nothing reached the receiver. The abuse record's counts of redemptions
+  and refusals leave such rows out.
+- **Client authentication at the IdP:** `client_secret_basic` (form-encoded, RFC 6749 section 2.3.1) or
+  `client_secret_post`. `private_key_jwt` isn't offered.
+- **Limits:** a run is counted when it starts, and not given back: 10 a day per registration, 100 a day across the
+  tester (`LIMITS`), on top of the redemption allowances its redemption takes. The requests to the IdP carry a
+  `User-Agent` naming the tester.
+- **Not here:** requests the IdP must refuse (section 4.3.3), a refresh token as the subject, and the docs:
+  docs/test-your-idp.md describes pasting only.
+- **Evidence:** `test/examples/tester-flow.test.ts` (workerd, D1), against an IdP stubbed at fetch that checks the
+  client's credentials, PKCE and the redirect URI: a run end to end (the registration confirmed, nothing of the IdP's
+  stored), `client_secret_post`, a state used twice, by another tester or late, a refused exchange, the answer's rules
+  failing beside an accepted redemption, failed sign-ins, the start's checks, the limit, and the clean-up. 17 entries
+  in `test/mutations/tester.json` (run in workerd: `scripts/mutate.py` takes `"project": "workerd"`), all caught.
+  The tester's existing tests apply migration 0005 too. The suite has 1206 passed and 176 skipped.

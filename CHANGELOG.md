@@ -19,6 +19,12 @@
   `Cache-Control: no-store`, and each resource in the ID-JAG exactly as the client sent it), each with its level and
   source. It returns the ID-JAG, for `checkIdJag`, and for a refusal the OAuth error. Pure, and never throws. Its
   types are `ExchangeCheckInput` and `ExchangeReport`.
+- **The public tester runs the whole flow** (`examples/workers/tester`, D-075). Given a client at their IdP for the
+  tester, a person presses Run: the tester sends them to their IdP to sign in, exchanges the ID token for an ID-JAG
+  (draft -06 section 4.3), checks the IdP's answer with `checkExchange`, and redeems the ID-JAG at its receiver as it
+  does a pasted one. One report holds the answer's rules and the ID-JAG's. The IdP client's secret is kept, sealed,
+  only for the run (at most 10 minutes); the IdP's tokens are never stored. At most 10 runs a day per registration,
+  and 100 across the tester. Migration `0005_flow.sql` adds the runs' table.
 
 ### Documentation
 

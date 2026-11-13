@@ -23,7 +23,7 @@ code, pre { background: var(--code); border-radius: 4px; font: 0.88em ui-monospa
 code { padding: 1px 4px; overflow-wrap: anywhere; } pre { padding: 12px; overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; } td, th { border-top: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
 .pass { color: var(--pass); } .fail { color: var(--fail); } .warn { color: var(--warn); } .info, .skip { color: var(--muted); }
-input[type=url], select { width: 100%; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+input[type=url], input[type=text], input[type=password], select { width: 100%; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); cursor: pointer; }
 .box { border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin: 16px 0; }
 .wrap { overflow-x: auto; }
@@ -50,6 +50,31 @@ const checkForm = (registrationId: string) => `<form method="post" action="/chec
 <p><label><strong>Check an ID-JAG.</strong> Paste one your IdP minted for this registration, then press Check: the tester redeems it with your client here and adds the report below.<br><textarea name="assertion" rows="4" required maxlength="16384" placeholder="eyJ..."></textarea></label></p>
 <p><button>Check</button></p>
 </form>`;
+
+/**
+ * "Run the whole flow": the tester plays the client. The tester's IdP needs a client for it, which this form names;
+ * its secret is kept only for the run (sealed, at most 10 minutes).
+ */
+const runForm = (origin: string, registrationId: string, clientId: string) => `<form method="post" action="/flow/start" class="box">
+<input type="hidden" name="registration" value="${esc(registrationId)}">
+<p><strong>Run the whole flow.</strong> The tester plays the client: it sends you to your IdP to sign in, exchanges the ID token for an ID-JAG, checks your IdP's answer, and redeems the ID-JAG here.</p>
+<details><summary>Your IdP needs a client for the tester</summary>
+<table><tr><td>Redirect URI</td><td>${copyable(`${origin}/flow/callback`)}</td></tr>
+<tr><td>Grants</td><td>the authorization code grant (scope <code>openid</code>, PKCE S256) and the token exchange</td></tr>
+<tr><td>ID-JAGs for</td><td>audience ${copyable(`${origin}/api/auth`)}<br>resource ${copyable(`${origin}/mcp`)}<br><code>client_id</code> in the ID-JAG: ${copyable(clientId)}</td></tr></table>
+<p class="muted">The tester asks your IdP for the ID-JAG with that audience and resource, and redeems it with this registration's client. Your IdP's tokens are never stored or shown.</p>
+</details>
+<p><label>Your IdP client's id<br><input type="text" name="client_id" required maxlength="256" autocomplete="off"></label></p>
+<p><label>Its secret (kept only for this run)<br><input type="password" name="client_secret" required maxlength="512" autocomplete="off"></label></p>
+<p><label>How it authenticates at your token endpoint<br><select name="auth_method"><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
+<p><label>Scope to ask for<br><input type="text" name="scope" value="read" maxlength="256"></label></p>
+<p><button>Run</button></p>
+</form>`;
+
+/** "Run the whole flow", between the form and the IdP: the pages' policy lets forms post only to this site. */
+export function continueToIdp(to: string, host: string): Response {
+  return page("Sign in at your IdP", `<h1>Sign in at your IdP</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">The run waits 10 minutes.</p>${FOOTER}`);
+}
 
 /** The values a tester's IdP mints with, each with a copy button, and all of them as one JSON template. */
 const idpValues = (origin: string, issuer: string, clientId: string) => {
@@ -151,14 +176,15 @@ export function results(views: ResultView[], name: string, origin: string): Resp
           (v) => `<div class="box"><h2 style="margin-top:0">${esc(v.issuer)}</h2>
 <p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
 <details><summary>Metadata and keys</summary><div class="wrap"><table>${ruleRows(v.metadata)}</table></div></details>
-${v.active ? `<details><summary>Values for your IdP</summary>${idpValues(origin, v.issuer, v.clientId)}</details>${checkForm(v.registrationId)}` : ""}
+${v.active ? `<details><summary>Values for your IdP</summary>${idpValues(origin, v.issuer, v.clientId)}</details>${checkForm(v.registrationId)}${runForm(origin, v.registrationId, v.clientId)}` : ""}
 ${
   v.checks.length
     ? v.checks
         .map((c) => {
-          const decision = c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+          const run = c.results.some((r) => r.id.startsWith("exchange.")) ? " &middot; whole flow" : "";
           const fails = c.results.filter((r) => r.outcome === "fail").length;
-          return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>
+          return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC${run} &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>
 <p class="muted">jti <code>${esc(c.jti ?? "(none)")}</code> &middot; checked against ${esc(c.checkedAgainst)}</p>
 <details${fails ? " open" : ""}><summary>Rules</summary><div class="wrap"><table>${ruleRows(c.results)}</table></div></details>`;
         })

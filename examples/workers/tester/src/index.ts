@@ -1,20 +1,22 @@
 // "Test your IdP": a public, locked-down ID-JAG receiver for people building an ID-JAG issuer. A tester signs in
 // with GitHub or GitLab, registers their issuer, gets a client here for 24 hours, redeems ID-JAGs at the token endpoint, and
-// reads a rule-by-rule report next to what the real receiver (this package) decided. docs/test-your-idp.md.
+// reads a rule-by-rule report next to what the real receiver (this package) decided. docs/test-your-idp.md. Or the
+// tester runs the whole flow as the client: the tester's sign-in at their IdP, the token exchange, the redemption here.
 //
-// Routes: / (home), POST /signin, POST /signout, /register, /results, POST /delete, POST /api/auth/oauth2/token (the
-// receiver, wrapped), /mcp, the Better Auth paths a sign-in and a client need (nothing else under /api/auth), /admin/*
-// (bearer keys). While the tester is closed, only /, /admin, sign-out and /delete answer. Limits are in LIMITS.
+// Routes: / (home), POST /signin, POST /signout, /register, /results, POST /check, POST /flow/start, /flow/callback,
+// POST /delete, POST /api/auth/oauth2/token (the receiver, wrapped), /mcp, the Better Auth paths a sign-in and a client
+// need (nothing else under /api/auth), /admin/* (bearer keys). While the tester is closed, only /, /admin, sign-out and
+// /delete answer. Limits are in LIMITS.
 import { decodeBasicCredentials, encodeBasicCredentials } from "@better-auth/core/oauth2";
-import { createLocalJWKSet, jwtVerify } from "jose";
-import { checkIdJag, checkIssuerMetadata, JWT_BEARER_GRANT, type RuleResult, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
+import { createLocalJWKSet, type JSONWebKeySet, jwtVerify } from "jose";
+import { checkExchange, checkIdJag, checkIssuerMetadata, ID_JAG_TOKEN_TYPE, ID_TOKEN_TOKEN_TYPE, JWT_BEARER_GRANT, type RuleResult, TOKEN_EXCHANGE_GRANT, TRUSTED_ISSUER_MODEL } from "better-auth-id-jag";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
-import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl } from "./guard";
+import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl, postFormCapped } from "./guard";
 import { APP_JS } from "./app";
 import { CHECKED_AGAINST, LIMITS } from "./limits";
 import { LOGO_SVG } from "./logo";
-import { landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
+import { continueToIdp, landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
 import { open, seal } from "./seal";
 import * as store from "./store";
@@ -269,7 +271,7 @@ const REPORT_KEYS_MAX_AGE_MS = 300_000;
  * the registration's client secret is counted or recorded: a client id is no secret (it is in every ID-JAG), so nobody
  * else's requests can use up a tester's budget or appear in their results.
  */
-async function token(request: Request, env: Env, origin: string, ctx: ExecutionContext): Promise<Response> {
+async function token(request: Request, env: Env, origin: string, ctx: ExecutionContext, prefix: RuleResult[] = []): Promise<Response> {
   const body = await readBody(request);
   if (body === null) return oauthError(400, "invalid_request", "The request is too large.");
   const form = new URLSearchParams(body);
@@ -312,7 +314,7 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
   }
   const giveBack = () => Promise.all([store.giveBackAllowance(env.DB, allowance.registration), store.giveBackAllowance(env.DB, allowance.everyone)]);
   try {
-    return await redeem(request, env, origin, ctx, { form, body, reg, clientId, now, giveBack });
+    return await redeem(request, env, origin, ctx, { form, body, reg, clientId, now, giveBack, prefix });
   } catch (e) {
     await giveBack();
     throw e;
@@ -320,8 +322,8 @@ async function token(request: Request, env: Env, origin: string, ctx: ExecutionC
 }
 
 /** The redemption itself, once the client's secret is checked and today's allowances are taken. */
-async function redeem(request: Request, env: Env, origin: string, ctx: ExecutionContext, r: { form: URLSearchParams; body: string; reg: store.Registration; clientId: string; now: number; giveBack: () => Promise<unknown> }): Promise<Response> {
-  const { form, body, reg, clientId, now, giveBack } = r;
+async function redeem(request: Request, env: Env, origin: string, ctx: ExecutionContext, r: { form: URLSearchParams; body: string; reg: store.Registration; clientId: string; now: number; giveBack: () => Promise<unknown>; prefix: RuleResult[] }): Promise<Response> {
+  const { form, body, reg, clientId, now, giveBack, prefix } = r;
 
   // The report: every rule, with the issuer's keys (refetched at most once a minute when the kid is new).
   const assertion = form.get("assertion") ?? "";
@@ -386,7 +388,8 @@ async function redeem(request: Request, env: Env, origin: string, ctx: Execution
   const record = (status: number, error: string | null) =>
     ctx.waitUntil(
       (async () => {
-        await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: status, error, results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
+        // A run of the whole flow reports the IdP's exchange answer first (prefix), then the ID-JAG's rules.
+        await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti, httpStatus: status, error, results: JSON.stringify([...prefix, ...report.results]), checkedAgainst: CHECKED_AGAINST });
         if (status >= 500 && (await store.countServerErrors(env.DB, now - 600_000)) >= LIMITS.serverErrorsPer10Min) {
           await store.setClosed(env.DB, true, `${LIMITS.serverErrorsPer10Min} server errors in 10 minutes`, "worker", Date.now());
           console.log(JSON.stringify({ event: "tester.closed", by: "worker", reason: "server errors" }));
@@ -518,8 +521,11 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
   return results(views, s.user.name, origin);
 }
 
-/** Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's. */
-const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming"]);
+/**
+ * Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's.
+ * exchange_failed: a run of the whole flow in which the IdP issued no ID-JAG, so nothing reached the receiver.
+ */
+const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming", "exchange_failed"]);
 
 /**
  * "Check an ID-JAG": the tester redeems a pasted ID-JAG with the registration's own client, through the same token
@@ -532,12 +538,25 @@ async function checkPasted(request: Request, env: Env, origin: string, ctx: Exec
   const body = await readBody(request);
   if (body === null) return message("Too large", "That's larger than any ID-JAG.", 400);
   const form = new URLSearchParams(body);
-  const now = Date.now();
-  const reg = await store.byId(env.DB, form.get("registration") ?? "");
-  if (!reg || reg.userId !== s.user.id || reg.revokedAt !== null || reg.expiresAt <= now || !reg.clientId || !reg.clientSecretEnc) return message("Not found", "No such active registration of yours.", 404);
-  const secret = await open(env.BETTER_AUTH_SECRET, reg.clientSecretEnc);
+  const reg = await activeRegistrationOf(env, form.get("registration") ?? "", s.user.id, Date.now());
+  if (!reg) return message("Not found", "No such active registration of yours.", 404);
+  return redeemWithOwnClient(request, env, origin, reg, (form.get("assertion") ?? "").replace(/\s+/g, ""), []);
+}
+
+/** The signed-in tester's own registration, if it is active and has its client here. */
+async function activeRegistrationOf(env: Env, id: string, userId: string, now: number): Promise<store.Registration | null> {
+  const reg = await store.byId(env.DB, id);
+  return reg && reg.userId === userId && reg.revokedAt === null && reg.expiresAt > now && reg.clientId && reg.clientSecretEnc ? reg : null;
+}
+
+/**
+ * Redeems an ID-JAG with the registration's own client, through the same token endpoint (limits, report, confirmation
+ * and all), then shows the results page. `prefix`: rules reported before the ID-JAG's (a run's exchange answer).
+ */
+async function redeemWithOwnClient(request: Request, env: Env, origin: string, reg: store.Registration, assertion: string, prefix: RuleResult[]): Promise<Response> {
+  const secret = reg.clientSecretEnc ? await open(env.BETTER_AUTH_SECRET, reg.clientSecretEnc) : null;
   if (!secret) return message("Can't check", "This registration's client can't be used here. Register again.", 409);
-  const params = new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion: (form.get("assertion") ?? "").replace(/\s+/g, "") });
+  const params = new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion });
   const headers = new Headers({ "content-type": "application/x-www-form-urlencoded", "cf-connecting-ip": clientIp(request) });
   if (reg.authMethod === "client_secret_post") {
     params.set("client_id", reg.clientId);
@@ -546,13 +565,165 @@ async function checkPasted(request: Request, env: Env, origin: string, ctx: Exec
   // The report is written in the background: wait for it, so the results page shows it.
   const pending: Promise<unknown>[] = [];
   const local = { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException: () => {}, props: {} } as unknown as ExecutionContext;
-  const response = await token(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers, body: params.toString() }), env, origin, local);
+  const response = await token(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers, body: params.toString() }), env, origin, local, prefix);
   await Promise.allSettled(pending);
   if (response.status === 429 || response.status === 503) {
     const answer = (await response.json().catch(() => ({}))) as { error_description?: string };
     return message("Not checked", answer.error_description ?? "Try again in a minute.", response.status);
   }
   return redirect("/results");
+}
+
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const sha256 = async (v: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)));
+const stateHash = async (state: string) => [...(await sha256(state))].map((b) => b.toString(16).padStart(2, "0")).join("");
+/** RFC 6749 section 3.3: scope tokens separated by single spaces. */
+const SCOPE = /^[\x21\x23-\x5b\x5d-\x7e]+( [\x21\x23-\x5b\x5d-\x7e]+)*$/;
+/** What an ID token may be signed with: asymmetric algorithms only, never none or HS*. */
+const ID_TOKEN_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "Ed25519"];
+
+/** How the tester authenticates to the tester's IdP as their client: HTTP Basic, or in the form body. */
+function idpClientAuth(flow: Pick<store.FlowRow, "authMethod" | "idpClientId">, secret: string, form: URLSearchParams): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (flow.authMethod === "client_secret_post") {
+    form.set("client_id", flow.idpClientId);
+    form.set("client_secret", secret);
+  } else headers.authorization = encodeBasicCredentials(flow.idpClientId, secret);
+  return headers;
+}
+
+/**
+ * "Run the whole flow", step 1: the IdP's client at the tester's IdP (id, secret, how it authenticates), and the
+ * scope to ask for. The issuer's metadata is read again for its two endpoints; the run (its secret and PKCE verifier
+ * sealed) is kept for LIMITS.runMinutes, and the browser goes to the IdP's sign-in. docs/test-your-idp.md.
+ */
+async function flowStart(request: Request, env: Env, origin: string): Promise<Response> {
+  if (!sameOrigin(request, origin)) return message("Not allowed", "Start a run from this site's own page.", 403);
+  const s = await session(env, origin, request);
+  if (!s) return redirect("/");
+  const body = await readBody(request);
+  if (body === null) return message("Too large", "The form is too large.", 400);
+  const form = new URLSearchParams(body);
+  const now = Date.now();
+  const reg = await activeRegistrationOf(env, form.get("registration") ?? "", s.user.id, now);
+  if (!reg) return message("Not found", "No such active registration of yours.", 404);
+  const idpClientId = (form.get("client_id") ?? "").trim();
+  const idpSecret = form.get("client_secret") ?? "";
+  const authMethod = form.get("auth_method") === "client_secret_post" ? "client_secret_post" : "client_secret_basic";
+  const scope = (form.get("scope") ?? "").trim() || SCOPES.join(" ");
+  if (!idpClientId || idpClientId.length > 256 || !idpSecret || idpSecret.length > 512) return message("Not started", "Enter your IdP client's id and secret.", 400);
+  if (scope.length > 256 || !SCOPE.test(scope)) return message("Not started", "The scope must be scope names separated by single spaces (RFC 6749 section 3.3).", 400);
+
+  // The two endpoints, from the issuer's own metadata as it is now, which must still name the registered issuer.
+  const issuerUrl = new URL(reg.issuer);
+  let meta = await fetchJsonCapped(fetch, oauthMetadataUrl(issuerUrl));
+  if (!meta.ok) meta = await fetchJsonCapped(fetch, openIdConfigurationUrl(issuerUrl));
+  const m = meta.ok && isObject(meta.json) ? meta.json : null;
+  if (!m || m.issuer !== reg.issuer) return message("Not started", `Your issuer's metadata ${!meta.ok ? meta.why : "doesn't name your registered issuer"}.`, 502);
+  const authorize = checkPublicHttpsUrl(typeof m.authorization_endpoint === "string" ? m.authorization_endpoint : "");
+  const tokenEndpoint = checkPublicHttpsUrl(typeof m.token_endpoint === "string" ? m.token_endpoint : "");
+  if (!authorize.ok || !tokenEndpoint.ok) return message("Not started", `Your issuer's metadata needs an authorization_endpoint and a token_endpoint the tester can use: ${!authorize.ok ? `authorization_endpoint ${authorize.why}` : `token_endpoint ${tokenEndpoint.ok ? "" : tokenEndpoint.why}`}.`, 502);
+
+  // Today's runs, taken here and not given back: a run that never comes back still counts.
+  const day = store.utcDayStart(now);
+  if (!(await store.takeAllowance(env.DB, `run:registration:${reg.id}:${day}`, day, LIMITS.runsPerRegistrationPerDay))) return message("Not started", `At most ${LIMITS.runsPerRegistrationPerDay} runs a day per registration; more after 00:00 UTC.`, 429);
+  if (!(await store.takeAllowance(env.DB, `run:everyone:${day}`, day, LIMITS.runsPerDay))) {
+    store.bump("flow.daily_budget");
+    return message("Not started", "Today's runs are used up; more after 00:00 UTC.", 503);
+  }
+
+  const state = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  await store.insertFlow(env.DB, {
+    stateHash: await stateHash(state),
+    registrationId: reg.id,
+    userId: s.user.id,
+    tokenEndpoint: tokenEndpoint.url.href,
+    idpClientId,
+    idpSecretEnc: await seal(env.BETTER_AUTH_SECRET, idpSecret),
+    authMethod,
+    scope,
+    verifierEnc: await seal(env.BETTER_AUTH_SECRET, verifier),
+    nonce,
+    createdAt: now,
+    expiresAt: now + LIMITS.runMinutes * 60_000,
+  });
+  const to = authorize.url;
+  for (const [k, v] of Object.entries({ response_type: "code", client_id: idpClientId, redirect_uri: `${origin}/flow/callback`, scope: "openid", state, nonce, code_challenge: b64url(await sha256(verifier)), code_challenge_method: "S256" })) to.searchParams.set(k, v);
+  console.log(JSON.stringify({ event: "tester.flow_started", id: reg.id }));
+  // A page with a link, not a redirect: the pages' Content-Security-Policy allows forms to post only to this site, and
+  // browsers apply that to where a form's answer redirects.
+  return continueToIdp(to.href, to.host);
+}
+
+/** A run's message page: what stopped it, and the way back. */
+const runStopped = (text: string, status = 400) => message("The run stopped", text, status);
+
+/**
+ * "Run the whole flow", step 2: the IdP sends the browser back with a code. The tester exchanges it for an ID token
+ * (verified: issuer, audience, nonce, signature), asks the IdP for an ID-JAG by token exchange (draft -06 section
+ * 4.3), checks the answer (checkExchange), and redeems the ID-JAG here as a pasted one is. The IdP's tokens are never
+ * stored or shown; the report and the ID-JAG's jti are, as for any check.
+ */
+async function flowCallback(request: Request, env: Env, origin: string, url: URL): Promise<Response> {
+  const s = await session(env, origin, request);
+  if (!s) return redirect("/");
+  const state = url.searchParams.get("state") ?? "";
+  const now = Date.now();
+  const flow = state ? await store.takeFlow(env.DB, await stateHash(state), now) : null;
+  if (!flow || flow.userId !== s.user.id) return runStopped(`This sign-in isn't one the tester started for you, or it took longer than ${LIMITS.runMinutes} minutes. Start a run again from your results.`);
+  const reg = await activeRegistrationOf(env, flow.registrationId, s.user.id, now);
+  if (!reg) return runStopped("This run's registration has ended.", 404);
+  // RFC 9207: an iss on the way back must be the registered issuer (a mix-up with another IdP otherwise).
+  const iss = url.searchParams.get("iss");
+  if (iss !== null && iss !== reg.issuer) return runStopped(`Your IdP's answer names another issuer (iss ${iss}), not ${reg.issuer} (RFC 9207).`);
+  const error = url.searchParams.get("error");
+  if (error !== null) return runStopped(`Your IdP's sign-in answered error ${error}${url.searchParams.has("error_description") ? ` (${url.searchParams.get("error_description")})` : ""}.`);
+  const code = url.searchParams.get("code");
+  if (!code) return runStopped("Your IdP's sign-in came back without a code.");
+  const secret = await open(env.BETTER_AUTH_SECRET, flow.idpSecretEnc);
+  const verifier = await open(env.BETTER_AUTH_SECRET, flow.verifierEnc);
+  if (!secret || !verifier) return runStopped("This run can't be continued here. Start it again.", 409);
+  const userAgent = { "user-agent": `idjag-tester (${origin})` };
+
+  // The sign-in: the code for an ID token (OpenID Connect Core section 3.1.3). A precondition, not one of the rules.
+  const codeForm = new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: `${origin}/flow/callback`, code_verifier: verifier });
+  const signIn = await postFormCapped(fetch, flow.tokenEndpoint, codeForm, { ...userAgent, ...idpClientAuth(flow, secret, codeForm) });
+  if (!signIn.ok) return runStopped(`Your IdP's token endpoint ${signIn.why}.`, 502);
+  const signedIn = isObject(signIn.json) ? signIn.json : {};
+  if (signIn.status !== 200 || typeof signedIn.id_token !== "string") return runStopped(`Your IdP gave no ID token for the sign-in's code: HTTP ${signIn.status}${typeof signedIn.error === "string" ? `, error ${signedIn.error}` : ""}${typeof signedIn.error_description === "string" ? ` (${signedIn.error_description})` : ""}. Its client needs the authorization code grant and the openid scope.`);
+  const idToken = signedIn.id_token;
+  const fresh = await fetchJsonCapped(fetch, reg.jwksUri);
+  let keys: unknown = fresh.ok ? fresh.json : null;
+  if (!isJwks(keys)) {
+    try {
+      keys = JSON.parse(reg.jwks);
+    } catch {
+      keys = null;
+    }
+  }
+  if (!isJwks(keys)) return runStopped("Your issuer's JWKS couldn't be read, so the ID token couldn't be verified.", 502);
+  try {
+    const { payload } = await jwtVerify(idToken, createLocalJWKSet(keys as JSONWebKeySet), { issuer: reg.issuer, audience: flow.idpClientId, algorithms: ID_TOKEN_ALGORITHMS, clockTolerance: 60 });
+    if (payload.nonce !== flow.nonce) return runStopped("Your IdP's ID token doesn't carry the nonce the tester sent (OpenID Connect Core section 3.1.3.7).");
+  } catch (e) {
+    return runStopped(`Your IdP's ID token didn't verify (OpenID Connect Core section 3.1.3.7): ${e instanceof Error ? e.message : "invalid"}. It must be signed with a key from your JWKS, with your issuer as iss and your IdP client as aud.`);
+  }
+
+  // The token exchange (draft -06 section 4.3), and the rules for its answer.
+  const resource = `${origin}/mcp`;
+  const exchangeForm = new URLSearchParams({ grant_type: TOKEN_EXCHANGE_GRANT, requested_token_type: ID_JAG_TOKEN_TYPE, audience: `${origin}/api/auth`, resource, scope: flow.scope, subject_token: idToken, subject_token_type: ID_TOKEN_TOKEN_TYPE });
+  const exchange = await postFormCapped(fetch, flow.tokenEndpoint, exchangeForm, { ...userAgent, ...idpClientAuth(flow, secret, exchangeForm) });
+  if (!exchange.ok) return runStopped(`Your IdP's token endpoint ${exchange.why} to the token exchange.`, 502);
+  const report = checkExchange({ status: exchange.status, contentType: exchange.contentType, cacheControl: exchange.cacheControl, body: exchange.json, requestedScope: flow.scope, requestedResources: [resource] });
+  console.log(JSON.stringify({ event: "tester.flow_exchanged", id: reg.id, issued: report.idJag !== null }));
+  if (!report.idJag) {
+    // Nothing reached the receiver: the run's report is the exchange's rules alone.
+    await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: "exchange_failed", results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
+    return redirect("/results");
+  }
+  return redeemWithOwnClient(request, env, origin, reg, report.idJag, report.results);
 }
 
 /** "Delete my data now": the tester's registrations, everything they made, and the tester's own records, at once. */
@@ -659,6 +830,8 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
   if (path === "/register" && (request.method === "GET" || request.method === "POST")) return register(request, env, origin);
   if (path === "/results" && request.method === "GET") return resultsPage(request, env, origin);
   if (path === "/check" && request.method === "POST") return checkPasted(request, env, origin, ctx);
+  if (path === "/flow/start" && request.method === "POST") return flowStart(request, env, origin);
+  if (path === "/flow/callback" && request.method === "GET") return flowCallback(request, env, origin, url);
   if (path === "/mcp") return mcpEndpoint(request, env, origin);
   if (path === "/api/auth/oauth2/token" && request.method === "POST") return token(request, env, origin, ctx);
   if (request.method === "GET" && (AUTH_GET.test(path) || path.startsWith("/.well-known/"))) return authFor(env, origin).handler(request);

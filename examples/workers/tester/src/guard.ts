@@ -1,6 +1,7 @@
-// The only outbound requests the tester makes are to a tester's own issuer: its metadata and its JWKS. This keeps
-// them to public https hosts, small answers, a short timeout, and no redirects, so the tester can't be pointed at
-// arbitrary places or made to download much. (Workers can't reach private networks anyway; this is the rest.)
+// The only outbound requests the tester makes are to a tester's own issuer: its metadata and its JWKS, and in a run
+// of the whole flow its token endpoint, named by that metadata. This keeps them to public https hosts, small answers,
+// a short timeout, and no redirects, so the tester can't be pointed at arbitrary places or made to download much.
+// (Workers can't reach private networks anyway; this is the rest.)
 
 const MAX_URL_LENGTH = 512;
 /** Names that never resolve on the public internet, or that we'd rather not call. */
@@ -57,35 +58,71 @@ export async function fetchJsonCapped(fetchImpl: FetchLike, raw: string, { maxBy
     const response = await fetchImpl(check.url.href, { method: "GET", redirect: "manual", signal, headers: { accept: "application/json" } });
     if (response.status >= 300 && response.status < 400) return { ok: false, why: `answered ${response.status} (a redirect, which the tester doesn't follow)` };
     if (!response.ok) return { ok: false, why: `answered HTTP ${response.status}` };
-    const declared = Number(response.headers.get("content-length") ?? "0");
-    if (declared > maxBytes) return { ok: false, why: `is larger than ${maxBytes} bytes` };
-    const reader = response.body?.getReader();
-    if (!reader) return { ok: false, why: "sent no body" };
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel();
-        return { ok: false, why: `is larger than ${maxBytes} bytes` };
-      }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const c of chunks) {
-      bytes.set(c, offset);
-      offset += c.byteLength;
-    }
+    const text = await readCapped(response, maxBytes);
+    if (text === null) return { ok: false, why: `is larger than ${maxBytes} bytes` };
+    if (text === undefined) return { ok: false, why: "sent no body" };
     try {
-      return { ok: true, json: JSON.parse(new TextDecoder().decode(bytes)) };
+      return { ok: true, json: JSON.parse(text) };
     } catch {
       return { ok: false, why: "is not JSON" };
     }
   } catch {
     return { ok: false, why: signal.aborted ? `didn't answer within ${timeoutMs} ms` : "couldn't be fetched" };
+  }
+}
+
+/** A response's body as text, read up to `maxBytes`: null when it is larger, undefined when there is none. */
+async function readCapped(response: Response, maxBytes: number): Promise<string | null | undefined> {
+  if (Number(response.headers.get("content-length") ?? "0") > maxBytes) return null;
+  const reader = response.body?.getReader();
+  if (!reader) return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/** A token endpoint's answer: its status, the two headers the rules read, and its body as JSON (undefined if it isn't). */
+export type FormPost = { ok: true; status: number; contentType: string | null; cacheControl: string | null; json: unknown } | { ok: false; why: string };
+
+/**
+ * POSTs a form to a token endpoint through the guard: at most `maxBytes` back, within `timeoutMs`, no redirects. Any
+ * status is an answer (an OAuth error is one); only a refused URL, a redirect, a timeout or a body too large isn't.
+ * Never throws.
+ */
+export async function postFormCapped(fetchImpl: FetchLike, raw: string, form: URLSearchParams, headers: Record<string, string>, { maxBytes = 65_536, timeoutMs = 5_000 } = {}): Promise<FormPost> {
+  const check = checkPublicHttpsUrl(raw);
+  if (!check.ok) return { ok: false, why: `the URL ${check.why}` };
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    const response = await fetchImpl(check.url.href, { method: "POST", redirect: "manual", signal, headers: { ...headers, accept: "application/json", "content-type": "application/x-www-form-urlencoded" }, body: form.toString() });
+    if (response.status >= 300 && response.status < 400) return { ok: false, why: `answered ${response.status} (a redirect, which the tester doesn't follow)` };
+    const text = await readCapped(response, maxBytes);
+    if (text === null) return { ok: false, why: `answered with more than ${maxBytes} bytes` };
+    let json: unknown;
+    try {
+      json = text === undefined ? undefined : JSON.parse(text);
+    } catch {
+      json = undefined;
+    }
+    return { ok: true, status: response.status, contentType: response.headers.get("content-type"), cacheControl: response.headers.get("cache-control"), json };
+  } catch {
+    return { ok: false, why: signal.aborted ? `didn't answer within ${timeoutMs} ms` : "couldn't be reached" };
   }
 }
 

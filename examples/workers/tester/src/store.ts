@@ -54,6 +54,38 @@ export interface CheckRow {
   checkedAgainst: string;
 }
 
+/** A run of the whole flow, between /flow/start and /flow/callback (migrations/0005_flow.sql). */
+export interface FlowRow {
+  /** SHA-256 of the state sent to the IdP, hex: the state itself is never stored. */
+  stateHash: string;
+  registrationId: string;
+  userId: string;
+  tokenEndpoint: string;
+  idpClientId: string;
+  /** The IdP client's secret, sealed (seal.ts), for this run only. */
+  idpSecretEnc: string;
+  authMethod: string;
+  scope: string;
+  /** The PKCE code verifier, sealed. */
+  verifierEnc: string;
+  nonce: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export async function insertFlow(db: D1Database, f: FlowRow): Promise<void> {
+  await db
+    .prepare(`insert into testerFlow (stateHash, registrationId, userId, tokenEndpoint, idpClientId, idpSecretEnc, authMethod, scope, verifierEnc, nonce, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(f.stateHash, f.registrationId, f.userId, f.tokenEndpoint, f.idpClientId, f.idpSecretEnc, f.authMethod, f.scope, f.verifierEnc, f.nonce, f.createdAt, f.expiresAt)
+    .run();
+}
+
+/** Takes a run: deletes its row and returns it, so a state works once. Null when there is none or it has expired. */
+export async function takeFlow(db: D1Database, stateHash: string, now: number): Promise<FlowRow | null> {
+  const row = await db.prepare(`delete from testerFlow where stateHash = ? returning *`).bind(stateHash).first<FlowRow>();
+  return row && row.expiresAt > now ? row : null;
+}
+
 export const DAY_MS = 86_400_000;
 /** The start of the current UTC day: daily limits reset then. */
 export const utcDayStart = (now: number) => now - (now % DAY_MS);
@@ -296,7 +328,8 @@ export async function stats(db: D1Database, now: number) {
 async function purgeRegistration(db: D1Database, r: Pick<Registration, "id" | "clientId" | "trustRowId" | "revokedReason">): Promise<void> {
   const sandbox = `%@${r.id}.sandbox.invalid`;
   await db.batch([
-    db.prepare(`update testerAbuse set redemptions = (select count(*) from testerCheck where registrationId = ?), refusals = (select count(*) from testerCheck where registrationId = ? and httpStatus <> 200), ended = ? where id = ?`).bind(r.id, r.id, r.revokedReason ? r.revokedReason.slice(0, 100) : "expired", r.id),
+    // The receiver's answers only: httpStatus 0 is a run of the whole flow in which the IdP issued no ID-JAG.
+    db.prepare(`update testerAbuse set redemptions = (select count(*) from testerCheck where registrationId = ? and httpStatus <> 0), refusals = (select count(*) from testerCheck where registrationId = ? and httpStatus not in (0, 200)), ended = ? where id = ?`).bind(r.id, r.id, r.revokedReason ? r.revokedReason.slice(0, 100) : "expired", r.id),
     db.prepare(`delete from "idJagTrustedIssuer" where id = ?`).bind(r.trustRowId),
     db.prepare(`delete from "oauthClient" where clientId = ?`).bind(r.clientId),
     db.prepare(`delete from "session" where userId in (select id from "user" where email like ?)`).bind(sandbox),
@@ -305,6 +338,7 @@ async function purgeRegistration(db: D1Database, r: Pick<Registration, "id" | "c
     db.prepare(`delete from "idJagAudit" where clientId = ?`).bind(r.clientId),
     db.prepare(`delete from "idJagJti" where clientId = ?`).bind(r.clientId),
     db.prepare(`delete from testerCheck where registrationId = ?`).bind(r.id),
+    db.prepare(`delete from testerFlow where registrationId = ?`).bind(r.id),
     db.prepare(`delete from testerRegistration where id = ?`).bind(r.id),
   ]);
 }
@@ -345,6 +379,8 @@ export async function purge(db: D1Database, now: number, issuer?: string): Promi
     // Reports whose registration is gone (written as it was deleted, before insertCheck checked): never kept.
     db.prepare(`delete from testerCheck where registrationId not in (select id from testerRegistration)`),
     db.prepare(`delete from testerAllowance where day < ?`).bind(now - 2 * 86_400_000),
+    // Runs of the whole flow nobody came back from: their sealed secrets go with them.
+    db.prepare(`delete from testerFlow where expiresAt <= ?`).bind(now),
   ]);
   return ended.length;
 }
@@ -360,6 +396,7 @@ export async function deleteTester(db: D1Database, userId: string, now: number):
     await purgeRegistration(db, { ...r, revokedReason: "deleted by the tester" });
   }
   await db.batch([
+    db.prepare(`delete from testerFlow where userId = ?`).bind(userId),
     db.prepare(`delete from "oauthClient" where userId = ?`).bind(userId),
     db.prepare(`delete from "session" where userId = ?`).bind(userId),
     db.prepare(`delete from "account" where userId = ?`).bind(userId),
