@@ -39,7 +39,7 @@ As of 2026-11-12, listed on oauth.net's [Cross-App Access page](https://oauth.ne
 - **Agent delegation**: an `act` claim (RFC 8693, as Okta sends to name the AI agent) is accepted and carried into the access token, and the issuer can send one for the clients your policy says are agents.
 - **Audit trail**: `onIssued`, `onRefreshIssued`, `onAccepted`, `onRefused` and `onAdminChanged` events, and an optional audit table with retention, including the provider's own client-authentication refusals.
 - **Testing**: the suite runs on Node and in workerd with D1; property-based tests; and a weekly mutation run that fails CI when a security check can be removed without a test noticing.
-- **A public tester for IdP builders**: register your ID-JAG issuer at [idjag-tester.infowall.net](https://idjag-tester.infowall.net), paste an ID-JAG it minted, and see every rule it passed or failed, each with its source in the draft or an RFC, beside this receiver's own decision ([docs/test-your-idp.md](docs/test-your-idp.md)).
+- **A public tester for IdP builders**: register your ID-JAG issuer at [idjag-tester.infowall.net](https://idjag-tester.infowall.net), paste an ID-JAG it minted or let the tester run the whole flow as the client, and see every rule it passed or failed, each with its source in the draft or an RFC, beside this receiver's own decision; in a run, your IdP's answer to the token exchange too ([docs/test-your-idp.md](docs/test-your-idp.md)).
 - **Runs where your app runs**: a Better Auth plugin, not a separate server. Only `fetch` and Web APIs; the receiver's single outbound request (JWKS and discovery) goes through a `fetch` you can replace, for example with a Workers service binding.
 
 ## Contents
@@ -381,7 +381,25 @@ const { results } = await checkIdJag(token, {
 for (const r of results) if (r.outcome === "fail") console.log(r.id, r.level, r.cite, r.message);
 ```
 
-Each result has an `id` (such as `claim.client_id` or `signature`), a `level` (`MUST`, `SHOULD`, `RECOMMENDED`, `OPTIONAL`, or `POLICY` for this receiver's own choices, which the draft allows), its source (`cite`: a section of draft -06 or an RFC), an `outcome` (`pass`, `fail`, `warn`, `info` or `skip`) and a message. `checkIssuerMetadata({ issuer, source, metadata, jwks })` checks an IdP's metadata and keys the same way; its `blocking` lists the rules that would stop a receiver from using them. Given arguments of the types they declare, neither throws, whatever the token, metadata or keys contain. A rule's id, level and source are part of the API; its message wording isn't ([docs/versioning.md](docs/versioning.md)).
+Each result has an `id` (such as `claim.client_id` or `signature`), a `level` (`MUST`, `SHOULD`, `RECOMMENDED`, `OPTIONAL`, or `POLICY` for this receiver's own choices, which the draft allows), its source (`cite`: a section of draft -06 or an RFC), an `outcome` (`pass`, `fail`, `warn`, `info` or `skip`) and a message. `checkIssuerMetadata({ issuer, source, metadata, jwks })` checks an IdP's metadata and keys the same way; its `blocking` lists the rules that would stop a receiver from using them.
+
+`checkExchange` checks an IdP's answer to the token exchange that asks for an ID-JAG (draft -06 section 4.3.4), for code that plays the client: the status and JSON, `issued_token_type`, `token_type`, `scope`, `expires_in`, no `refresh_token`, `Cache-Control: no-store`, and each resource exactly as sent. It returns the ID-JAG, for `checkIdJag`, and for a refusal the IdP's OAuth error:
+
+```ts
+import { checkExchange } from "better-auth-id-jag";
+
+const response = await fetch(tokenEndpoint, { method: "POST", headers, body: exchangeRequest });
+const { results, idJag, error } = checkExchange({
+  status: response.status,
+  contentType: response.headers.get("content-type"),
+  cacheControl: response.headers.get("cache-control"),
+  body: await response.json().catch(() => undefined),
+  requestedScope: "read",                                // the scope sent, if any
+  requestedResources: ["https://mcp.example.com/mcp"],   // the resource values sent
+});
+```
+
+Given arguments of the types they declare, none of the three throws, whatever the token, answer, metadata or keys contain. A rule's id, level and source are part of the API; its message wording isn't ([docs/versioning.md](docs/versioning.md)).
 
 ## Database tables
 
@@ -535,7 +553,7 @@ Each row's date, version, how it was run (with the commands, for the tests in `t
 
 ## Test your IdP
 
-Building an ID-JAG issuer of your own? **[idjag-tester.infowall.net](https://idjag-tester.infowall.net)** is a public receiver running this package. Sign in with GitHub or GitLab, register your issuer, and paste an ID-JAG your IdP minted. It shows every rule the ID-JAG passed or failed, each with the section of draft -06 or the RFC it comes from, beside this receiver's own decision. A registration, and everything personal, is deleted within a day; an anonymous abuse record of fingerprints lasts 7 days. The rules, what it doesn't check, its limits and exactly what it keeps: [docs/test-your-idp.md](docs/test-your-idp.md). The tester is itself an example you can run: [examples/workers/tester](examples/workers/tester). To run the same rules in your IdP's CI, use the [id-jag-check](https://github.com/marketplace/actions/id-jag-check) GitHub Action.
+Building an ID-JAG issuer of your own? **[idjag-tester.infowall.net](https://idjag-tester.infowall.net)** is a public receiver running this package. Sign in with GitHub or GitLab, register your issuer, and paste an ID-JAG your IdP minted, or give the tester a client at your IdP and let it run the whole flow as the client: your sign-in there, the token exchange, and the redemption. It shows every rule the ID-JAG passed or failed, each with the section of draft -06 or the RFC it comes from, beside this receiver's own decision; in a run, also the rules for your IdP's answer and, if you ask, whether it refuses seven requests it must refuse. A registration, and everything personal, is deleted within a day; an anonymous abuse record of fingerprints lasts 7 days. The rules, what it doesn't check, its limits and exactly what it keeps: [docs/test-your-idp.md](docs/test-your-idp.md). The tester is itself an example you can run: [examples/workers/tester](examples/workers/tester). To run the same rules in your IdP's CI, use the [id-jag-check](https://github.com/marketplace/actions/id-jag-check) GitHub Action.
 
 ## Examples
 

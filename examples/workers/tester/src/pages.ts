@@ -102,7 +102,7 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
     `<h1><img src="/logo.svg" alt="" width="40" height="40" style="vertical-align:middle;margin-right:10px">Test your IdP</h1>
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
-<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint. The first one signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint, or let the tester run the whole flow with a client at your IdP. The first ID-JAG signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
 ${signInFailed ? '<p class="fail">The sign-in didn\'t complete. Try again.</p>' : ""}
 ${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
 ${FOOTER}`,

@@ -35,6 +35,10 @@
 
 ### Documentation
 
+- **The tester's run of the whole flow, documented.** docs/test-your-idp.md: how to set up a client at your IdP
+  for the tester and run it, the `exchange.*` and `probe.*` rules in the rules tables (the doc test checks them
+  against the code), what a run still doesn't check, its limits, and what it keeps (for 10 minutes at most) and never
+  keeps. README: the tester's run, and `checkExchange` beside `checkIdJag`.
 - **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
   builders to the tester, and the section to the id-jag-check Action for their CI; "Examples" covers its three
   Workers; Interoperability has VS Code 1.145.0 through to `tools/call` and both Claude Code rows.
