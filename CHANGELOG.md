@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Security
+
+- **The receiver refuses the SCIM step on a database without native transactions** (D-073): every ID-JAG whose trust
+  entry has `scim` is refused (`subject_unavailable`, with `scim.required: false` too), and startup logs an error
+  when `scim.acquireActiveSCIMUserLink` is set. Without a native transaction the lookup can't detect a concurrent
+  deprovisioning. `@better-auth/scim` refused to start on such a database (Cloudflare D1, for one) until 1.7.21,
+  which starts and answers its own SCIM routes with 501 (better-auth/better-auth#12413); its
+  `acquireActiveSCIMUserLink` doesn't check, so the receiver now does.
+
 ### Documentation
 
 - **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
