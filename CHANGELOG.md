@@ -25,6 +25,10 @@
   does a pasted one. One report holds the answer's rules and the ID-JAG's. The IdP client's secret is kept, sealed,
   only for the run (at most 10 minutes); the IdP's tokens are never stored. At most 10 runs a day per registration,
   and 100 across the tester. Migration `0005_flow.sql` adds the runs' table.
+- **The tester's refusal probes** (opt-in, D-076): with "Run the whole flow", seven token exchanges with one thing
+  wrong each (no client authentication, two audiences, an untrusted audience, a foreign resource, an access token, an
+  ID-JAG or a mislabelled ID token as the subject token), each graded `probe.*` on the IdP's refusal and its error code
+  (draft -06 sections 4.3.3, 4.3.4.3).
 
 ### Documentation
 

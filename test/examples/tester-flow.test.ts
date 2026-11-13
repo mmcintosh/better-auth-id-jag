@@ -2,13 +2,14 @@
 // the tester plays the client against an IdP stubbed at fetch, which checks what a real one must (client
 // authentication, PKCE, the redirect URI) and can be told to answer badly. A run signs in, exchanges the ID token for
 // an ID-JAG, checks the answer (checkExchange) and redeems the ID-JAG at the real receiver.
-import { exportJWK, generateKeyPair, SignJWT } from "jose";
+import { createLocalJWKSet, exportJWK, generateKeyPair, type JSONWebKeySet, jwtVerify, SignJWT } from "jose";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import init0001 from "../../examples/workers/tester/migrations/0001_init.sql?raw";
 import init0002 from "../../examples/workers/tester/migrations/0002_tester.sql?raw";
 import init0003 from "../../examples/workers/tester/migrations/0003_client_secret.sql?raw";
 import init0004 from "../../examples/workers/tester/migrations/0004_allowance.sql?raw";
 import init0005 from "../../examples/workers/tester/migrations/0005_flow.sql?raw";
+import { PROBES } from "../../examples/workers/tester/src/probes";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const ORIGIN = "https://tester.example.net";
@@ -21,7 +22,9 @@ const IDP_CLIENT = "idp-client";
 // Characters that HTTP Basic must form-encode (RFC 6749 section 2.3.1).
 const IDP_SECRET = "idp secret+/:%";
 
-type Mode = "good" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token";
+// good: an IdP that refuses what it must, with the draft's codes. lax: accepts any exchange. wrong-codes: refuses
+// what it must, always with invalid_grant.
+type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token";
 
 describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   let env: Record<string, unknown> & { DB: Cloudflare.Env["DB"] };
@@ -58,7 +61,9 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     const form = new URLSearchParams(await request.text());
     const authorization = request.headers.get("authorization");
     idp.requests.push({ grant: form.get("grant_type"), form, authorization, userAgent: request.headers.get("user-agent") });
-    if (!authenticated(form, authorization)) return Response.json({ error: "invalid_client" }, { status: 401 });
+    const exchanging = form.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange";
+    const refuse = (error: string, status = 400) => Response.json({ error: idp.mode === "wrong-codes" ? "invalid_grant" : error }, { status: idp.mode === "wrong-codes" ? 400 : status, headers: { "cache-control": "no-store" } });
+    if (!authenticated(form, authorization) && !(exchanging && idp.mode === "lax")) return refuse("invalid_client", 401);
     if (form.get("grant_type") === "authorization_code") {
       const issued = idp.codes.get(form.get("code") ?? "");
       idp.codes.delete(form.get("code") ?? "");
@@ -71,6 +76,21 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     }
     if (form.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange") {
       if (idp.mode === "refuse") return Response.json({ error: "access_denied", error_description: "not assigned" }, { status: 400, headers: { "cache-control": "no-store" } });
+      if (idp.mode !== "lax") {
+        // What an IdP must check (draft -06 section 4.3.3): one audience it trusts, resources it governs, and a subject
+        // token that is an ID token it issued to this client (signed by it, no typ, aud the client).
+        const audiences = form.getAll("audience");
+        if (audiences.length !== 1) return refuse("invalid_request");
+        if (audiences[0] !== `${ORIGIN}/api/auth`) return refuse("invalid_target");
+        if (form.getAll("resource").some((r) => r !== `${ORIGIN}/mcp`)) return refuse("invalid_target");
+        if (form.get("subject_token_type") !== "urn:ietf:params:oauth:token-type:id_token") return refuse("invalid_request");
+        try {
+          const { protectedHeader } = await jwtVerify(form.get("subject_token") ?? "", createLocalJWKSet(jwks as JSONWebKeySet), { issuer, audience: IDP_CLIENT });
+          if (protectedHeader.typ !== undefined) return refuse("invalid_request");
+        } catch {
+          return refuse("invalid_request");
+        }
+      }
       const resource = form.get("resource") ?? "";
       const idJag = await sign({ iss: issuer, sub: "u1", aud: form.get("audience"), client_id: idp.testerClientIds.get(issuer), jti: crypto.randomUUID(), iat: now(), exp: now() + 300, resource: idp.mode === "resource-normalised" ? `${resource}/` : resource, scope: form.get("scope"), email: "u1@idp.example.org" }, "oauth-id-jag+jwt");
       return Response.json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: idJag, token_type: "N_A", expires_in: 300 }, { headers: idp.mode === "no-store-missing" ? {} : { "cache-control": "no-store" } });
@@ -329,5 +349,55 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(await rows(`select 1 from testerFlow where registrationId = ?`, kept.registrationId)).toHaveLength(1);
     await post("/delete", kept.cookie, {});
     expect(await rows(`select 1 from testerFlow where userId = ?`, kept.userId)).toEqual([]);
+  });
+
+  /** A run with the refusal probes; the outcome of each probe.* rule. */
+  const probeRun = async (login: string, mode: Mode) => {
+    const t = await registeredTester(login);
+    idp.mode = mode;
+    const { to } = await start(t, { probes: "1" });
+    if (!to) throw new Error("no link");
+    expect((await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" })).status).toBe(302);
+    const check = await lastCheck(t.registrationId);
+    const probes = Object.fromEntries(Object.entries(outcomes(check)).filter(([id]) => id.startsWith("probe.")));
+    return { t, check, probes };
+  };
+
+  it("probes, asked for: a careful IdP refuses each with the draft's code; the run is redeemed as usual", async () => {
+    const { check, probes } = await probeRun("careful", "good");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "pass"])));
+    expect(check?.httpStatus).toBe(200);
+    // The code exchange, the good exchange, then the seven probes, in order; the first without the client's credentials.
+    expect(idp.requests).toHaveLength(9);
+    expect(idp.requests[2]?.authorization).toBeNull();
+    expect(idp.requests[2]?.form.has("client_secret")).toBe(false);
+    expect(idp.requests[3]?.form.getAll("audience")).toHaveLength(2);
+    // In the report: the exchange's rules, then the probes', then the ID-JAG's.
+    const ids = (JSON.parse(check?.results ?? "[]") as { id: string }[]).map((r) => r.id);
+    expect(ids.indexOf("exchange.resource_echo")).toBeLessThan(ids.indexOf("probe.no_client_auth"));
+    expect(ids.indexOf("probe.wrong_subject_type")).toBeLessThan(ids.indexOf("jwt.structure"));
+  });
+
+  it("probes: an IdP that accepts them fails each one", async () => {
+    const { probes } = await probeRun("lax", "lax");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "fail"])));
+  });
+
+  it("probes: a refusal with another code fails where the draft names the code, and warns where it only profiles one", async () => {
+    const { probes } = await probeRun("codes", "wrong-codes");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, p.codeRequired ? "fail" : "warn"])));
+  });
+
+  it("probes: only when asked for, and the ID-JAG one skipped when the IdP issued none", async () => {
+    const { probes } = await probeRun("refusing", "refuse");
+    expect(probes["probe.id_jag_as_id_token"]).toBe("skip");
+    expect(Object.keys(probes)).toHaveLength(7);
+    idp.requests.length = 0;
+    idp.mode = "good";
+    const t = await registeredTester("unasked");
+    const { to } = await start(t);
+    if (!to) throw new Error("no link");
+    await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+    expect(idp.requests).toHaveLength(2);
   });
 });

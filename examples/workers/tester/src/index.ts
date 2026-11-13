@@ -18,6 +18,7 @@ import { CHECKED_AGAINST, LIMITS } from "./limits";
 import { LOGO_SVG } from "./logo";
 import { continueToIdp, landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
+import { gradeProbe, type ProbeContext, PROBES } from "./probes";
 import { open, seal } from "./seal";
 import * as store from "./store";
 
@@ -646,6 +647,7 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
     scope,
     verifierEnc: await seal(env.BETTER_AUTH_SECRET, verifier),
     nonce,
+    probes: form.get("probes") === "1" ? 1 : 0,
     createdAt: now,
     expiresAt: now + LIMITS.runMinutes * 60_000,
   });
@@ -718,12 +720,28 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   if (!exchange.ok) return runStopped(`Your IdP's token endpoint ${exchange.why} to the token exchange.`, 502);
   const report = checkExchange({ status: exchange.status, contentType: exchange.contentType, cacheControl: exchange.cacheControl, body: exchange.json, requestedScope: flow.scope, requestedResources: [resource] });
   console.log(JSON.stringify({ event: "tester.flow_exchanged", id: reg.id, issued: report.idJag !== null }));
+
+  // The refusal probes, if asked for: one at a time, each a token exchange with one thing wrong.
+  const probed: RuleResult[] = [];
+  if (flow.probes === 1) {
+    const context: ProbeContext = { audience: `${origin}/api/auth`, resource, scope: flow.scope, idToken, accessToken: typeof signedIn.access_token === "string" ? signedIn.access_token : undefined, idJag: report.idJag, untrustedAudience: `${origin}/probe/never-trusted`, foreignResource: "https://example.com/not-the-tester" };
+    for (const probe of PROBES) {
+      const probeForm = probe.form(context);
+      if (!probeForm) {
+        probed.push(gradeProbe(probe, null));
+        continue;
+      }
+      const answer = await postFormCapped(fetch, flow.tokenEndpoint, probeForm, probe.anonymous ? userAgent : { ...userAgent, ...idpClientAuth(flow, secret, probeForm) });
+      probed.push(gradeProbe(probe, answer.ok ? { ok: true, status: answer.status, json: answer.json } : answer));
+    }
+  }
+  const before = [...report.results, ...probed];
   if (!report.idJag) {
-    // Nothing reached the receiver: the run's report is the exchange's rules alone.
-    await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: "exchange_failed", results: JSON.stringify(report.results), checkedAgainst: CHECKED_AGAINST });
+    // Nothing reached the receiver: the run's report is the exchange's rules (and the probes') alone.
+    await store.insertCheck(env.DB, { id: newId(), registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: "exchange_failed", results: JSON.stringify(before), checkedAgainst: CHECKED_AGAINST });
     return redirect("/results");
   }
-  return redeemWithOwnClient(request, env, origin, reg, report.idJag, report.results);
+  return redeemWithOwnClient(request, env, origin, reg, report.idJag, before);
 }
 
 /** "Delete my data now": the tester's registrations, everything they made, and the tester's own records, at once. */

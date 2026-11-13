@@ -69,14 +69,16 @@ export interface FlowRow {
   /** The PKCE code verifier, sealed. */
   verifierEnc: string;
   nonce: string;
+  /** 1: send the refusal probes (src/probes.ts) too. */
+  probes: number;
   createdAt: number;
   expiresAt: number;
 }
 
 export async function insertFlow(db: D1Database, f: FlowRow): Promise<void> {
   await db
-    .prepare(`insert into testerFlow (stateHash, registrationId, userId, tokenEndpoint, idpClientId, idpSecretEnc, authMethod, scope, verifierEnc, nonce, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(f.stateHash, f.registrationId, f.userId, f.tokenEndpoint, f.idpClientId, f.idpSecretEnc, f.authMethod, f.scope, f.verifierEnc, f.nonce, f.createdAt, f.expiresAt)
+    .prepare(`insert into testerFlow (stateHash, registrationId, userId, tokenEndpoint, idpClientId, idpSecretEnc, authMethod, scope, verifierEnc, nonce, probes, createdAt, expiresAt) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(f.stateHash, f.registrationId, f.userId, f.tokenEndpoint, f.idpClientId, f.idpSecretEnc, f.authMethod, f.scope, f.verifierEnc, f.nonce, f.probes, f.createdAt, f.expiresAt)
     .run();
 }
 

@@ -1726,3 +1726,28 @@ and the redemption here, in one run. That also shows the IdP's side of the excha
   failing beside an accepted redemption, failed sign-ins, the start's checks, the limit, and the clean-up. 17 entries
   in `test/mutations/tester.json` (run in workerd: `scripts/mutate.py` takes `"project": "workerd"`), all caught.
   The tester's existing tests apply migration 0005 too. The suite has 1206 passed and 176 skipped.
+
+## D-076: the tester's refusal probes (2026-11-13)
+
+A run of the whole flow (D-075) can also send seven token exchanges with one thing wrong each, which the IdP must
+refuse (draft -06 section 4.3.3). Opt-in, by a checkbox that says they may appear in the IdP's security logs; sent one
+at a time after the good exchange and before the redemption; each request carries the tester's `User-Agent`.
+
+- **The seven, `probe.*` (examples/workers/tester/src/probes.ts):** `no_client_auth` (expects `invalid_client`),
+  `two_audiences` (`invalid_request`), `unknown_audience` (`invalid_target`: an audience under the tester's origin that
+  no IdP trusts), `resource_not_governed` (`invalid_target`: only `https://example.com/not-the-tester`),
+  `access_token_as_id_token`, `id_jag_as_id_token` and `wrong_subject_type` (the ID token sent as `saml2`), the last
+  three profiled `invalid_request`.
+- **Grading:** an accepted probe (2xx) fails. A refusal with the expected code passes. A refusal with another code
+  fails where section 4.3.3 names the code for that case (the first four), and is a warn where the draft only profiles
+  one (the last three: section 4.3.4.3, "Any OAuth error code MAY be returned"). A probe the run has nothing for (no
+  access token from the sign-in, no ID-JAG from the exchange) is skipped, as is one whose answer couldn't be read.
+- **`resource_not_governed` is a MUST, not a SHOULD:** "SHOULD respond with invalid_target if any requested resource
+  is not governed" covers a request mixing good and foreign resources; this one asks only for a foreign resource, so
+  the IdP grants none, and "MUST respond with invalid_target if it grants none of them" applies.
+- **Not probed:** an ID token issued to another client (needs a second client at the IdP), an expired ID token,
+  SAML subject tokens, `authorization_details`, `actor_token`, DPoP.
+- **Evidence:** `test/examples/tester-flow.test.ts` against three stub IdPs: one that refuses what it must (every
+  probe passes), one that accepts anything (every probe fails), one that always answers `invalid_grant` (the four
+  named codes fail, the three profiled ones warn); the probes only when asked for; the ID-JAG probe skipped when the
+  IdP issued none. 8 more entries in `test/mutations/tester.json`, all caught.
