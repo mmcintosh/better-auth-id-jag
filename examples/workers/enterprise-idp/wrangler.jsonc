@@ -13,7 +13,9 @@
     "MCP_AS_ISSUER": "https://id-jag-example-mcp.REPLACE.workers.dev/api/auth",
     "MCP_RESOURCE": "https://id-jag-example-mcp.REPLACE.workers.dev/mcp",
     // Whose agents may get the write scope (comma-separated emails); everyone gets read.
-    "WRITERS": "agent-user@example.com"
+    "WRITERS": "agent-user@example.com",
+    "TESTER_AS_ISSUER": "https://idjag-tester.infowall.net/api/auth",
+    "TESTER_RESOURCE": "https://idjag-tester.infowall.net/mcp"
   }
   // Secrets: BETTER_AUTH_SECRET, SETUP_KEY (`wrangler secret put`).
 }
