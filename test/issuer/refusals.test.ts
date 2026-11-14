@@ -156,6 +156,16 @@ describe("refusals: the client (S5)", () => {
     await refused(host, await exchange(host, null, confidential, { client_id: client.client_id }), "public_client", "invalid_client");
   });
 
+  it("no client authentication at all (nothing names a client): invalid_client, 401 with a Basic challenge (draft -06 section 4.3.3)", async () => {
+    const host = await createIssuerHost({ issuer: { authorize: allow } });
+    const { idToken } = await setup(host);
+    await host.settle();
+    takeReasons(host);
+    const r = await exchange(host, null, idToken);
+    await refused(host, r, "client_authentication_failed", "invalid_client");
+    expect(r.headers.get("www-authenticate")).toMatch(/^Basic /);
+  });
+
   it("refusals before client authentication say authenticated: false and aren't stored; after it, true and stored", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allow, auditLog: { retentionDays: 1 } } });
     const { client, idToken } = await setup(host);

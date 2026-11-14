@@ -172,6 +172,9 @@ export async function handleTokenExchange(input: OAuthExtensionGrantHandlerInput
     } catch (e) {
       if (isAPIError(e) && (e.body as { error?: string } | undefined)?.error === "invalid_client" && !hasClientCredentials(ctx, form) && claimed !== undefined)
         throw new IdJagRefusal("public_client", "no client credentials");
+      // No client authentication at all, nothing naming a client: the provider answers invalid_request (no client_id),
+      // but draft -06 section 4.3.3 says a request without client authentication MUST get invalid_client (D-078).
+      if (isAPIError(e) && !hasClientCredentials(ctx, form) && claimed === undefined) throw new IdJagRefusal("client_authentication_failed", "no client authentication");
       throw e;
     }
     const client = authenticated.client;

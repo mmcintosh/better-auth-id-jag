@@ -11,6 +11,13 @@
   which starts and answers its own SCIM routes with 501 (better-auth/better-auth#12413); its
   `acquireActiveSCIMUserLink` doesn't check, so the receiver now does.
 
+### Fixed
+
+- **The issuer answers a token exchange without any client authentication with `invalid_client`** (D-078), as draft
+  -06 section 4.3.3 says it MUST: HTTP 401 with a Basic challenge, reason `client_authentication_failed`. A request
+  that named no client at all (no `client_id`, no credentials) got Better Auth's `invalid_request` ("Missing required
+  client_id"). A `client_id` without a secret was already `invalid_client` (`public_client`).
+
 ### Documentation
 
 - **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
