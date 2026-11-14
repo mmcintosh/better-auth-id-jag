@@ -1779,3 +1779,19 @@ tokens, so an IdP builder may want to know whether theirs does; section 4.3.2 is
 - **Evidence:** `test/examples/tester-flow.test.ts`: supported (the third exchange carries the refresh token type,
   and no refresh token is in the database), not supported (`unsupported_token_type` in the message), and not asked
   for (no `offline_access`, no rule). 3 more entries in `test/mutations/tester.json`, all caught.
+
+## D-078: a token exchange without client authentication gets `invalid_client` (2026-11-13)
+
+Draft -06 section 4.3.3: "The IdP MUST authenticate the Client, and MUST reject a request without client
+authentication with invalid_client (Section 5.2 of [RFC6749])." A request that named a client without its secret
+was refused so (`public_client`, S5). One that named no client at all wasn't: Better Auth's oauth-provider (1.7.22,
+`authenticateClient`) answers a request without `client_id` with `invalid_request` ("Missing required client_id"),
+and the issuer passed that on.
+
+- **The fix:** when the provider refuses and the request has no client credentials and no `client_id`, the issuer
+  refuses with `client_authentication_failed` (`invalid_client`, HTTP 401, `WWW-Authenticate: Basic`, the generic
+  description), and the refusal event says `authenticated: false`. A wrong secret, an unknown client and a client not
+  registered for the grant still pass through as the provider answers them.
+- **Found by** the public tester's own probe `probe.no_client_auth` (D-076), run against this package's issuer in
+  `test/examples/tester-flow.test.ts`.
+- **Evidence:** `test/issuer/refusals.test.ts` (both projects). 1 entry in `test/mutations/issuer.json`, caught.

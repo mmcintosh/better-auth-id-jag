@@ -2503,5 +2503,14 @@
   "paths": [
    "test/issuer"
   ]
+ },
+ {
+  "name": "exchange: no client authentication at all answered invalid_request",
+  "file": "src/issuer/exchange.ts",
+  "a": "      if (isAPIError(e) && !hasClientCredentials(ctx, form) && claimed === undefined) throw new IdJagRefusal(\"client_authentication_failed\", \"no client authentication\");\n",
+  "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]
