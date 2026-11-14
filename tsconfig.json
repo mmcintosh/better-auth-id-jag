@@ -14,6 +14,6 @@
     "paths": { "better-auth-id-jag": ["./src/index.ts"] }
   },
   "include": ["src", "test"],
-  "exclude": ["test/worker", "test/types", "test/examples/tester-worker.test.ts", "test/examples/tester-load.test.ts", "test/examples/enterprise-idp-policy.test.ts"],
+  "exclude": ["test/worker", "test/types", "test/examples/tester-worker.test.ts", "test/examples/tester-load.test.ts", "test/examples/enterprise-idp-policy.test.ts", "test/examples/enterprise-idp-worker.test.ts"],
   "files": ["test/support/env.d.ts"]
 }

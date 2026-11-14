@@ -7,7 +7,8 @@
 // With TESTER_AS_ISSUER and TESTER_RESOURCE set, it also issues ID-JAGs for the public tester
 // (docs/test-your-idp.md), only to clients registered for it (metadata `for: "tester"`), whose id there is
 // the tester registration's client id; the tester grants `read` only. A client registered for one of the two
-// audiences can't get an ID-JAG for the other.
+// audiences can't get an ID-JAG for the other. Such a client's sign-in may come back to the tester's /flow/callback,
+// for the tester's "Run the whole flow".
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { backgroundTasks } from "../../background";
 import { jwt } from "better-auth/plugins";
@@ -30,6 +31,34 @@ export interface Env {
   /** The public tester's protected resource. */
   TESTER_RESOURCE?: string;
 }
+
+const LOOPBACK_CALLBACK = /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}\/callback$/;
+
+/**
+ * The redirect URIs /setup gives a client: the IdP's own /callback, a native client's loopback one (Claude Code's is
+ * http://localhost:<port>/callback), and for a client registered for the tester, the tester's /flow/callback (its
+ * "Run the whole flow"), which is also that client's default. An error message for anything else. Exported for its
+ * test.
+ */
+export function redirectUrisFor(env: Env, origin: string, forTester: boolean, requested: unknown): string[] | { error: string } {
+  const testerCallback = forTester ? testerCallbackOf(env) : null;
+  const uris = requested ?? [testerCallback ?? `${origin}/callback`];
+  const allowed = (u: unknown) => u === `${origin}/callback` || u === testerCallback || (typeof u === "string" && LOOPBACK_CALLBACK.test(u));
+  if (!Array.isArray(uris) || uris.length === 0 || !uris.every(allowed)) return { error: `redirectUris: only ${origin}/callback${testerCallback ? `, ${testerCallback}` : ""} or http://localhost:<port>/callback` };
+  return uris as string[];
+}
+
+/**
+ * The tester's /flow/callback, from TESTER_AS_ISSUER: the tester serves its authorization server (under /api/auth)
+ * and its pages from one origin. Null when TESTER_AS_ISSUER is unset or isn't an absolute URL.
+ */
+export function testerCallbackOf(env: { TESTER_AS_ISSUER?: string | undefined }): string | null {
+  if (!env.TESTER_AS_ISSUER || !URL.canParse(env.TESTER_AS_ISSUER)) return null;
+  return `${new URL(env.TESTER_AS_ISSUER).origin}/flow/callback`;
+}
+
+/** Whether a client's redirect URIs need Better Auth's native application type: an http one (run locally, or loopback). */
+export const isNative = (origin: string, uris: string[]) => new URL(origin).protocol === "http:" || uris.some((u) => LOOPBACK_CALLBACK.test(u));
 
 /** The IdP's policy: the issuer's `authorize` hook. Exported for its test. */
 export function policy(env: Env) {

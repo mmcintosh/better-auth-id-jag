@@ -1,14 +1,16 @@
-// Routes: Better Auth under /api/auth (and its /.well-known documents), plus POST /setup, which
-// creates a demo user and an OAuth client, an AI agent's or an app's (x-setup-key), and /login, the
-// sign-in page a browser is sent to during authorization. With `"for": "tester"`, /setup registers a client for the
-// public tester instead of the MCP server (auth.ts): `clientIdAtResource` is then the tester registration's client id.
+// Routes: Better Auth under /api/auth (and its /.well-known documents), plus POST /setup, which creates a demo user
+// and an OAuth client, an AI agent's or an app's (x-setup-key), /login, the sign-in page a browser is sent to during
+// authorization, and /consent, where a request with prompt=consent (the tester's run asks for offline_access with it)
+// is allowed or denied. With `"for": "tester"`, /setup registers a client for the public tester instead of the MCP
+// server (auth.ts): `clientIdAtResource` is then the tester registration's client id, and its sign-in comes back to
+// the tester's /flow/callback.
 //
 // Every client here authenticates with client_secret_post, and the metadata says so. Claude Code's Cross
 // App Access picks Basic for its sign-in when the IdP lists it, but always sends the secret in the body
 // for the ID-JAG request; Better Auth holds a client to one registered method, so a client registered for
 // Basic would fail one of the two steps (examples/workers/README.md, "Claude Code").
 import { withExecutionContext } from "../../background";
-import { createAuth, type Env } from "./auth";
+import { createAuth, type Env, isNative, redirectUrisFor, testerCallbackOf } from "./auth";
 
 const cache = new Map<string, ReturnType<typeof createAuth>>();
 const authFor = (env: Env, origin: string) => {
@@ -26,13 +28,10 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   const agent = body.agent === true;
   const forTester = body.for === "tester";
   if (body.for !== undefined && !forTester) return new Response('for: only "tester"', { status: 400 });
-  if (forTester && !(env.TESTER_AS_ISSUER && env.TESTER_RESOURCE)) return new Response("this IdP isn't set up for the tester (TESTER_AS_ISSUER, TESTER_RESOURCE)", { status: 400 });
-  // Our own /callback, or a native client's loopback redirect (Claude Code's is http://localhost:<port>/callback).
-  const redirectUris = body.redirectUris ?? [`${origin}/callback`];
-  const loopback = /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}\/callback$/;
-  if (!Array.isArray(redirectUris) || redirectUris.length === 0 || !redirectUris.every((u) => u === `${origin}/callback` || (typeof u === "string" && loopback.test(u))))
-    return new Response(`redirectUris: only ${origin}/callback or http://localhost:<port>/callback`, { status: 400 });
-  const native = new URL(origin).protocol === "http:" || redirectUris.some((u) => loopback.test(u));
+  if (forTester && !(testerCallbackOf(env) && env.TESTER_RESOURCE)) return new Response("this IdP isn't set up for the tester (TESTER_AS_ISSUER, an absolute URL, and TESTER_RESOURCE)", { status: 400 });
+  const redirectUris = redirectUrisFor(env, origin, forTester, body.redirectUris);
+  if (!Array.isArray(redirectUris)) return new Response(redirectUris.error, { status: 400 });
+  const native = isNative(origin, redirectUris);
   const auth = authFor(env, origin);
   const ctx = await auth.$context;
   let user = (await ctx.internalAdapter.findUserByEmail(body.email, { includeAccounts: false }))?.user;
@@ -72,7 +71,8 @@ export default {
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/setup" && request.method === "POST") return setup(request, env, url.origin);
-  if (url.pathname === "/login") return new Response(LOGIN_PAGE, { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'" } });
+  if (url.pathname === "/login") return new Response(LOGIN_PAGE, { headers: PAGE_HEADERS });
+  if (url.pathname === "/consent") return new Response(CONSENT_PAGE, { headers: PAGE_HEADERS });
   if (url.pathname === "/callback") return new Response("ok", { status: 200 });
   const response = await authFor(env, url.origin).handler(request);
   return url.pathname.includes("/.well-known/") ? postOnlyMetadata(response) : response;
@@ -87,6 +87,14 @@ async function postOnlyMetadata(response: Response): Promise<Response> {
   headers.delete("content-length");
   return new Response(JSON.stringify(body), { status: response.status, headers });
 }
+
+const PAGE_HEADERS = { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'" };
+
+/** The part of the provider's query that it signed: sig, ba_param, and the names ba_param lists (as its client reads it). */
+const SIGNED_QUERY = `const params = new URLSearchParams(location.search);
+const names = new Set(params.getAll("ba_param"));
+const signed = new URLSearchParams();
+for (const [k, v] of params) if (k === "sig" || k === "ba_param" || names.has(k)) signed.append(k, v);`;
 
 // The sign-in page. oauth-provider sends the browser here with a signed copy of the authorization request;
 // signing in with that copy (oauth_query) makes the provider answer with where to go next: the client's
@@ -103,11 +111,7 @@ const LOGIN_PAGE = `<!doctype html>
 <button type="submit">Sign in</button></form>
 <p id="error" role="alert"></p>
 <script>
-const params = new URLSearchParams(location.search);
-// Only the signed part of the query: sig, ba_param, and the names ba_param lists (as oauth-provider's client does).
-const names = new Set(params.getAll("ba_param"));
-const signed = new URLSearchParams();
-for (const [k, v] of params) if (k === "sig" || k === "ba_param" || names.has(k)) signed.append(k, v);
+${SIGNED_QUERY}
 document.getElementById("f").addEventListener("submit", async (e) => {
   e.preventDefault();
   const error = document.getElementById("error");
@@ -119,5 +123,40 @@ document.getElementById("f").addEventListener("submit", async (e) => {
   if (r.ok && typeof body.url === "string") location.assign(body.url);
   else error.textContent = body.message || "Sign-in failed.";
 });
+</script>
+</body></html>`;
+
+// The consent page. oauth-provider sends the browser here, signed in, when the authorization request has
+// prompt=consent (the tester's run asks for offline_access with it, as OpenID Connect Core section 11 says); the
+// clients /setup makes skip consent otherwise. Allow or Deny posts the signed query to /oauth2/consent, which answers
+// with where to go next: the client's redirect, with a code or with access_denied.
+const CONSENT_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Example IdP: allow access</title>
+<style>body{font:16px system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem;margin-right:.5rem}#error{color:#b00020}</style>
+</head><body>
+<h1>Example IdP</h1>
+<p>The application <strong id="client"></strong> asks for: <code id="scope"></code>.</p>
+<p><button id="allow" type="button">Allow</button><button id="deny" type="button">Deny</button></p>
+<p id="error" role="alert"></p>
+<script>
+${SIGNED_QUERY}
+document.getElementById("client").textContent = params.get("client_id") || "(unknown)";
+// The client's name, where the provider gives it (its public client fields, for the signed-in user).
+if (params.get("client_id")) fetch("/api/auth/oauth2/public-client?client_id=" + encodeURIComponent(params.get("client_id")), { credentials: "same-origin" })
+  .then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.client_name === "string" && c.client_name) document.getElementById("client").textContent = c.client_name; }).catch(() => {});
+document.getElementById("scope").textContent = params.get("scope") || "(none)";
+async function answer(accept) {
+  const error = document.getElementById("error");
+  error.textContent = "";
+  if (!params.has("sig")) { error.textContent = "Open this page from an application's sign-in, not directly."; return; }
+  const r = await fetch("/api/auth/oauth2/consent", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin",
+    body: JSON.stringify({ accept, oauth_query: signed.toString() }) });
+  const body = await r.json().catch(() => ({}));
+  if (r.ok && typeof body.url === "string") location.assign(body.url);
+  else error.textContent = body.message || "That didn't work. Start again from the application.";
+}
+document.getElementById("allow").addEventListener("click", () => answer(true));
+document.getElementById("deny").addEventListener("click", () => answer(false));
 </script>
 </body></html>`;

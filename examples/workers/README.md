@@ -212,6 +212,11 @@ curl -X POST https://<idp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-typ
   -d '{"email":"agent-user@example.com","password":"example-password-1234","clientIdAtResource":"<the tester client id>","agent":true,"for":"tester"}'
 ```
 
+Its redirect URI is then the tester's `/flow/callback`, so the tester's "Run the whole flow" can sign in with it
+and redeem the ID-JAG it gets; the curl's answer has the client id and secret to enter there. This IdP's clients
+authenticate with `client_secret_post`, so choose that in the tester's form. If you tick the tester's refresh token
+option, the sign-in asks for consent too (`prompt=consent`), on this IdP's `/consent` page: press Allow.
+
 `TESTER_AS_ISSUER` and `TESTER_RESOURCE` turn this on. `wrangler.jsonc` sets them to the public tester; without them,
 the IdP issues ID-JAGs for the MCP server only. A client registered for one receiver gets nothing from the other
 (`policy` in `enterprise-idp/src/auth.ts`, tested in `test/examples/enterprise-idp-policy.test.ts`).
