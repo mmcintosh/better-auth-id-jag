@@ -34,7 +34,9 @@
   id, and with the `read` scope only. A client registered for the MCP server gets no ID-JAG for the tester, nor the
   other way round. Such a client's redirect URI is the tester's `/flow/callback` by default, for the tester's "Run
   the whole flow". The policy and the redirect URI rule are exported (`policy` and `redirectUrisFor` in
-  `enterprise-idp/src/auth.ts`) and tested.
+  `enterprise-idp/src/auth.ts`) and tested. A consent page (`/consent`) answers a sign-in that asks for consent, as
+  the tester's run does when it tries a refresh token (`prompt=consent` with `offline_access`); the Worker's `/setup`,
+  sign-in and consent are tested in workerd (`test/examples/enterprise-idp-worker.test.ts`).
 
 ### Changed
 
