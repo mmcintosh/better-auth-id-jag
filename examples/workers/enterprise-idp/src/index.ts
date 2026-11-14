@@ -1,6 +1,7 @@
 // Routes: Better Auth under /api/auth (and its /.well-known documents), plus POST /setup, which
 // creates a demo user and an OAuth client, an AI agent's or an app's (x-setup-key), and /login, the
-// sign-in page a browser is sent to during authorization.
+// sign-in page a browser is sent to during authorization. With `"for": "tester"`, /setup registers a client for the
+// public tester instead of the MCP server (auth.ts): `clientIdAtResource` is then the tester registration's client id.
 //
 // Every client here authenticates with client_secret_post, and the metadata says so. Claude Code's Cross
 // App Access picks Basic for its sign-in when the IdP lists it, but always sends the secret in the body
@@ -21,8 +22,11 @@ const authFor = (env: Env, origin: string) => {
 
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
-  const body = (await request.json()) as { email: string; password: string; clientIdAtResource: string; agent?: boolean; redirectUris?: string[] };
+  const body = (await request.json()) as { email: string; password: string; clientIdAtResource: string; agent?: boolean; redirectUris?: string[]; for?: "tester" };
   const agent = body.agent === true;
+  const forTester = body.for === "tester";
+  if (body.for !== undefined && !forTester) return new Response('for: only "tester"', { status: 400 });
+  if (forTester && !(env.TESTER_AS_ISSUER && env.TESTER_RESOURCE)) return new Response("this IdP isn't set up for the tester (TESTER_AS_ISSUER, TESTER_RESOURCE)", { status: 400 });
   // Our own /callback, or a native client's loopback redirect (Claude Code's is http://localhost:<port>/callback).
   const redirectUris = body.redirectUris ?? [`${origin}/callback`];
   const loopback = /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}\/callback$/;
@@ -44,7 +48,7 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   const client = await api.adminCreateOAuthClient({
     headers,
     body: {
-      client_name: agent ? "Example MCP client (AI agent)" : "Example MCP client (app)",
+      client_name: `${forTester ? "Example tester client" : "Example MCP client"} (${agent ? "AI agent" : "app"})`,
       redirect_uris: redirectUris,
       // An http redirect (run locally, or a loopback one): Better Auth takes that from a native client only.
       ...(native ? { application_type: "native" } : {}),
@@ -53,7 +57,7 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
       token_endpoint_auth_method: "client_secret_post",
       scope: "openid profile email offline_access",
       skip_consent: true,
-      metadata: { clientIdAtResource: body.clientIdAtResource, agent },
+      metadata: { clientIdAtResource: body.clientIdAtResource, agent, ...(forTester ? { for: "tester" } : {}) },
     },
   });
   return Response.json({ userId: user.id, client_id: client.client_id, client_secret: client.client_secret });
