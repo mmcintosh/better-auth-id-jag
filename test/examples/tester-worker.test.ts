@@ -323,7 +323,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain("Confirmed.");
     expect(html).toContain("Delete my data now");
     // The values for the IdP, with copy buttons, are on the results page too, not only right after registering.
-    expect(html).toContain("Values for your IdP");
+    expect(html).toContain("Or mint an ID-JAG yourself and paste it");
     expect(html).toContain(`data-copy="${aliceClient.clientId}"`);
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");

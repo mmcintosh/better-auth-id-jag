@@ -1718,7 +1718,11 @@ and the redemption here, in one run. That also shows the IdP's side of the excha
   The abuse record's and the operator stats' counts of redemptions and refusals leave such rows out. A `HEAD` to the
   callback is refused (405), since a `GET` there spends the run.
 - **Client authentication at the IdP:** `client_secret_basic` (form-encoded, RFC 6749 section 2.3.1) or
-  `client_secret_post`. `private_key_jwt` isn't offered.
+  `client_secret_post`. `private_key_jwt` isn't offered. By default ("Automatic") the method comes from the IdP's
+  published `token_endpoint_auth_methods_supported` (absent means `client_secret_basic`, RFC 8414 section 2): Basic
+  when listed, else the form body. A method the IdP doesn't list stops the run at `/flow/start`, before the person
+  signs in, and gives the day's runs back: in the first live run, the form's default (Basic) against an IdP that
+  takes only the form body failed after the sign-in, with nothing on the page to say why.
 - **Limits:** a run is counted when it starts, before anything is fetched, and not given back (except the
   registration's, when the tester-wide one is used up): 10 a day per registration, 100 a day across the tester
   (`LIMITS`), on top of the redemption allowances its redemption takes. The ID-JAG is redeemed as soon as it is

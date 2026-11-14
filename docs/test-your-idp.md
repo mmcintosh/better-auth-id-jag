@@ -158,17 +158,23 @@ above claim to cover every MUST in the draft.
    playground IdP); then anyone can confirm it.
 5. **Read the report** at `<tester>/results`: every rule, and the receiver's own decision.
 
-**Or run the whole flow.** The tester plays the client, as an AI agent would:
+**Or run the whole flow (recommended).** The tester plays the client, as an AI agent would. After you register, the
+page links to "Run the whole flow" on your results page, which sets out these steps:
 
-1. **At your IdP, create a client for the tester** (or reuse one): redirect URI `<tester>/flow/callback`, the
-   authorization code grant (scope `openid`, PKCE S256) and the token exchange allowed, and permission to get
-   ID-JAGs for audience `<tester>/api/auth` and resource `<tester>/mcp`, with your registration's client id here as
-   the ID-JAG's `client_id`. Your results page lists these values, each with a copy button.
-2. **Under "Run the whole flow" on your results page,** enter that client's id and secret, how it authenticates at
-   your token endpoint (`client_secret_basic` or `client_secret_post`), and the scope to ask for (`read`). Two boxes
-   are opt-in: the refusal probes (seven wrong requests, which may appear in your IdP's security logs), and a refresh
-   token as the subject (the sign-in then asks for `offline_access`, with `prompt=consent`). If you pick
-   `client_secret_basic`, the tester sends the id and secret form-encoded, as RFC 6749 section 2.3.1 says.
+1. **At your IdP, create a client for the tester** (an "application" in most admin consoles; or reuse one): redirect
+   URI `<tester>/flow/callback`, the authorization code grant (scope `openid`, PKCE S256) and the token exchange
+   allowed, and permission to get ID-JAGs for audience `<tester>/api/auth` and resource `<tester>/mcp`, with your
+   registration's client id here as the ID-JAG's `client_id`. The results page lists these values, each with a copy
+   button.
+2. **Enter that client's id and secret** under "Run the whole flow". Leave "How the client sends its secret" on
+   Automatic: the tester uses what your IdP publishes in `token_endpoint_auth_methods_supported` (`client_secret_basic`
+   when listed or when nothing is listed, as RFC 8414 section 2 says; else `client_secret_post`), and the page after
+   Run says which. Choose a method only if the client is set up differently; one your IdP doesn't list stops the
+   run before you sign in, and doesn't count. With `client_secret_basic` the id and secret are form-encoded, as RFC
+   6749 section 2.3.1 says. Leave the scope as `read`.
+   Two boxes add checks: the refusal checks (recommended: seven wrong requests, which may appear in your IdP's
+   security logs), and a refresh token as the subject (optional, only if your IdP issues refresh tokens; the sign-in
+   then asks for `offline_access`, with `prompt=consent`).
 3. **Press Run, then Continue** to your IdP's sign-in, and sign in. Your IdP sends you back to the tester.
 4. **The tester does the rest:** it exchanges the code for an ID token and verifies it (your JWKS, `iss`, `aud` your
    client, `azp` if present, the `nonce`, and `sub`, `exp` and `iat` present), asks your IdP for an ID-JAG by token

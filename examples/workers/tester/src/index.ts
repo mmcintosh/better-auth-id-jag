@@ -19,6 +19,7 @@ import { LOGO_SVG } from "./logo";
 import { continueToIdp, landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
 import { ageBucket, BLOCK_KEY_ID, fingerprint, fingerprintKey, network, weekKeyId } from "./privacy";
 import { gradeProbe, type ProbeContext, PROBES, skipProbe } from "./probes";
+import { clientAuthMethod } from "./client-auth";
 import { open, seal } from "./seal";
 import * as store from "./store";
 
@@ -601,6 +602,15 @@ const SCOPE = /^[\x21\x23-\x5b\x5d-\x7e]+( [\x21\x23-\x5b\x5d-\x7e]+)*$/;
 /** What an ID token may be signed with: asymmetric algorithms only, never none or HS*. */
 const ID_TOKEN_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA", "Ed25519"];
 
+/** What to look at when the IdP gave no ID token for the sign-in's code, from its answer. */
+function codeExchangeAdvice(status: number, error: unknown, authMethod: string, origin: string): string {
+  if (error === "invalid_client" || status === 401) return `Your IdP refused the tester's client: check the client id and secret you entered, and how the client sends its secret (this run used ${authMethod}).`;
+  if (error === "invalid_grant") return `Your IdP didn't accept the sign-in's code: the client's redirect URI must be exactly ${origin}/flow/callback, and PKCE S256 allowed.`;
+  if (error === "unauthorized_client") return "Your IdP's client isn't allowed the authorization code grant.";
+  if (status === 200) return "Your IdP answered without an id_token: the client needs the openid scope.";
+  return "The client needs the authorization code grant, the openid scope, and the redirect URI above.";
+}
+
 /** How the tester authenticates to the tester's IdP as their client: HTTP Basic, or in the form body. */
 function idpClientAuth(flow: Pick<store.FlowRow, "authMethod" | "idpClientId">, secret: string, form: URLSearchParams): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -628,7 +638,7 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   if (!reg) return message("Not found", "No such active registration of yours.", 404);
   const idpClientId = (form.get("client_id") ?? "").trim();
   const idpSecret = form.get("client_secret") ?? "";
-  const authMethod = form.get("auth_method") === "client_secret_post" ? "client_secret_post" : "client_secret_basic";
+  const chosenMethod = form.get("auth_method") === "client_secret_post" ? "client_secret_post" : form.get("auth_method") === "client_secret_basic" ? "client_secret_basic" : "auto";
   const scope = (form.get("scope") ?? "").trim() || SCOPES.join(" ");
   if (!idpClientId || idpClientId.length > 256 || !idpSecret || idpSecret.length > 512) return message("Not started", "Enter your IdP client's id and secret.", 400);
   if (scope.length > 256 || !SCOPE.test(scope)) return message("Not started", "The scope must be scope names separated by single spaces (RFC 6749 section 3.3).", 400);
@@ -653,6 +663,15 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   const authorize = checkPublicHttpsUrl(typeof m.authorization_endpoint === "string" ? m.authorization_endpoint : "");
   const tokenEndpoint = checkPublicHttpsUrl(typeof m.token_endpoint === "string" ? m.token_endpoint : "");
   if (!authorize.ok || !tokenEndpoint.ok) return message("Not started", `Your issuer's metadata needs an authorization_endpoint and a token_endpoint the tester can use: ${!authorize.ok ? `authorization_endpoint ${authorize.why}` : `token_endpoint ${tokenEndpoint.ok ? "" : tokenEndpoint.why}`}.`, 502);
+  // How the client sends its secret: what the IdP publishes (RFC 8414 section 2: absent means client_secret_basic),
+  // checked here, before the person signs in, so a mismatch doesn't spend the sign-in. Nothing was sent to the IdP yet,
+  // so the day's runs are given back.
+  const method = clientAuthMethod(chosenMethod, m.token_endpoint_auth_methods_supported);
+  if (!method.ok) {
+    await Promise.all([store.giveBackAllowance(env.DB, runKey), store.giveBackAllowance(env.DB, `run:everyone:${day}`)]);
+    return message("Not started", method.why, 400);
+  }
+  const authMethod = method.method;
 
 
   const state = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -679,7 +698,7 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   console.log(JSON.stringify({ event: "tester.flow_started", id: reg.id }));
   // A page with a link, not a redirect: the pages' Content-Security-Policy allows forms to post only to this site, and
   // browsers apply that to where a form's answer redirects.
-  return continueToIdp(to.href, to.host, LIMITS.runMinutes);
+  return continueToIdp(to.href, to.host, LIMITS.runMinutes, method.note);
 }
 
 /** A run's message page: what stopped it, and the way back. */
@@ -718,7 +737,7 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   const signIn = await postFormCapped(fetch, flow.tokenEndpoint, codeForm, { ...userAgent, ...idpClientAuth(flow, secret, codeForm) });
   if (!signIn.ok) return runStopped(`Your IdP's token endpoint ${signIn.why}.`, 502);
   const signedIn = isObject(signIn.json) ? signIn.json : {};
-  if (signIn.status !== 200 || typeof signedIn.id_token !== "string") return runStopped(`Your IdP gave no ID token for the sign-in's code: HTTP ${signIn.status}${typeof signedIn.error === "string" ? `, error ${idpText(signedIn.error, 64)}` : ""}${typeof signedIn.error_description === "string" ? ` (${idpText(signedIn.error_description)})` : ""}. Its client needs the authorization code grant and the openid scope.`);
+  if (signIn.status !== 200 || typeof signedIn.id_token !== "string") return runStopped(`Your IdP gave no ID token for the sign-in's code: HTTP ${signIn.status}${typeof signedIn.error === "string" ? `, error ${idpText(signedIn.error, 64)}` : ""}${typeof signedIn.error_description === "string" ? ` (${idpText(signedIn.error_description)})` : ""}. ${codeExchangeAdvice(signIn.status, signedIn.error, flow.authMethod, origin)}`);
   const idToken = signedIn.id_token;
   const fresh = await fetchJsonCapped(fetch, reg.jwksUri);
   let keys: unknown = fresh.ok ? fresh.json : null;

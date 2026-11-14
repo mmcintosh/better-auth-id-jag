@@ -259,6 +259,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
 
   it("the IdP's client in the form body (client_secret_post)", async () => {
     const t = await registeredTester("poster");
+    idp.metadata.set(issuerOf("poster"), { token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"] });
     const { to } = await start(t, { auth_method: "client_secret_post" });
     if (!to) throw new Error("no link");
     await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
@@ -667,5 +668,78 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     } finally {
       own = undefined;
     }
+  });
+
+  it("how the client sends its secret: Automatic follows the IdP's metadata; a choice it doesn't list stops before sign-in", async () => {
+    // Only the form body listed: Automatic picks it, and the Continue page says so.
+    const post = await registeredTester("autopost");
+    idp.metadata.set(issuerOf("autopost"), { token_endpoint_auth_methods_supported: ["client_secret_post"] });
+    const first = await start(post, { auth_method: "auto" });
+    expect(first.html).toContain("client_secret_post (in the form body), as your IdP&#39;s metadata lists");
+    if (!first.to) throw new Error("no link");
+    expect((await callback(post.cookie, { code: signInAtIdp(first.to), state: first.to.searchParams.get("state") ?? "" })).status).toBe(302);
+    expect(idp.requests[0]?.authorization).toBeNull();
+    expect(idp.requests[0]?.form.get("client_secret")).toBe(IDP_SECRET);
+    // Nothing listed: client_secret_basic (RFC 8414 section 2).
+    const basic = await registeredTester("autobasic");
+    idp.requests.length = 0;
+    const second = await start(basic, { auth_method: "auto" });
+    expect(second.html).toContain("client_secret_basic (HTTP Basic)");
+    if (!second.to) throw new Error("no link");
+    await callback(basic.cookie, { code: signInAtIdp(second.to), state: second.to.searchParams.get("state") ?? "" });
+    expect(idp.requests[0]?.authorization).toMatch(/^Basic /);
+    // A choice the IdP doesn't list, or nothing the tester can use: stopped at Run, nothing sent, the day's run given back.
+    const day = Date.now() - (Date.now() % 86_400_000);
+    const used = async () => (await rows<{ used: number }>(`select used from testerAllowance where key = ?`, `run:registration:${post.registrationId}:${day}`))[0]?.used;
+    const before = await used();
+    const wrong = await start(post, { auth_method: "client_secret_basic" });
+    expect(wrong.response.status).toBe(400);
+    expect(wrong.html).toContain("accepts client_secret_post, not client_secret_basic");
+    idp.metadata.set(issuerOf("autopost"), { token_endpoint_auth_methods_supported: ["private_key_jwt"] });
+    const none = await start(post, { auth_method: "auto" });
+    expect(none.response.status).toBe(400);
+    expect(none.html).toContain("only with client_secret_basic or client_secret_post");
+    expect(await used()).toBe(before);
+    expect(await rows(`select 1 from testerFlow where registrationId = ?`, post.registrationId)).toEqual([]);
+    const absent = await start(basic, { auth_method: "client_secret_post" });
+    expect(absent.response.status).toBe(400);
+    expect(absent.html).toContain("client_secret_basic only");
+    idp.metadata.delete(issuerOf("autopost"));
+  });
+
+  it("a code exchange the IdP refuses: the advice matches its error", async () => {
+    const t = await registeredTester("advice");
+    const { to } = await start(t, { client_secret: "not-the-secret" });
+    if (!to) throw new Error("no link");
+    const r = await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+    const html = await r.text();
+    expect(html).toContain("refused the tester&#39;s client: check the client id and secret");
+    expect(html).not.toContain("authorization code grant");
+    const second = await start(t);
+    if (!second.to) throw new Error("no link");
+    const bad = await callback(t.cookie, { code: "never-issued", state: second.to.searchParams.get("state") ?? "" });
+    expect(await bad.text()).toContain("redirect URI must be exactly");
+  });
+
+  it("the pages lead to the run: the page after registering links to it; the results page sets it out as steps, the newest report open", async () => {
+    const t = await signedIn("guided");
+    const page = await (await post("/register", t.cookie, { issuer: issuerOf("guided"), authMethod: "client_secret_basic", "cf-turnstile-response": "ok" })).text();
+    expect(page).toContain('href="/results#run"');
+    expect(page).toContain("A. Run the whole flow (recommended).");
+    const reg = (await rows<{ id: string; clientId: string }>(`select id, clientId from testerRegistration where userId = ?`, t.userId))[0];
+    if (!reg) throw new Error("not registered");
+    idp.testerClientIds.set(issuerOf("guided"), reg.clientId);
+    for (let i = 0; i < 2; i++) {
+      const { to } = await start({ cookie: t.cookie, registrationId: reg.id });
+      if (!to) throw new Error("no link");
+      await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+    }
+    const results = await (await call("/results", { cookie: t.cookie })).text();
+    expect(results).toContain('id="run"');
+    for (const text of ["Step 1. At your IdP, create a client for the tester", "Client id <span class=\"muted\">(from step 1, at your IdP)", '<option value="auto">Automatic', "Recommended: check that your IdP refuses wrong requests", "Optional: try a refresh token", "Step-by-step guide"]) expect(results).toContain(text);
+    expect(results).toContain("Your metadata and keys: <span class=\"pass\">every rule passed</span>");
+    // The newest report's rules open, older ones folded (unless they failed).
+    expect(results.match(/<details open><summary>Rules<\/summary>/g)).toHaveLength(1);
+    expect(results.match(/<details><summary>Rules<\/summary>/g)).toHaveLength(1);
   });
 });

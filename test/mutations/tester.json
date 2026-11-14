@@ -518,5 +518,65 @@
   "paths": [
    "test/examples/tester-flow.test.ts"
   ]
+ },
+ {
+  "name": "run: Automatic ignores the IdP's published methods",
+  "file": "examples/workers/tester/src/client-auth.ts",
+  "a": "const supported = listed ?? [\"client_secret_basic\"];",
+  "b": "const supported = [\"client_secret_basic\", \"client_secret_post\"];",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: a method the IdP doesn't list goes ahead",
+  "file": "examples/workers/tester/src/client-auth.ts",
+  "a": "  if (!supported.includes(chosen)) return { ok: false,",
+  "b": "  if (false) return { ok: false,",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: a refused method keeps the day's runs",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    await Promise.all([store.giveBackAllowance(env.DB, runKey), store.giveBackAllowance(env.DB, `run:everyone:${day}`)]);\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: invalid_client at the code exchange gets the grant advice",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (error === \"invalid_client\" || status === 401) return",
+  "b": "if (false) return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the page after registering doesn't link to the run",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<a href=\"/results#run\">",
+  "b": "<a href=\"/results\">",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the newest report's rules folded",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<details${fails || i === 0 ? \" open\" : \"\"}>",
+  "b": "<details${fails ? \" open\" : \"\"}>",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
  }
 ]
