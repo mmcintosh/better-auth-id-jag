@@ -43,6 +43,7 @@ const PUBLIC = [
   "auditSchema",
   "blockSchema",
   "buildIdJag",
+  "checkExchange",
   "checkIdJag",
   "checkIssuerHost",
   "checkIssuerMetadata",

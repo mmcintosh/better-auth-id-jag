@@ -2,6 +2,7 @@
 #   {name, file, a, b, paths}                 one edit: replace `a` with `b` (first occurrence) in `file`
 #   {name, edits: [{file, a, b}, ...], paths} several edits applied together (a guard pair)
 #   "expect": "survive", "why": "..."         a known, explained survivor (equivalent, or half of a pair)
+#   "project": "workerd"                     run the workerd test project instead of the Node one
 # It applies the mutation, runs the Node test project on `paths`, records CAUGHT or SURVIVED, and
 # restores every file. Exit status 1 if any mutation survives unexpectedly, is caught when it was
 # expected to survive, or no longer matches the code (PATTERN NOT FOUND): the list tracks the code.
@@ -29,7 +30,7 @@ for path in sys.argv[1:]:
         print(f"## {name}: PATTERN NOT FOUND")
         bad += 1
         continue
-      r = subprocess.run(["npx", "vitest", "run", "--project", "node", *m.get("paths", [])], capture_output=True, text=True, timeout=900)
+      r = subprocess.run(["npx", "vitest", "run", "--project", m.get("project", "node"), *m.get("paths", [])], capture_output=True, text=True, timeout=900)
       out = r.stdout + r.stderr
       fails = sorted(set(l.strip()[:150] for l in out.splitlines() if l.strip().startswith("FAIL ")))
       summ = [l.strip() for l in out.splitlines() if l.strip().startswith("Tests ")]

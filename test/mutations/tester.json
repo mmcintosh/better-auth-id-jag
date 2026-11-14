@@ -1,0 +1,582 @@
+[
+ {
+  "name": "flow: a state works more than once",
+  "file": "examples/workers/tester/src/store.ts",
+  "a": "delete from testerFlow where stateHash = ? returning *",
+  "b": "select * from testerFlow where stateHash = ?",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: an expired run continues",
+  "file": "examples/workers/tester/src/store.ts",
+  "a": "return row && row.expiresAt > now ? row : null;",
+  "b": "return row;",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: another tester's browser continues a run",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (!flow || flow.userId !== s.user.id) return runStopped(",
+  "b": "if (!flow) return runStopped(",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: iss on the way back not checked (RFC 9207)",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (iss !== null && iss !== reg.issuer) return",
+  "b": "if (iss === \"never\") return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the ID token's nonce not checked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (payload.nonce !== flow.nonce) return",
+  "b": "if (payload.nonce === \"never\") return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the ID token's audience not checked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "{ issuer: reg.issuer, audience: flow.idpClientId, algorithms",
+  "b": "{ issuer: reg.issuer, algorithms",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: PKCE challenge not the verifier's",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "code_challenge: b64url(await sha256(verifier))",
+  "b": "code_challenge: b64url(await sha256(state))",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: start from another site",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "  if (!sameOrigin(request, origin)) return message(\"Not allowed\", \"Start a run from this site's own page.\", 403);\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: someone else's registration",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "return reg && reg.userId === userId && reg.revokedAt",
+  "b": "return reg && reg.revokedAt",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: scope not checked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (scope.length > 256 || !SCOPE.test(scope)) return",
+  "b": "if (scope.length > 256) return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: no run allowance",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "store.takeAllowance(env.DB, runKey, day, LIMITS.runsPerRegistrationPerDay)",
+  "b": "true",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the IdP client's secret stored unsealed",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "idpSecretEnc: await seal(env.BETTER_AUTH_SECRET, idpSecret),",
+  "b": "idpSecretEnc: idpSecret,",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the exchange's rules left out of the report",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "results: JSON.stringify([...prefix, ...report.results])",
+  "b": "results: JSON.stringify(report.results)",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: a refused exchange not reported",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    await store.insertCheck(env.DB, { id: checkId, registrationId: reg.id, at: now, jti: null, httpStatus: 0",
+  "b": "    if (Math.random() > 2) await store.insertCheck(env.DB, { id: checkId, registrationId: reg.id, at: now, jti: null, httpStatus: 0",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: expired runs never purged",
+  "file": "examples/workers/tester/src/store.ts",
+  "a": "    db.prepare(`delete from testerFlow where expiresAt <= ?`).bind(now),\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: delete my data keeps runs",
+  "file": "examples/workers/tester/src/store.ts",
+  "edits": [
+   {
+    "file": "examples/workers/tester/src/store.ts",
+    "a": "    db.prepare(`delete from testerFlow where userId = ?`).bind(userId),\n",
+    "b": ""
+   },
+   {
+    "file": "examples/workers/tester/src/store.ts",
+    "a": "    db.prepare(`delete from testerFlow where registrationId = ?`).bind(r.id),\n",
+    "b": ""
+   }
+  ],
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: Basic credentials not form-encoded",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "  } else headers.authorization = encodeBasicCredentials(flow.idpClientId, secret);",
+  "b": "  } else headers.authorization = `Basic ${btoa(`${flow.idpClientId}:${secret}`)}`;",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: an accepted probe passes",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (ok && (error === null || typeof body.access_token === \"string\")) return r(probe.accepted",
+  "b": "if (ok && (error === null || typeof body.access_token === \"string\")) return r(\"pass\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: a named code only warns",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "return probe.codeRequired ? r(\"fail\"",
+  "b": "return false ? r(\"fail\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: any refusal passes",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (error === probe.expected) return ok ?",
+  "b": "if (answer.status >= 400 || error === probe.expected) return ok ?",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: no-client-auth probe sent with credentials",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "probe.anonymous ? userAgent :",
+  "b": "false ? userAgent :",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: two audiences sent as one",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "      f.append(\"audience\", c.untrustedAudience);\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: unknown audience expects invalid_request",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "expected: \"invalid_target\", codeRequired: true, accepted: \"fail\", form: (c) => base(c, { audience: c.untrustedAudience })",
+  "b": "expected: \"invalid_request\", codeRequired: true, accepted: \"fail\", form: (c) => base(c, { audience: c.untrustedAudience })",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: sent without being asked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (flow.probes === 1) {",
+  "b": "if (true) {",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: the box ignored",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "probes: form.get(\"probes\") === \"1\" ? 1 : 0,",
+  "b": "probes: 0,",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: the sign-in doesn't ask for offline_access",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "scope: form.get(\"refresh\") === \"1\" ? \"openid offline_access\" : \"openid\"",
+  "b": "scope: \"openid\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: sent as an ID token",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "subject_token: refreshToken, subject_token_type: REFRESH_TOKEN_TOKEN_TYPE",
+  "b": "subject_token: refreshToken, subject_token_type: ID_TOKEN_TOKEN_TYPE",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: tried without being asked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (flow.refresh === 1) {",
+  "b": "if (true) {",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: metadata naming another issuer",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (!m || m.issuer !== reg.issuer) return",
+  "b": "if (!m) return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: token endpoint not guarded",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "const tokenEndpoint = checkPublicHttpsUrl(typeof m.token_endpoint === \"string\" ? m.token_endpoint : \"\");",
+  "b": "const tokenEndpoint = { ok: true as const, url: new URL(String(m.token_endpoint)) };",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: authorization endpoint not guarded",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "const authorize = checkPublicHttpsUrl(typeof m.authorization_endpoint === \"string\" ? m.authorization_endpoint : \"\");",
+  "b": "const authorize = { ok: true as const, url: new URL(String(m.authorization_endpoint ?? \"https://x.example.org\")) };",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "guard: POST without the URL check",
+  "file": "examples/workers/tester/src/guard.ts",
+  "a": "  const check = checkPublicHttpsUrl(raw);\n  if (!check.ok) return { ok: false, why: `the URL ${check.why}` };\n  const signal = AbortSignal.timeout(timeoutMs);\n  try {\n    const response = await fetchImpl(check.url.href, { method: \"POST\"",
+  "b": "  const check = { url: new URL(raw) };\n  const signal = AbortSignal.timeout(timeoutMs);\n  try {\n    const response = await fetchImpl(check.url.href, { method: \"POST\"",
+  "project": "node",
+  "paths": [
+   "test/examples/tester-guard.test.ts"
+  ]
+ },
+ {
+  "name": "guard: POST follows redirects",
+  "file": "examples/workers/tester/src/guard.ts",
+  "a": "method: \"POST\", redirect: \"manual\"",
+  "b": "method: \"POST\", redirect: \"follow\"",
+  "project": "node",
+  "paths": [
+   "test/examples/tester-guard.test.ts"
+  ]
+ },
+ {
+  "name": "guard: POST answer not capped",
+  "file": "examples/workers/tester/src/guard.ts",
+  "a": "    if (text === null) return { ok: false, why: `answered with more than ${maxBytes} bytes` };\n",
+  "b": "",
+  "project": "node",
+  "paths": [
+   "test/examples/tester-guard.test.ts"
+  ]
+ },
+ {
+  "name": "probe: sent after a refused exchange",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    if (!report.idJag) later.push(...PROBES.map((p) => skipProbe(p, \"your IdP issued no ID-JAG",
+  "b": "    if (report.idJag === \"never\") later.push(...PROBES.map((p) => skipProbe(p, \"your IdP issued no ID-JAG",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: sent for an unconfirmed registration",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    else if (!confirmed) later.push(",
+  "b": "    else if (confirmed === null) later.push(",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: a run kept back by the limits not reported",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "error: report.idJag ? await notRedeemed(redeemed) : \"exchange_failed\"",
+  "b": "error: \"exchange_failed\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the registration's run not given back at the global cap",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    await store.giveBackAllowance(env.DB, runKey);\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: offline_access without prompt=consent",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "...(form.get(\"refresh\") === \"1\" ? { prompt: \"consent\" } : {}), ",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "refresh: any 200 counts as an ID-JAG",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "answer.status === 200 && body.issued_token_type === ID_JAG_TOKEN_TYPE && typeof body.access_token === \"string\"",
+  "b": "answer.status === 200 && typeof body.access_token === \"string\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: a SHOULD graded as a MUST",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "expected: \"invalid_target\", codeRequired: true, accepted: \"warn\"",
+  "b": "expected: \"invalid_target\", codeRequired: true, accepted: \"fail\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: a 429 or 5xx graded as a refusal",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (answer.status === 429 || answer.status >= 500) return r(\"skip\",",
+  "b": "if (false) return r(\"skip\",",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: the access token sent when it is the ID token",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "c.accessToken === c.idToken ? { skip:",
+  "b": "false ? { skip:",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: an OAuth error with HTTP 200 counted as accepted",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (ok && (error === null || typeof body.access_token === \"string\"))",
+  "b": "if (ok)",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: an OAuth error with HTTP 200 and the right code passes",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "return ok ? r(\"warn\", `Refused with ${probe.expected}, but",
+  "b": "return false ? r(\"warn\", `Refused with ${probe.expected}, but",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: the resource probe's wrong code only warns",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "expected: \"invalid_target\", codeRequired: true, accepted: \"warn\"",
+  "b": "expected: \"invalid_target\", codeRequired: false, accepted: \"warn\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: HEAD runs the callback",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "        if (request.method === \"HEAD\" && new URL(request.url).pathname === \"/flow/callback\") return new Response(null, { status: 405, headers: { allow: \"GET\" } });\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the IdP's text shown whole",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "const idpText = (v: string, max = 200) => (v.length > max ? `${v.slice(0, max)}…` : v);",
+  "b": "const idpText = (v: string, _max = 200) => v;",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: every ID-JAG kept back blamed on the limits",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "async function notRedeemed(response: Response | null): Promise<\"not_redeemed\" | \"too_large\" | \"client_refused\"> {\n",
+  "b": "async function notRedeemed(response: Response | null): Promise<\"not_redeemed\" | \"too_large\" | \"client_refused\"> {\n  if (response !== undefined) return \"not_redeemed\";\n",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: an ID token without exp accepted",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": ", requiredClaims: [\"sub\", \"exp\", \"iat\"] });",
+  "b": " });",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: azp not checked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "&& payload.azp !== flow.idpClientId) return runStopped(",
+  "b": "&& false) return runStopped(",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: Automatic ignores the IdP's published methods",
+  "file": "examples/workers/tester/src/client-auth.ts",
+  "a": "const supported = listed ?? [\"client_secret_basic\"];",
+  "b": "const supported = [\"client_secret_basic\", \"client_secret_post\"];",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: a method the IdP doesn't list goes ahead",
+  "file": "examples/workers/tester/src/client-auth.ts",
+  "a": "  if (!supported.includes(chosen)) return { ok: false,",
+  "b": "  if (false) return { ok: false,",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: a refused method keeps the day's runs",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "    await Promise.all([store.giveBackAllowance(env.DB, runKey), store.giveBackAllowance(env.DB, `run:everyone:${day}`)]);\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "run: invalid_client at the code exchange gets the grant advice",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "if (error === \"invalid_client\" || status === 401) return",
+  "b": "if (false) return",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the page after registering doesn't link to the run",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<a href=\"/results#run\">",
+  "b": "<a href=\"/results\">",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the newest report's rules folded",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<details${fails || i === 0 ? \" open\" : \"\"}>",
+  "b": "<details${fails ? \" open\" : \"\"}>",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ }
+]

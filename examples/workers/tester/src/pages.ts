@@ -23,7 +23,7 @@ code, pre { background: var(--code); border-radius: 4px; font: 0.88em ui-monospa
 code { padding: 1px 4px; overflow-wrap: anywhere; } pre { padding: 12px; overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; } td, th { border-top: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
 .pass { color: var(--pass); } .fail { color: var(--fail); } .warn { color: var(--warn); } .info, .skip { color: var(--muted); }
-input[type=url], select { width: 100%; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+input[type=url], input[type=text], input[type=password], select { width: 100%; padding: 8px; font: inherit; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); cursor: pointer; }
 .box { border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin: 16px 0; }
 .wrap { overflow-x: auto; }
@@ -41,15 +41,56 @@ export function page(title: string, body: string, { turnstile = false, status = 
 
 const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it: <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/docs/test-your-idp.md#the-rules">the rules</a>, each with its source, and <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts">their code</a>. A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
 
+/** The step-by-step guide to a run of the whole flow. */
+const GUIDE = "https://github.com/mmcintosh/better-auth-id-jag/blob/main/docs/test-your-idp.md#how-to-use-it";
+
 /** A value with a copy button (the script at /app.js). */
 const copyable = (value: string) => `<span class="copy"><code>${esc(value)}</code><button type="button" class="small" data-copy="${esc(value)}">Copy</button></span>`;
 
 /** Paste an ID-JAG and the tester redeems it with this registration's own client: no curl, no secret to handle. */
 const checkForm = (registrationId: string) => `<form method="post" action="/check" class="box">
 <input type="hidden" name="registration" value="${esc(registrationId)}">
-<p><label><strong>Check an ID-JAG.</strong> Paste one your IdP minted for this registration, then press Check: the tester redeems it with your client here and adds the report below.<br><textarea name="assertion" rows="4" required maxlength="16384" placeholder="eyJ..."></textarea></label></p>
+<p><label><strong>Check an ID-JAG.</strong> Paste one your IdP minted for this registration (with the values above), then press Check: the tester redeems it with your client here and adds the report below.<br><textarea name="assertion" rows="4" required maxlength="16384" placeholder="eyJ..."></textarea></label></p>
 <p><button>Check</button></p>
 </form>`;
+
+/**
+ * "Run the whole flow": the tester plays the client. Laid out as steps, each field saying where its value comes from:
+ * the tester's IdP needs a client for it first. The client's secret is kept only for the run (sealed; the run expires
+ * after 10 minutes and is deleted within 5 more).
+ */
+const runForm = (origin: string, registrationId: string, clientId: string) => `<form method="post" action="/flow/start" class="box" id="run">
+<input type="hidden" name="registration" value="${esc(registrationId)}">
+<h3 style="margin-top:0">Run the whole flow (recommended)</h3>
+<p>The tester plays the client, as an AI agent would: it sends you to your IdP to sign in, asks your IdP for an ID-JAG, checks your IdP's answer, and redeems the ID-JAG here. <a href="${GUIDE}">Step-by-step guide</a>.</p>
+<p><strong>Step 1. At your IdP, create a client for the tester</strong> (an "application" in most admin consoles), with:</p>
+<table><tr><td>Redirect URI</td><td>${copyable(`${origin}/flow/callback`)}</td></tr>
+<tr><td>Grant types</td><td>authorization code (scope <code>openid</code>, PKCE S256) and token exchange (<code>urn:ietf:params:oauth:grant-type:token-exchange</code>)</td></tr>
+<tr><td>Allowed to get</td><td>ID-JAGs for audience ${copyable(`${origin}/api/auth`)}<br>and resource ${copyable(`${origin}/mcp`)}<br>with <code>client_id</code> ${copyable(clientId)} in the ID-JAG <span class="muted">(your client here, from this registration)</span></td></tr></table>
+<p class="muted">Your IdP's ID token, access token and refresh token are never stored or shown.</p>
+<p><strong>Step 2. Enter that client's details</strong></p>
+<p><label>Client id <span class="muted">(from step 1, at your IdP)</span><br><input type="text" name="client_id" required maxlength="256" autocomplete="off"></label></p>
+<p><label>Client secret <span class="muted">(from step 1; kept encrypted for this run only, then deleted)</span><br><input type="password" name="client_secret" required maxlength="512" autocomplete="off"></label></p>
+<p><label>How the client sends its secret<br><select name="auth_method"><option value="auto">Automatic: as your IdP's published settings say</option><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label><br><span class="muted">Leave on Automatic unless the client is set up differently from what your IdP publishes (<code>token_endpoint_auth_methods_supported</code>).</span></p>
+<p><label>Scope to ask for<br><input type="text" name="scope" value="read" maxlength="256"></label><br><span class="muted"><code>read</code> is the scope the tester grants; change it only to see how your IdP handles another.</span></p>
+<p><strong>Step 3. Extra checks</strong> <span class="muted">(each adds lines to the report)</span></p>
+<p><label><input type="checkbox" name="probes" value="1"> <strong>Recommended: check that your IdP refuses wrong requests.</strong> After the run's ID-JAG is redeemed, the tester sends 7 token exchanges with one thing wrong each (no client authentication, two audiences, an untrusted audience, a foreign resource, the wrong kind of subject token) and checks each is refused with the right error. Sent only once the registration is confirmed, which this run does. They may appear in your IdP's security logs.</label></p>
+<p><label><input type="checkbox" name="refresh" value="1"> <strong>Optional: try a refresh token.</strong> Only if your IdP issues refresh tokens. The sign-in then also asks for <code>offline_access</code>, with a consent prompt at your IdP, and the report says whether your IdP gives an ID-JAG for a refresh token (the draft allows it, but doesn't require it).</label></p>
+<p><strong>Step 4.</strong> Press Run. You'll sign in at your IdP and come back here; the report appears below.</p>
+<p><button>Run</button></p>
+</form>`;
+
+/** "Run the whole flow", between the form and the IdP: the pages' policy lets forms post only to this site. */
+export function continueToIdp(to: string, host: string, minutes: number, authNote: string): Response {
+  return page("Sign in at your IdP", `<h1>Sign in at your IdP</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">${esc(authNote)} The run waits ${minutes} minutes.</p>${FOOTER}`);
+}
+
+/** A run's ID-JAG that the tester's own token endpoint kept from the receiver, and why (index.ts, notRedeemed). */
+const NOT_REACHED: Record<string, string> = {
+  not_redeemed: "the tester's limits kept the ID-JAG back",
+  too_large: "the ID-JAG is too large for the tester's token endpoint",
+  client_refused: "the tester's own client for this registration couldn't redeem it; register again",
+};
 
 /** The values a tester's IdP mints with, each with a copy button, and all of them as one JSON template. */
 const idpValues = (origin: string, issuer: string, clientId: string) => {
@@ -75,7 +116,7 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
     `<h1><img src="/logo.svg" alt="" width="40" height="40" style="vertical-align:middle;margin-right:10px">Test your IdP</h1>
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
-<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint. The first one signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint, or let the tester run the whole flow with a client at your IdP. The first ID-JAG signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
 ${signInFailed ? '<p class="fail">The sign-in didn\'t complete. Try again.</p>' : ""}
 ${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
 ${FOOTER}`,
@@ -103,6 +144,12 @@ ${FOOTER}`,
   );
 }
 
+/** The registration's metadata and keys: open when a rule failed, else a one-line summary to open. */
+const metadataSection = (rules: RuleResult[]) => {
+  const fails = rules.filter((r) => r.outcome === "fail").length;
+  return `<details${fails ? " open" : ""}><summary>Your metadata and keys: ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</summary><div class="wrap"><table>${ruleRows(rules)}</table></div></details>`;
+};
+
 const ruleRows = (results: RuleResult[]) =>
   results.map((r) => `<tr><td class="${esc(r.outcome)}">${esc(r.outcome)}</td><td><code>${esc(r.id)}</code><br><span class="muted">${esc(r.level)}, ${esc(r.cite)}</span></td><td>${esc(r.message)}</td></tr>`).join("");
 
@@ -113,11 +160,13 @@ export function registered(o: { origin: string; registrationId: string; clientId
     "Registered",
     `<h1>Registered, pending</h1>
 <p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer). Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
-<h2>1. Have your IdP mint an ID-JAG with these values</h2>
-${idpValues(o.origin, o.issuer, o.clientId)}
-<h2>2. Paste it here</h2>
+<h2>Next: test your IdP, one of two ways</h2>
+<div class="box"><p><strong>A. Run the whole flow (recommended).</strong> The tester plays the client: you create a client for it at your IdP, sign in there, and the tester gets an ID-JAG from your IdP and checks every step.</p>
+<p><a href="/results#run"><strong>Go to "Run the whole flow"</strong></a> <span class="muted">(on your results page, with the steps)</span></p></div>
+<div class="box"><p><strong>B. Mint an ID-JAG yourself and paste it.</strong> Have your IdP mint one with these values, then paste it below.</p>
+${idpValues(o.origin, o.issuer, o.clientId)}</div>
 ${checkForm(o.registrationId)}
-<p>Every check is kept on <a href="/results">your results page</a>, with each rule and the receiver's own decision.</p>
+<p>Every report is kept on <a href="/results">your results page</a>, with each rule and the receiver's own decision.</p>
 <details><summary>Redeem from your own code instead</summary>
 <p><strong>Client secret, shown once:</strong> ${copyable(o.clientSecret)}</p>
 <pre>curl ${esc(o.origin)}/api/auth/oauth2/token ${esc(auth)} \\
@@ -150,17 +199,19 @@ export function results(views: ResultView[], name: string, origin: string): Resp
         .map(
           (v) => `<div class="box"><h2 style="margin-top:0">${esc(v.issuer)}</h2>
 <p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
-<details><summary>Metadata and keys</summary><div class="wrap"><table>${ruleRows(v.metadata)}</table></div></details>
-${v.active ? `<details><summary>Values for your IdP</summary>${idpValues(origin, v.issuer, v.clientId)}</details>${checkForm(v.registrationId)}` : ""}
+${metadataSection(v.metadata)}
+${v.active ? `${runForm(origin, v.registrationId, v.clientId)}<details class="box"><summary><strong>Or mint an ID-JAG yourself and paste it</strong></summary>${idpValues(origin, v.issuer, v.clientId)}${checkForm(v.registrationId)}</details>` : ""}
+${v.checks.length ? '<h3>Reports</h3>' : ""}
 ${
   v.checks.length
     ? v.checks
-        .map((c) => {
-          const decision = c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+        .map((c, i) => {
+          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : NOT_REACHED[c.error ?? ""] ? `<span class="warn">not reached: ${esc(NOT_REACHED[c.error ?? ""])}</span>` : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+          const run = c.results.some((r) => r.id.startsWith("exchange.")) ? " &middot; whole flow" : "";
           const fails = c.results.filter((r) => r.outcome === "fail").length;
-          return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>
+          return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC${run} &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>
 <p class="muted">jti <code>${esc(c.jti ?? "(none)")}</code> &middot; checked against ${esc(c.checkedAgainst)}</p>
-<details${fails ? " open" : ""}><summary>Rules</summary><div class="wrap"><table>${ruleRows(c.results)}</table></div></details>`;
+<details${fails || i === 0 ? " open" : ""}><summary>Rules</summary><div class="wrap"><table>${ruleRows(c.results)}</table></div></details>`;
         })
         .join("")
     : '<p class="muted">No ID-JAGs redeemed yet.</p>'
