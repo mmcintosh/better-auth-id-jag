@@ -62,6 +62,13 @@
   receivers differ. The README says where the package, the public tester and id-jag-check are listed on oauth.net's
   Cross-App Access page as of 2026-11-12.
 
+### Example
+
+- **The example IdP also issues ID-JAGs for the public tester** (`TESTER_AS_ISSUER`, `TESTER_RESOURCE`): only to
+  clients registered with `/setup`'s `"for": "tester"`, whose `clientIdAtResource` is the tester registration's client
+  id, and with the `read` scope only. A client registered for the MCP server gets no ID-JAG for the tester, nor the
+  other way round. The policy is exported (`policy` in `enterprise-idp/src/auth.ts`) and tested.
+
 ### Changed
 
 - **The public tester's report lists `jwks.fetch` when it passes**, not only when it fails, first among the JWKS rules,

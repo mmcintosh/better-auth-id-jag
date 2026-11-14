@@ -7,5 +7,5 @@
     "strict": true, "exactOptionalPropertyTypes": true, "skipLibCheck": true, "noEmit": true, "resolveJsonModule": true,
     "paths": { "better-auth-id-jag": ["../../dist/index.d.ts"] }
   },
-  "include": ["tester-worker.test.ts", "tester-load.test.ts", "tester-flow.test.ts", "../support/env.d.ts"]
+  "include": ["tester-worker.test.ts", "tester-load.test.ts", "tester-flow.test.ts", "enterprise-idp-policy.test.ts", "../support/env.d.ts"]
 }

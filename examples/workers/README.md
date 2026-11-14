@@ -185,3 +185,33 @@ with that method ("A client that sends its secret in the body", above). In the t
 enter the MCP server's issuer, its token endpoint, and that client. The SAML variant sends the user as a SAML NameID
 in `sub_id`; the MCP server maps xaa.dev's SAML issuer (`samlSubjects`, in `mcp-server/src/auth.ts`). Results:
 [docs/interop.md](../../docs/interop.md#xaadev--our-receiver).
+
+## The public tester
+
+The IdP can also be tested against the public tester at https://idjag-tester.infowall.net. The tester is a second
+receiver: it redeems an ID-JAG and reports every rule it passed or failed
+([docs/test-your-idp.md](../../docs/test-your-idp.md)). The token exchange's `audience` tells the IdP which receiver an
+ID-JAG is for:
+
+```
+person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP ─┬─ audience: the MCP server ─▶ ID-JAG ─jwt-bearer─▶ MCP AS ─access token─▶ client ─▶ /mcp
+                                                                │    only to clients registered for the MCP server; read, or read write for WRITERS
+                                                                │
+                                                                └─ audience: the tester ─────▶ ID-JAG ─jwt-bearer─▶ tester ─▶ a report, rule by rule
+                                                                     only to clients registered "for": "tester"; read only
+```
+
+Each receiver knows the client by its own client id, and the IdP puts that id in the ID-JAG's `client_id`. A client
+for the tester is therefore registered twice, in this order:
+
+1. Register the IdP's issuer at the tester. The tester gives a client id there.
+2. Register a client at the IdP with `"for": "tester"` and that client id:
+
+```sh
+curl -X POST https://<idp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-type: application/json' \
+  -d '{"email":"agent-user@example.com","password":"example-password-1234","clientIdAtResource":"<the tester client id>","agent":true,"for":"tester"}'
+```
+
+`TESTER_AS_ISSUER` and `TESTER_RESOURCE` turn this on. `wrangler.jsonc` sets them to the public tester; without them,
+the IdP issues ID-JAGs for the MCP server only. A client registered for one receiver gets nothing from the other
+(`policy` in `enterprise-idp/src/auth.ts`, tested in `test/examples/enterprise-idp-policy.test.ts`).

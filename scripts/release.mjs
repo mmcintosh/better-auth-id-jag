@@ -4,9 +4,11 @@
 //
 //   pnpm release patch|minor|major ["One sentence for the top of the version's section."]
 //
-// Run on an up-to-date, clean main, with `gh` signed in.
+// Run on an up-to-date, clean main, with `gh` signed in, in a terminal: it lists the open pull requests and other
+// branches on GitHub first, and goes on only when you confirm each is deferred on purpose.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 
 const run = (cmd, args, o = {}) => String(execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], ...o }) ?? "").trim();
 const fail = (msg) => {
@@ -21,6 +23,25 @@ if (run("git", ["branch", "--show-current"]) !== "main") fail("run it on main");
 if (run("git", ["status", "--porcelain"])) fail("the working tree isn't clean");
 run("git", ["fetch", "--quiet", "origin", "main"]);
 if (run("git", ["rev-parse", "HEAD"]) !== run("git", ["rev-parse", "origin/main"])) fail("main isn't up to date with origin/main (git pull)");
+
+// Open work: every open pull request (drafts too) and every other branch on GitHub is listed, and the release goes on
+// only once it's confirmed that each one is deferred on purpose. Finished README work waiting in a draft once shipped
+// in neither of two releases, because only merged changes were checked.
+const openPrs = JSON.parse(run("gh", ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,title,isDraft,headRefName"]));
+const otherBranches = run("git", ["ls-remote", "--heads", "origin"])
+  .split("\n")
+  .map((line) => line.split("refs/heads/")[1])
+  .filter((b) => b && b !== "main" && !openPrs.some((p) => p.headRefName === b));
+if (openPrs.length > 0 || otherBranches.length > 0) {
+  console.log("Open work on GitHub that this release would leave out:");
+  for (const p of openPrs) console.log(`  #${p.number}${p.isDraft ? " (draft)" : ""}: ${p.title}`);
+  for (const b of otherBranches) console.log(`  branch ${b} (no open pull request)`);
+  if (!process.stdin.isTTY) fail("there is open work to confirm, and no terminal to confirm it in: run this in a terminal");
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await prompt.question("Is each one deferred on purpose? Type yes to release without them: ");
+  prompt.close();
+  if (answer.trim().toLowerCase() !== "yes") fail("stopped: merge what belongs in this release first, then run it again");
+}
 
 const pkg = readFileSync("package.json", "utf8");
 const current = JSON.parse(pkg).version;
@@ -81,6 +102,7 @@ const docsCheck = [
   "- [ ] docs/security.md (threats and known limitations), docs/interop.md, docs/versioning.md",
   "- [ ] Nothing in the README still describes the package as unreleased",
   "- [ ] `pnpm docs:check` passes",
+  "- [ ] Open pull requests and branches (the release script listed them): each one is in this release or deferred on purpose",
 ].join("\n");
 const what = firstRelease ? `Version ${next} in package.json (no longer \`"private": true\`), its dated CHANGELOG section, and the README's release status.` : `Version ${next} in package.json and its dated CHANGELOG section.`;
 const url = run("gh", ["pr", "create", "--draft", "--base", "main", "--title", `Release ${next}`, "--body", `${what}\n\n${docsCheck}\n\n**Merging this releases it:** tag-release.yml tags v${next} on main and starts the release run. Then approve the \`npm\` environment in GitHub, and the staged publish on npmjs.com.`]);
