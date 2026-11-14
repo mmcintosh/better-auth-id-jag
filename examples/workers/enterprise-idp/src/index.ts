@@ -136,7 +136,10 @@ const CONSENT_PAGE = `<!doctype html>
 <style>body{font:16px system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem;margin-right:.5rem}#error{color:#b00020}</style>
 </head><body>
 <h1>Example IdP</h1>
-<p>The application <strong id="client"></strong> asks for: <code id="scope"></code>.</p>
+<p>An application sent you here to sign in with your Example IdP account.<span id="who"></span></p>
+<p><strong id="client"></strong> asks to:</p>
+<ul id="scopes"></ul>
+<p>Allow lets it continue; Deny sends you back to it with no access.</p>
 <p><button id="allow" type="button">Allow</button><button id="deny" type="button">Deny</button></p>
 <p id="error" role="alert"></p>
 <script>
@@ -145,7 +148,16 @@ document.getElementById("client").textContent = params.get("client_id") || "(unk
 // The client's name, where the provider gives it (its public client fields, for the signed-in user).
 if (params.get("client_id")) fetch("/api/auth/oauth2/public-client?client_id=" + encodeURIComponent(params.get("client_id")), { credentials: "same-origin" })
   .then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.client_name === "string" && c.client_name) document.getElementById("client").textContent = c.client_name; }).catch(() => {});
-document.getElementById("scope").textContent = params.get("scope") || "(none)";
+// Each scope in plain words, with its name.
+const SCOPES = { openid: "confirm who you are", profile: "see your name", email: "see your email address", offline_access: "keep access while you're away (a refresh token)" };
+for (const s of (params.get("scope") || "").split(" ").filter(Boolean)) {
+  const li = document.createElement("li");
+  li.textContent = Object.hasOwn(SCOPES, s) ? SCOPES[s] + " (" + s + ")" : s;
+  document.getElementById("scopes").append(li);
+}
+// Who is signed in here: an earlier sign-in can skip the password, and this says why.
+fetch("/api/auth/get-session", { credentials: "same-origin" })
+  .then((r) => (r.ok ? r.json() : null)).then((x) => { if (x && x.user && typeof x.user.email === "string") document.getElementById("who").textContent = " You're signed in as " + x.user.email + "."; }).catch(() => {});
 async function answer(accept) {
   const error = document.getElementById("error");
   error.textContent = "";

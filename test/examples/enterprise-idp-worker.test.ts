@@ -64,6 +64,11 @@ describe.skipIf(!workerd)("example IdP as a Worker: a tester client, sign-in and
     const shown = await call(`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(client_id)}`, { headers: { cookie } });
     expect(shown.status).toBe(200);
     expect(((await shown.json()) as { client_name?: string }).client_name).toBe("Example tester client (AI agent)");
+    // And who is signed in (an earlier sign-in skips the password), and each scope in plain words.
+    expect(html).toContain('fetch("/api/auth/get-session"');
+    const session = await call("/api/auth/get-session", { headers: { cookie } });
+    expect(((await session.json()) as { user?: { email?: string } }).user?.email).toBe(EMAIL);
+    expect(html).toContain('offline_access: "keep access while you\'re away (a refresh token)"');
 
     // What the page's Allow sends: the signed part of the query.
     const names = new Set(to.searchParams.getAll("ba_param"));
