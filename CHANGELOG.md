@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Security
+
+- **The receiver refuses the SCIM step on a database without native transactions** (D-073): every ID-JAG whose trust
+  entry has `scim` is refused (`subject_unavailable`, with `scim.required: false` too), and startup logs an error
+  when `scim.acquireActiveSCIMUserLink` is set. Without a native transaction the lookup can't detect a concurrent
+  deprovisioning. `@better-auth/scim` refused to start on such a database (Cloudflare D1, for one) until 1.7.21,
+  which starts and answers its own SCIM routes with 501 (better-auth/better-auth#12413); its
+  `acquireActiveSCIMUserLink` doesn't check, so the receiver now does.
+
+### Documentation
+
+- **README: the public tester and the MCP clients.** A "Test your IdP" section and a Features line point ID-JAG issuer
+  builders to the tester, and the section to the id-jag-check Action for their CI; "Examples" covers its three
+  Workers; Interoperability has VS Code 1.145.0 through to `tools/call` and both Claude Code rows.
+  `docs/test-your-idp.md` gives the tester's address, lists every rule it reports with its level and source, and says
+  what it doesn't check (the IdP's side of the exchange); a test keeps that list and the code in step.
+- **The accepted algorithms name `Ed25519` too** (RFC 9864's name for EdDSA with Ed25519, which the receiver already accepts)
+  in `docs/test-your-idp.md` and `docs/security.md`, as the README and the code already did.
+- **Interoperability: Cloudflare's workers-oauth-provider.** The issuer's ID-JAGs were run by hand against its
+  experimental ID-JAG receiver (1.2.4). Locally: RS256 accepted, ES256 when the receiver lists it in `algorithms`,
+  EdDSA refused, and by default a lifetime over 360 seconds refused. With the receiver deployed: the ES256 flow, replay
+  and another client refused, and new signing keys accepted. `docs/interop.md` has the results and how the two
+  receivers differ. The README says where the package, the public tester and id-jag-check are listed on oauth.net's
+  Cross-App Access page as of 2026-11-12.
+
+### Example
+
+- **The example IdP also issues ID-JAGs for the public tester** (`TESTER_AS_ISSUER`, `TESTER_RESOURCE`): only to
+  clients registered with `/setup`'s `"for": "tester"`, whose `clientIdAtResource` is the tester registration's client
+  id, and with the `read` scope only. A client registered for the MCP server gets no ID-JAG for the tester, nor the
+  other way round. The policy is exported (`policy` in `enterprise-idp/src/auth.ts`) and tested.
+
+### Changed
+
+- **The public tester's report lists `jwks.fetch` when it passes**, not only when it fails, first among the JWKS rules,
+  so a registration's report shows every rule the tester checked.
+
 ## [0.7.1] - 2026-11-10
 
 The receiver compares the account key exactly: on a case- or accent-insensitive database, an ID-JAG's sub could match another subject's account.

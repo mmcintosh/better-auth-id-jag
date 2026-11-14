@@ -3,11 +3,12 @@
 // host (users provisioned over its SCIM HTTP API, as an IdP's SCIM client does). Required by default:
 // a deprovisioned user is refused, and can't come back through an account link, email or JIT.
 import { acquireActiveSCIMUserLink } from "@better-auth/scim";
+import { memoryAdapter } from "better-auth/adapters/memory";
 import { APIError } from "better-auth/api";
 import { describe, expect, it } from "vitest";
 import type { IdJagGrantOptions } from "../../src/receiver";
 import { MAX_SCIM_ATTEMPTS, SCIM_RETRY_BUDGET_MS } from "../../src/receiver/scim";
-import { BASE, createClient, decodePayload, linkedUser, network, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
+import { BASE, createClient, decodePayload, linkedUser, network, type ReceiverHost, receiverHost, recorder, redeem, testIdp, uniqueEmail } from "../support/receiver-host";
 
 const CONNECTION = "acme-idp";
 const TOKEN = "scim-bearer-token-that-is-long-enough-for-the-plugin";
@@ -18,7 +19,7 @@ const PERSISTENT = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent";
 
 type Acquire = NonNullable<IdJagGrantOptions["scim"]>["acquireActiveSCIMUserLink"];
 
-async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire | null; connections?: string[]; table?: boolean; admin?: boolean; saml?: { requireSubId?: boolean } } = {}) {
+async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire | null; connections?: string[]; table?: boolean; admin?: boolean; saml?: { requireSubId?: boolean }; logs?: string[] } = {}) {
   const idp = await testIdp();
   const rec = recorder();
   const scimEntry = { connectionId: CONNECTION, ...(o.required === undefined ? {} : { required: o.required }) };
@@ -44,6 +45,7 @@ async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire |
     scim: { connections: (o.connections ?? [CONNECTION]).map((id) => ({ id, credentials: [{ type: "bearer" as const, id: `${id}-token`, token: `${TOKEN}-${id}` }] })) },
     recorder: rec,
     ...(o.admin ? { admin: true } : {}),
+    ...(o.logs ? { logs: o.logs } : {}),
   });
   const client = await createClient(h);
   const scimCall = async (method: string, path: string, body?: unknown, connection = CONNECTION) => {
@@ -80,7 +82,7 @@ async function world(o: { required?: boolean; jit?: boolean; acquire?: Acquire |
 }
 
 // @better-auth/scim needs an adapter with native transactions, which D1 isn't ("The scim plugin
-// requires a database adapter with native transaction support"): no SCIM server on Workers + D1, so
+// requires a database adapter with native transaction support"): no working SCIM server on Workers + D1, so
 // these run on Node (node:sqlite) and, in CI's adapter matrix, on Postgres and MySQL.
 const workerd = typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
 
@@ -306,5 +308,65 @@ describe("SCIM options are checked at startup", () => {
     await expect(receiverHost("mcp", { receiver: { trustedIssuers: [entry], scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as unknown as Acquire } } })).rejects.toThrow(/@better-auth\/scim plugin is not installed/);
     await expect(receiverHost("mcp", { receiver: { trustedIssuers: [{ ...entry, scim: { connectionId: "" } }] } })).rejects.toThrow(/invalid options/);
     await expect(receiverHost("mcp", { receiver: { trustedIssuers: [{ ...entry, scim: { connectionId: CONNECTION, requird: false } as never }] } })).rejects.toThrow(/invalid options/);
+  });
+});
+
+// Without native transactions (D-073), Better Auth's `adapter.transaction` is a fallback that runs the
+// callback without a transaction, so a concurrent deprovisioning would go unseen: the SCIM step is
+// refused, `required: false` included, and startup logs it. `@better-auth/scim` starts on such an
+// adapter since 1.7.21 (501 on its own routes), but acquireActiveSCIMUserLink doesn't check.
+type Adapter = ReceiverHost["ctx"]["adapter"];
+/** The adapter as Better Auth shapes one without native transactions (D1's): adapterConfig.transaction false, a fallback `transaction`. */
+function fallbackTransactions(adapter: Adapter): Adapter {
+  const options = (adapter as { options?: { adapterConfig?: object } }).options;
+  const fallback: Adapter = { ...adapter, options: { ...options, adapterConfig: { ...options?.adapterConfig, transaction: false } }, transaction: (cb) => cb(fallback) } as Adapter;
+  return fallback;
+}
+const NO_NATIVE_REFUSED = { reason: "subject_unavailable", detail: "SCIM: the database adapter has no native transactions" };
+const startupError = (logs: string[]) => logs.find((l) => l.startsWith("error") && l.includes("scim.acquireActiveSCIMUserLink is set, but the database adapter has no native transactions"));
+const requestError = (logs: string[]) => logs.find((l) => l.startsWith("error") && l.includes("the database adapter has no native transactions; refusing"));
+
+describe.skipIf(workerd)("SCIM without native transactions is refused (D-073), Node", () => {
+  it("an active provisioned user, read through an adapter without native transactions: refused even with required: false; logged", async () => {
+    const logs: string[] = [];
+    const w = await world({ required: false, jit: true, logs });
+    const sub = crypto.randomUUID();
+    await w.provision(sub);
+    expect((await w.attempt(sub)).reason).toBe("accepted");
+    expect(startupError(logs)).toBeUndefined();
+    // Users a server with transactions provisioned, read by one without (D1, or transaction off).
+    (w.h.ctx as { adapter: Adapter }).adapter = fallbackTransactions(w.h.ctx.adapter);
+    expect(await w.attempt(sub)).toMatchObject(NO_NATIVE_REFUSED);
+    expect(await w.attempt(crypto.randomUUID(), { email: uniqueEmail() })).toMatchObject(NO_NATIVE_REFUSED);
+    expect(requestError(logs)).toBeDefined();
+  });
+
+  it("startup logs it when scim is set and the adapter has no native transactions", async () => {
+    const logs: string[] = [];
+    const acquire = acquireActiveSCIMUserLink as unknown as Acquire;
+    const database = (options: never) => fallbackTransactions(memoryAdapter({})(options) as Adapter);
+    await receiverHost("mcp", { receiver: { trustedIssuerTable: true, scim: { acquireActiveSCIMUserLink: acquire } }, database, migrate: false, logs });
+    expect(startupError(logs)).toBeDefined();
+    // Without scim set, nothing to say.
+    const quiet: string[] = [];
+    await receiverHost("mcp", { receiver: { trustedIssuerTable: true }, database, migrate: false, logs: quiet });
+    expect(startupError(quiet)).toBeUndefined();
+  });
+});
+
+describe.runIf(workerd)("SCIM without native transactions is refused (D-073), workerd on D1", () => {
+  it("D1 has no native transactions: startup logs it, and a trust entry with scim is refused before any lookup", async () => {
+    const idp = await testIdp();
+    const rec = recorder();
+    const logs: string[] = [];
+    const h = await receiverHost("mcp", { receiver: { trustedIssuerTable: true, scim: { acquireActiveSCIMUserLink: acquireActiveSCIMUserLink as unknown as Acquire }, fetch: network(idp).fetch }, recorder: rec, logs });
+    expect(startupError(logs)).toBeDefined();
+    await h.ctx.adapter.create({ model: "idJagTrustedIssuer", data: { issuer: idp.issuer, jwksUri: idp.jwksUri, scimConnectionId: CONNECTION, scimRequired: false, jitProvisioning: false, jitTrustEmailVerified: false, enabled: true, createdAt: new Date(), updatedAt: new Date() } });
+    const client = await createClient(h);
+    const r = await redeem(h, client, await idp.mint(idp.claims({ client_id: client.client_id, sub: crypto.randomUUID() })));
+    await rec.settle();
+    expect(r.status).toBe(400);
+    expect(rec.refused.at(-1)).toMatchObject(NO_NATIVE_REFUSED);
+    expect(requestError(logs)).toBeDefined();
   });
 });

@@ -172,7 +172,11 @@ async function register(request: Request, env: Env, origin: string): Promise<Res
   const jwksUri = typeof metadata.jwks_uri === "string" ? metadata.jwks_uri : "";
   const jwks = jwksUri ? await fetchJsonCapped(fetch, jwksUri) : ({ ok: false, why: "no jwks_uri" } as const);
   const check = checkIssuerMetadata({ issuer, source, metadata, jwks: jwks.ok ? jwks.json : null });
-  if (!jwks.ok) check.results.push({ id: "jwks.fetch", level: "MUST", cite: "draft -06 section 4.4.1; RFC 7521 section 5.2", outcome: "fail", message: `Your JWKS ${jwks.why}: a receiver verifies the ID-JAG's signature with these keys.` });
+  // jwks.fetch is the tester's own rule (the checker is given the JWKS, not its address): reported pass or fail, first
+  // among the JWKS rules, so the report lists every rule it checked.
+  const fetchRule = { id: "jwks.fetch", level: "MUST", cite: "draft -06 section 4.4.1; RFC 7521 section 5.2", outcome: jwks.ok ? "pass" : "fail", message: jwks.ok ? "Your JWKS was fetched from your metadata's jwks_uri." : `Your JWKS ${jwks.why}: a receiver verifies the ID-JAG's signature with these keys.` } as const;
+  const firstJwksRule = check.results.findIndex((r) => r.id.startsWith("jwks."));
+  check.results.splice(firstJwksRule === -1 ? check.results.length : firstJwksRule, 0, fetchRule);
   if (check.blocking.length > 0 || !jwks.ok) return registerForm(env.TURNSTILE_SITE_KEY, `Not registered: ${check.results.filter((r) => r.outcome === "fail").map((r) => r.message).join(" ")}`);
 
   // Reserve the registration (pending) and its abuse record first, in one transaction that checks every limit: two

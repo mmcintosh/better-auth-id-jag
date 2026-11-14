@@ -190,6 +190,13 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     const html = await page.text();
     expect(html).toContain("Registered, pending");
     expect(html).toContain(AUD);
+    // Every rule checked is listed, passes too: jwks.fetch first among the JWKS rules, here and in the stored report.
+    expect(html.indexOf("jwks.fetch")).toBeGreaterThan(-1);
+    expect(html.indexOf("jwks.fetch")).toBeLessThan(html.indexOf("jwks.keys"));
+    const [stored] = await rows<{ metadataReport: string }>(`select metadataReport from testerRegistration order by createdAt desc limit 1`);
+    const report = JSON.parse(stored?.metadataReport ?? "[]") as { id: string; outcome: string }[];
+    expect(report.find((r) => r.id === "jwks.fetch")?.outcome).toBe("pass");
+    expect(report.findIndex((r) => r.id === "jwks.fetch")).toBe(report.findIndex((r) => r.id.startsWith("jwks.")));
     // Plug and play: every value has a copy button, the whole template too, and the paste box is right there.
     expect(html).toContain(`data-copy="${AUD}"`);
     expect(html).toContain("Copy as JSON");

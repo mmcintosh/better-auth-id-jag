@@ -1588,3 +1588,63 @@ The public tester (`examples/workers/tester`):
   keys), as the id-jag-check Action does, rather than section 7.1.
 - **Evidence:** `test/examples/tester-worker.test.ts` (workerd, D1), a test for each, each failing with its fix taken
   out.
+
+## D-072: a development `fast-xml-parser` override, as D-051 (2026-11-11)
+
+GHSA-474x-hrwr-fgx4 (low, published 2026-11-10): `fast-xml-parser` up to 5.11.2 spends quadratic CPU on a stop-node
+body with many unterminated tags, and only with the non-default `stopNodes` option. Fixed in 5.12.0. The path is
+`@better-auth/sso` (a development dependency here, `^5.8.0`) → `fast-xml-parser` 5.11.2. This package ships none of
+it, and `@better-auth/sso` 1.7.18 builds both of its `XMLParser`s without `stopNodes`, so the advisory can't be
+reached here either. Dependabot's security update for it failed.
+
+The fix is the D-051 kind: `fast-xml-parser@<5.12.0 → ^5.12.0`. `pnpm update fast-xml-parser` was tried first; as with
+D-051's `fast-uri`, it also moved `rolldown`, so it wasn't used. The lockfile now has `fast-xml-parser` 5.12.0 with its
+own dependencies `strnum` 2.5.1 and `is-unsafe` 2.0.3, and nothing else changes; `pnpm audit` is clean at every level.
+`@better-auth/sso`'s `^5.8.0` already allows 5.12.0, so the override can go at any later lockfile refresh that
+keeps 5.12.0 or newer.
+
+## D-073: development pin 1.7.22, the floor stays 1.7.16; the SCIM step refused without native transactions (2026-11-13)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.18 → 1.7.22 (published 2026-11-12), and
+  the SAML end-to-end project with them. `better-call` 1.4.5 and `@better-auth/utils` 0.5.1 are unchanged. The peer
+  range and CI's floor rows stay on 1.7.16: no advisory has been published since D-064's.
+- **What 1.7.21 changed for us:** better-auth/better-auth#12413. Before it, `scim()` on an adapter without native
+  transactions threw in `init`, so Better Auth didn't start, and our docs said `@better-auth/scim` refuses such
+  adapters. From 1.7.21 it logs an error, starts, and answers `/scim/v2/*` and its connection writes with 501
+  (`supportsNativeSCIMTransactions`: `adapter.options.adapterConfig.transaction` is a function).
+  `acquireActiveSCIMUserLink`, the one function the receiver calls, has no such check. Without a native transaction,
+  `adapter.transaction` is Better Auth's fallback, which runs the callback without one, so the lookup's revision bump
+  no longer detects a concurrent deprovisioning. Users written by another server with transactions (a shared
+  database) would then be found.
+- **Decision (2026-11-13, the second of two options):** the receiver logs an error at startup when
+  `scim.acquireActiveSCIMUserLink` is set and the adapter has no native transactions, and refuses the SCIM step on
+  every redemption that reaches it: `subject_unavailable`, detail "SCIM: the database adapter has no native
+  transactions", with `scim.required: false` too, since this is a configuration problem, not a missing user. Option A,
+  refusing to start, was not chosen: it stops every route, which is what upstream moved away from in #12413. The
+  check is the one `@better-auth/scim` makes; `adapterConfig` has the same shape in `@better-auth/core` 1.7.16 and
+  1.7.22.
+- **Tests:** Node provisions a user with transactions, then reads through the adapter shaped as Better Auth shapes
+  one without them (`fallbackTransactions` in test/receiver/scim.test.ts): refused, `required: false` included;
+  startup logs the error only when `scim` is set. workerd runs on D1 itself, which has no native transactions:
+  startup logs it, and a table trust row with `scimConnectionId` is refused before any lookup. Three mutation entries
+  (the refusal, the check, the startup log) are caught.
+- **Other 1.7.19–1.7.22 changes checked** (their release notes): #12409 (1.7.21) fixes the provider issuing
+  "[object Promise]" as the refresh token when `formatRefreshToken.encrypt` is async; the issuer's refresh-token
+  subject already awaits `formatRefreshToken.decrypt` (src/issuer/subject/refresh-token.ts), so that path now works
+  end to end on 1.7.21 and later, and was broken by Better Auth itself before. #12327 (1.7.19, an unprefixed client
+  secret gets the standard `invalid_client`), #11911 and #12389 (1.7.21, refresh-token reuse), #12395 (1.7.21,
+  `resources` hanging on Workers), #12451 and #12448 (1.7.22, Workers), #12445, #12432 and #12446 (1.7.22,
+  resource-server challenges and introspection, 401 instead of 500) and #12319 (1.7.19, plugin schema overrides)
+  are Better Auth's own paths: `src/` calls none of `verifyAccessToken`, the resource-server helpers or
+  introspection, and before this decision's tests the suite passed on 1.7.22 with the same counts as on 1.7.18.
+- **CI's floor rows:** `scripts/use-better-auth.sh` now runs `pnpm dedupe` after installing the row's version. With
+  the 1.7.22 lockfile, the 1.7.16 rows failed to load every file importing `@better-auth/mcp`: `mcp` and `cimd` 1.7.16
+  take `@better-auth/oauth-provider` as `^1.7.16`, pnpm kept the lockfile's 1.7.22 for them, and that imports
+  `INSECURE_REDIRECT_URI_MESSAGE`, which `@better-auth/core` has only from 1.7.20. `better-auth-saml-idp`'s
+  `better-auth` and `@better-auth/core` peers had stayed on the lockfile's version the same way (1.7.18 before this
+  pin), so the issuer's SAML tests ran a second, newer Better Auth on the floor rows. After the dedupe no 1.7.22
+  package is left in the floor tree; the suite passes on it locally with the same counts as on 1.7.22.
+- **Evidence:** typecheck, lint, `docs:check`, `pack:check`; the suite in both projects; the SAML end-to-end project
+  on 1.7.22, 19 passed; one `better-auth` and one `@better-auth/core` in the lockfile.

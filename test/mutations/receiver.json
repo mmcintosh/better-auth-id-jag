@@ -1810,6 +1810,33 @@
   ]
  },
  {
+  "name": "D-073 SCIM: the step runs on an adapter without native transactions",
+  "file": "src/receiver/scim.ts",
+  "a": "  if (!hasNativeTransactions(ctx.context.adapter)) {\n    ctx.context.logger.error(",
+  "b": "  if (false) {\n    ctx.context.logger.error(",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-073 SCIM: any adapter counts as having native transactions",
+  "file": "src/receiver/scim.ts",
+  "a": "?.options?.adapterConfig?.transaction === \"function\";",
+  "b": "?.options?.adapterConfig?.transaction !== undefined;",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
+  "name": "D-073 SCIM: no startup error for an adapter without native transactions",
+  "file": "src/receiver/plugin.ts",
+  "a": "if (resolved.acquireScimLink && !hasNativeTransactions(ctx.adapter))",
+  "b": "if (false)",
+  "paths": [
+   "test/receiver/scim.test.ts"
+  ]
+ },
+ {
   "name": "D-059 unknown subject back to invalid_grant",
   "file": "src/core/errors.ts",
   "a": "  unknown_subject: { error: \"access_denied\", public: false },",

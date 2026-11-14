@@ -9,7 +9,7 @@ from, next to what a real receiver decided. The receiver is this package's `idJa
 It is a testing aid: the rules as this package reads draft -06, with the code to show for each. It is not a
 conformance or certification test, and its results are visible only to the account that registered.
 
-> **Status:** built, not yet deployed. This page gives its address once it is.
+**It runs at <https://idjag-tester.infowall.net>.**
 
 ## What it checks
 
@@ -32,6 +32,69 @@ This one is a live receiver for your IdP. It answers two questions:
 Each result is **pass**, **fail**, **warn** (allowed, but not what the draft recommends), or **info**. Rules marked
 POLICY are this receiver's own choices, which the draft allows, for example that an ID-JAG without `scope` grants
 nothing (section 4.3.3: the IdP includes "the granted values, if any").
+
+### The rules
+
+Every rule below is in the package's checker, [`src/core/check.ts`](../src/core/check.ts) (`checkIdJag` and
+`checkIssuerMetadata`; `jwks.fetch` is in the tester's [`index.ts`](../examples/workers/tester/src/index.ts)),
+written from the text of draft -06 and the RFCs it relies on. The level is the source's own word (MUST, SHOULD,
+RECOMMENDED, OPTIONAL), or POLICY for this receiver's choice. A rule whose level differs by case (a claim that is
+present but malformed, say) lists both.
+
+**At registration: your metadata and keys.** A failed rule marked *blocks* stops the registration.
+
+| Rule | Level | Source | What it checks |
+|---|---|---|---|
+| `metadata.location` | SHOULD | draft -06 section 7.1; RFC 8414 section 3 | Your metadata is at RFC 8414's location (OpenID Connect Discovery's is accepted as a fallback, with a warning) |
+| `metadata.issuer` | MUST | RFC 8414 section 3.3 | The metadata's `issuer` is exactly the issuer you entered (blocks) |
+| `metadata.jwks_uri` | POLICY | draft -06 section 7.1 | `jwks_uri` is an https URL (blocks) |
+| `metadata.token_types` | SHOULD | draft -06 section 7.1 | `identity_chaining_requested_token_types_supported` lists the ID-JAG token type |
+| `metadata.signing_algs` | MUST, if present | draft -06 section 7.1 | `id_jag_signing_alg_values_supported`, if present, includes RS256 |
+| `jwks.fetch` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | Your JWKS can be fetched: a receiver verifies the ID-JAG's signature with these keys (blocks) |
+| `jwks.keys` | MUST | RFC 7517 section 5 | It is a JSON object with a non-empty `keys` array (blocks) |
+| `jwks.no_private` | MUST | RFC 7517 section 9.2 | No private or symmetric key material is published (blocks) |
+| `jwks.usable` | MUST | draft -06 section 3 | At least one RSA, EC or OKP key (blocks) |
+| `jwks.kid` | OPTIONAL | RFC 7517 section 4.5 | Every key has a `kid` |
+
+**For each ID-JAG.**
+
+| Rule | Level | Source | What it checks |
+|---|---|---|---|
+| `jwt.structure` | MUST | RFC 7519 section 7.2 | A compact JWT with a JSON header and claims; nothing else is checked without it |
+| `header.typ` | MUST | draft -06 sections 4.4.1, 3.1; RFC 7515 section 4.1.9 | `typ` is `oauth-id-jag+jwt` (any case, `application/` optional) |
+| `header.alg` | POLICY | draft -06 sections 3, 4.4.1 | An algorithm this receiver accepts: RS256, ES256, EdDSA or Ed25519 (RFC 9864's name for EdDSA with Ed25519), never `none` or HS*; notes that RS256 is the one every IdP and receiver must implement |
+| `header.kid` | POLICY; MUST for a thumbprint's form | RFC 7515 sections 4.1.4, 4.1.7, 4.1.8 | The header names the key: a `kid`, or else an `x5t` / `x5t#S256` of the right form |
+| `header.crit` | MUST | RFC 7515 section 4.1.11 | No `crit` (this receiver understands no critical parameters) |
+| `signature` | MUST | draft -06 section 4.4.1; RFC 7521 section 5.2 | The signature verifies with a key from your JWKS, chosen as the receiver chooses it (signing keys only, by `kid`, else by thumbprint) |
+| `claim.iss` | MUST | draft -06 sections 3.1, 4.4.1 | `iss` is exactly your registered issuer |
+| `claim.sub` | MUST | draft -06 section 3.1 | `sub` is a non-empty string |
+| `claim.aud` | MUST | draft -06 section 4.4.1 | `aud` is this receiver's issuer identifier: a string, or an array of exactly one |
+| `claim.client_id` | MUST | draft -06 sections 3.1, 4.4.1 | `client_id` is present and is the client that authenticated |
+| `claim.jti` | MUST | draft -06 section 3.1 | `jti` is present (each ID-JAG works once here) |
+| `claim.exp` | MUST; POLICY for whole seconds | draft -06 section 3.1; RFC 7519 sections 2, 4.1.4 | `exp` is a NumericDate in whole seconds, not passed (60 s of clock skew) |
+| `claim.iat` | MUST; POLICY for whole seconds | draft -06 section 3.1; RFC 7519 sections 2, 4.1.6 | `iat` is a NumericDate in whole seconds, not in the future |
+| `claim.lifetime` | POLICY | draft -06 section 4.3.4 | `exp` minus `iat` is more than 0 and at most 900 s (the draft's example is 300) |
+| `claim.nbf` | OPTIONAL | RFC 7519 section 4.1.5 | `nbf`, if present, has passed |
+| `claim.resource` | OPTIONAL; MUST if present | draft -06 sections 3.1, 4.4.1 | If present: a string or a non-empty array of unique strings, each a resource this receiver governs |
+| `claim.scope` | POLICY; MUST for its form | draft -06 sections 3.1, 4.3.3, 4.4.1; RFC 6749 section 3.3 | `scope` is one space-separated string and includes something this receiver grants (`read`); absent means nothing was granted |
+| `claim.authorization_details` | POLICY | draft -06 section 4.4.1 | Not present: this receiver refuses Rich Authorization Requests for now |
+| `claim.tenant` | OPTIONAL | draft -06 sections 3.1, 6.1 | `tenant`, if present, is a string (the tester registers single-tenant issuers) |
+| `claim.act` | OPTIONAL | draft -06 section 9.10; RFC 8693 section 4.1 | `act`, if present, is an object with a `sub` |
+| `claim.sub_id` | OPTIONAL | draft -06 section 3.2; RFC 9493 | `sub_id`, if present, is an object with a `format` (the tester resolves users by `sub` only) |
+| `claim.cnf` | POLICY | draft -06 section 9.11.1.2 | Not present: this receiver doesn't take sender-constrained ID-JAGs |
+| `claim.email_or_aud_sub` | RECOMMENDED | draft -06 section 3.1 | `email` or `aud_sub` is present, so a receiver can find or create the user |
+| `claim.auth_time`, `claim.acr`, `claim.amr` | OPTIONAL | draft -06 section 3.1; OpenID Connect Core | If present: a NumericDate, a string, an array of strings |
+| `receiver.parse` | MUST | this receiver | The receiver's own parser (`parseIdJag`, `src/core/jwt.ts`) accepts the header and claims, so the report can't say "every rule passed" on a token the receiver refuses for its shape |
+
+Next to the rules, each report shows the receiver's own decision: the published `idJagGrant()` (`src/receiver/grant.ts`),
+which redeemed or refused the ID-JAG, with its reason.
+
+### What it doesn't check
+
+Only what a receiver can see: the ID-JAG and your metadata and keys. Draft -06 also has rules for how your IdP
+**issues** ID-JAGs (section 4.3.3): authenticating the requesting client, validating the subject token, the
+`audience` and `resource` it accepts, its error codes. The tester never sees that exchange, so it can't check any of
+it. Nor does the list above claim to cover every MUST in the draft.
 
 ## How to use it
 

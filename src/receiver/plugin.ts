@@ -9,6 +9,7 @@ import { handleIdJagGrant, registeredResources } from "./grant";
 import { organizationRoles, unknownRoles } from "./membership";
 import { type IdJagGrantOptions, type ResolvedReceiverOptions, resolveReceiverOptions } from "./options";
 import { trustedIssuerSchema } from "./schema";
+import { hasNativeTransactions } from "./scim";
 
 export const RECEIVER_PLUGIN_ID = "id-jag-grant";
 
@@ -39,6 +40,8 @@ export function idJagGrant(options: IdJagGrantOptions = {}) {
       const scimEntries = resolved.trustedIssuers.filter((t) => t.scim);
       if (scimEntries.length > 0 && !ctx.hasPlugin("scim"))
         throw new Error(`id-jag receiver: trusted issuer ${scimEntries.map((t) => t.issuer).join(", ")} has scim, but the @better-auth/scim plugin is not installed`);
+      if (resolved.acquireScimLink && !hasNativeTransactions(ctx.adapter))
+        ctx.logger.error("[id-jag] scim.acquireActiveSCIMUserLink is set, but the database adapter has no native transactions (Cloudflare D1, for one): every ID-JAG whose trust entry has scim will be refused.");
       if (resolved.sso && !ctx.hasPlugin("sso")) ctx.logger.warn("[id-jag] sso trust is on but the sso plugin is not installed: no sso providers will be trusted.");
       const orgEntries = resolved.trustedIssuers.filter((t) => t.jit && t.organizationId !== undefined);
       if (orgEntries.length > 0 && !ctx.hasPlugin("organization"))
