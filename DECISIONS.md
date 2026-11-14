@@ -1648,3 +1648,20 @@ D-048's rule: development pins follow the newest 1.7.x once it is a day old.
   package is left in the floor tree; the suite passes on it locally with the same counts as on 1.7.22.
 - **Evidence:** typecheck, lint, `docs:check`, `pack:check`; the suite in both projects; the SAML end-to-end project
   on 1.7.22, 19 passed; one `better-auth` and one `@better-auth/core` in the lockfile.
+
+## D-078: a token exchange without client authentication gets `invalid_client` (2026-11-13)
+
+Draft -06 section 4.3.3: "The IdP MUST authenticate the Client, and MUST reject a request without client
+authentication with invalid_client (Section 5.2 of [RFC6749])." A request that named a client without its secret
+was refused so (`public_client`, S5). One that named no client at all wasn't: Better Auth's oauth-provider (1.7.22,
+`authenticateClient`) answers a request without `client_id` with `invalid_request` ("Missing required client_id"),
+and the issuer passed that on.
+
+- **The fix:** when the provider refuses and the request has no client credentials and no `client_id`, the issuer
+  refuses with `client_authentication_failed` (`invalid_client`, HTTP 401, `WWW-Authenticate: Basic`, the generic
+  description), and the refusal event says `authenticated: false`. A wrong secret, an unknown client and a client not
+  registered for the grant still pass through as the provider answers them.
+- **Found by** running the public tester's coming refusal probes (D-076, with the tester's run of the whole flow,
+  D-074 to D-077, not yet merged) against this package's issuer: the probe without client authentication expects
+  `invalid_client`.
+- **Evidence:** `test/issuer/refusals.test.ts` (both projects). 1 entry in `test/mutations/issuer.json`, caught.
