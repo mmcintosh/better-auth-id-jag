@@ -1709,11 +1709,14 @@ and the redemption here, in one run. That also shows the IdP's side of the excha
 - **Bound to the tester who started it:** the callback needs the same signed-in tester; another browser with the
   state is refused, and the run is spent. An `iss` on the way back must be the registered issuer (RFC 9207).
 - **Preconditions, not rules:** a sign-in that fails (an error from the IdP, no code, no ID token for the code, an ID
-  token that doesn't verify) stops the run with a message and records nothing: that is OpenID Connect, not ID-JAG. A
-  token exchange the IdP refuses is recorded: its report is the exchange's rules alone, with `error`
-  `exchange_failed` and `httpStatus` 0, since nothing reached the receiver. So is a run whose ID-JAG the tester's own
-  limits kept from the receiver (`not_redeemed`). The abuse record's and the operator stats' counts of redemptions
-  and refusals leave such rows out.
+  token that doesn't verify, one without `sub`, `exp` or `iat`, or with several audiences and not this client as
+  `azp`) stops the run with a message and records nothing: that is OpenID Connect, not ID-JAG. The IdP's error text
+  shown in that message is cut to 200 characters. A token exchange the IdP refuses is recorded: its report is the
+  exchange's rules alone, with `error` `exchange_failed` and `httpStatus` 0, since nothing reached the receiver. So
+  is a run whose ID-JAG the tester's own token endpoint answered for before the receiver: its limits
+  (`not_redeemed`), an ID-JAG too large for it (`too_large`), or the registration's own client (`client_refused`).
+  The abuse record's and the operator stats' counts of redemptions and refusals leave such rows out. A `HEAD` to the
+  callback is refused (405), since a `GET` there spends the run.
 - **Client authentication at the IdP:** `client_secret_basic` (form-encoded, RFC 6749 section 2.3.1) or
   `client_secret_post`. `private_key_jwt` isn't offered.
 - **Limits:** a run is counted when it starts, before anything is fetched, and not given back (except the
@@ -1722,15 +1725,26 @@ and the redemption here, in one run. That also shows the IdP's side of the excha
   issued; anything else the run sends comes after. The requests to the IdP carry a
   `User-Agent` naming the tester.
 - **Who the requests go to:** the addresses the registered issuer's metadata names, which may be on another host, and
-  a registration is proven only when an ID-JAG signed with the issuer's key is redeemed. So a pending registration
-  can point a run's sign-in, code exchange and token exchange at an IdP the tester doesn't run, as far as that IdP
-  allows a client the tester holds; the deliberately wrong requests wait for a confirmed registration (D-076).
+  a registration is proven only when an ID-JAG signed with the issuer's key is redeemed. So a pending registration of
+  an issuer someone else runs can point a run at that IdP: the person's browser to its sign-in, and the code exchange
+  to its token endpoint. The callback needs only the run's `state`, not a sign-in there, so that request carries
+  whatever client id and secret were typed and whatever `code` comes back: a guess at a client's credentials, one a
+  run (10 runs a day per registration, 3 registrations a day across the tester), with the IdP's error shown back, cut
+  to 200 characters. And whoever runs an issuer can name any public https token endpoint in its metadata, so a run's
+  code exchange can be one form POST to an address of their choosing, through the guard. The token exchange waits
+  for an ID token that verifies with the registered issuer's keys, which only that IdP can make, and the deliberately
+  wrong requests for a confirmed registration (D-076).
 - **Evidence:** `test/examples/tester-flow.test.ts` (workerd, D1), against an IdP stubbed at fetch that checks the
   client's credentials, PKCE and the redirect URI: a run end to end (the registration confirmed, nothing of the IdP's
   stored), `client_secret_post`, a state used twice, by another tester or late, a refused exchange, the answer's rules
   failing beside an accepted redemption, failed sign-ins, the start's checks, the limit, and the clean-up. 17 entries
   in `test/mutations/tester.json` (run in workerd: `scripts/mutate.py` takes `"project": "workerd"`), all caught.
-  The tester's existing tests apply migration 0005 too. The suite has 1206 passed and 176 skipped.
+  The tester's existing tests apply migration 0005 too. The suite has 1206 passed and 176 skipped. Since then: a
+  `HEAD` to the callback refused, the IdP's text cut short, an ID token without `exp` or with another client as
+  `azp` stopping the run, an ID-JAG kept back as too large or by an unusable client (each saying why), a run with the
+  probes and the refresh token against the same full-database check, and a whole run against this package's own
+  issuer as the IdP (sign-in, consent for `offline_access`, exchange, redemption, probes, refresh: every rule passes,
+  D-078); their entries in `test/mutations/tester.json`, all caught.
 
 ## D-076: the tester's refusal probes (2026-11-13)
 
@@ -1750,19 +1764,25 @@ sent one at a time after the ID-JAG is redeemed; each request carries the tester
   three profiled `invalid_request`.
 - **Grading:** an accepted probe (2xx) fails where the draft says MUST and is a warn where it says SHOULD. A refusal
   with the expected code passes. A refusal with another code fails where section 4.3.3 names the code for that case
-  (the first three), and is a warn where the draft only profiles one or says SHOULD (the other four: section 4.3.4.3,
-  "Any OAuth error code MAY be returned"). A probe the run has nothing for (no
-  access token from the sign-in, no ID-JAG from the exchange) is skipped, as is one whose answer couldn't be read.
-- **`resource_not_governed` is a SHOULD:** "The IdP SHOULD respond with invalid_target if any requested resource is
-  not governed by the Resource Authorization Server identified by audience". The MUST that follows applies only if the
-  IdP grants none of them, and the draft leaves how an IdP learns which resources an audience governs out of scope,
-  so an IdP may grant this one without breaking a MUST.
+  (the first four), and is a warn where the draft only profiles one (the other three: section 4.3.4.3, "Any OAuth
+  error code MAY be returned"). A 2xx carrying an OAuth `error` and no `access_token` is a refusal sent with the wrong
+  status (RFC 6749 section 5.2), graded on its code and at best a warn. A probe the run has nothing for (no access
+  token from the sign-in, an access token that is the ID token itself, no ID-JAG from the exchange) is skipped, as is
+  one whose answer couldn't be read, or was HTTP 429 or 5xx: a rate limit or a server error (the IdP's, or a
+  gateway's) says nothing about what was wrong with the request, and a run sends about ten requests in a row.
+- **`resource_not_governed`:** "The IdP SHOULD respond with invalid_target if any requested resource is not governed
+  by the Resource Authorization Server identified by audience. It MUST respond with invalid_target if it grants none
+  of them." The draft leaves how an IdP learns which resources an audience governs out of scope, so an IdP may grant
+  this one: accepting it is a warn (SHOULD). But the probe names this one resource only, so a refusal grants none,
+  and then the code MUST be `invalid_target`: another code fails.
 - **Not probed:** an ID token issued to another client (needs a second client at the IdP), an expired ID token,
   SAML subject tokens, `authorization_details`, `actor_token`, DPoP.
 - **Evidence:** `test/examples/tester-flow.test.ts` against stub IdPs: one that refuses what it must (every probe
   passes), one that accepts anything (the MUSTs fail, the SHOULD warns), one that always answers `invalid_grant` (the
-  three named codes fail, the others warn); the probes only when asked for; none after a refused exchange or for an
-  ID-JAG that doesn't confirm the registration. Entries in `test/mutations/tester.json`, all caught.
+  four named codes fail, the others warn); the probes only when asked for; none after a refused exchange or for an
+  ID-JAG that doesn't confirm the registration; an IdP answering 429 and 502 (every probe skipped), one whose access
+  token is its ID token (that probe skipped), one refusing with HTTP 200 (every probe a warn), and this package's own
+  issuer (every probe passes). Entries in `test/mutations/tester.json`, all caught.
 
 ## D-077: a refresh token as the subject, in the tester's run (2026-11-13)
 

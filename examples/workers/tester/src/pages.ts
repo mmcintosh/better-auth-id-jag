@@ -74,9 +74,16 @@ const runForm = (origin: string, registrationId: string, clientId: string) => `<
 </form>`;
 
 /** "Run the whole flow", between the form and the IdP: the pages' policy lets forms post only to this site. */
-export function continueToIdp(to: string, host: string): Response {
-  return page("Sign in at your IdP", `<h1>Sign in at your IdP</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">The run waits 10 minutes.</p>${FOOTER}`);
+export function continueToIdp(to: string, host: string, minutes: number): Response {
+  return page("Sign in at your IdP", `<h1>Sign in at your IdP</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">The run waits ${minutes} minutes.</p>${FOOTER}`);
 }
+
+/** A run's ID-JAG that the tester's own token endpoint kept from the receiver, and why (index.ts, notRedeemed). */
+const NOT_REACHED: Record<string, string> = {
+  not_redeemed: "the tester's limits kept the ID-JAG back",
+  too_large: "the ID-JAG is too large for the tester's token endpoint",
+  client_refused: "the tester's own client for this registration couldn't redeem it; register again",
+};
 
 /** The values a tester's IdP mints with, each with a copy button, and all of them as one JSON template. */
 const idpValues = (origin: string, issuer: string, clientId: string) => {
@@ -183,7 +190,7 @@ ${
   v.checks.length
     ? v.checks
         .map((c) => {
-          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : c.error === "not_redeemed" ? '<span class="warn">not reached: the tester\'s limits for today kept the ID-JAG back</span>' : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
+          const decision = c.error === "exchange_failed" ? '<span class="fail">not reached: your IdP issued no ID-JAG</span>' : NOT_REACHED[c.error ?? ""] ? `<span class="warn">not reached: ${esc(NOT_REACHED[c.error ?? ""])}</span>` : c.receiver ? (c.receiver.type === "id-jag.accepted" ? '<span class="pass">accepted</span>' : `<span class="fail">refused: <code>${esc(c.receiver.reason)}</code></span>`) : c.httpStatus === 200 ? '<span class="pass">accepted</span>' : `<span class="fail">HTTP ${esc(c.httpStatus)} <code>${esc(c.error)}</code></span>`;
           const run = c.results.some((r) => r.id.startsWith("exchange.")) ? " &middot; whole flow" : "";
           const fails = c.results.filter((r) => r.outcome === "fail").length;
           return `<h3 style="font-size:1rem;margin:20px 0 4px">${esc(new Date(c.at).toISOString().replace("T", " ").slice(0, 19))} UTC${run} &middot; receiver: ${decision} &middot; ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</h3>

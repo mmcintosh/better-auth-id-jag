@@ -182,8 +182,8 @@
  {
   "name": "probe: an accepted probe passes",
   "file": "examples/workers/tester/src/probes.ts",
-  "a": "if (answer.status >= 200 && answer.status < 300) return r(probe.accepted",
-  "b": "if (answer.status >= 200 && answer.status < 300) return r(\"pass\"",
+  "a": "if (ok && (error === null || typeof body.access_token === \"string\")) return r(probe.accepted",
+  "b": "if (ok && (error === null || typeof body.access_token === \"string\")) return r(\"pass\"",
   "project": "workerd",
   "paths": [
    "test/examples/tester-flow.test.ts"
@@ -202,8 +202,8 @@
  {
   "name": "probe: any refusal passes",
   "file": "examples/workers/tester/src/probes.ts",
-  "a": "if (error === probe.expected) return r(\"pass\"",
-  "b": "if (answer.status >= 400) return r(\"pass\"",
+  "a": "if (error === probe.expected) return ok ?",
+  "b": "if (answer.status >= 400 || error === probe.expected) return ok ?",
   "project": "workerd",
   "paths": [
    "test/examples/tester-flow.test.ts"
@@ -372,7 +372,7 @@
  {
   "name": "flow: a run kept back by the limits not reported",
   "file": "examples/workers/tester/src/index.ts",
-  "a": "error: report.idJag ? \"not_redeemed\" : \"exchange_failed\"",
+  "a": "error: report.idJag ? await notRedeemed(redeemed) : \"exchange_failed\"",
   "b": "error: \"exchange_failed\"",
   "project": "workerd",
   "paths": [
@@ -412,8 +412,108 @@
  {
   "name": "probe: a SHOULD graded as a MUST",
   "file": "examples/workers/tester/src/probes.ts",
-  "a": "expected: \"invalid_target\", codeRequired: false, accepted: \"warn\"",
-  "b": "expected: \"invalid_target\", codeRequired: false, accepted: \"fail\"",
+  "a": "expected: \"invalid_target\", codeRequired: true, accepted: \"warn\"",
+  "b": "expected: \"invalid_target\", codeRequired: true, accepted: \"fail\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: a 429 or 5xx graded as a refusal",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (answer.status === 429 || answer.status >= 500) return r(\"skip\",",
+  "b": "if (false) return r(\"skip\",",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: the access token sent when it is the ID token",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "c.accessToken === c.idToken ? { skip:",
+  "b": "false ? { skip:",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: an OAuth error with HTTP 200 counted as accepted",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "if (ok && (error === null || typeof body.access_token === \"string\"))",
+  "b": "if (ok)",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: an OAuth error with HTTP 200 and the right code passes",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "return ok ? r(\"warn\", `Refused with ${probe.expected}, but",
+  "b": "return false ? r(\"warn\", `Refused with ${probe.expected}, but",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "probe: the resource probe's wrong code only warns",
+  "file": "examples/workers/tester/src/probes.ts",
+  "a": "expected: \"invalid_target\", codeRequired: true, accepted: \"warn\"",
+  "b": "expected: \"invalid_target\", codeRequired: false, accepted: \"warn\"",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: HEAD runs the callback",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "        if (request.method === \"HEAD\" && new URL(request.url).pathname === \"/flow/callback\") return new Response(null, { status: 405, headers: { allow: \"GET\" } });\n",
+  "b": "",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: the IdP's text shown whole",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "const idpText = (v: string, max = 200) => (v.length > max ? `${v.slice(0, max)}…` : v);",
+  "b": "const idpText = (v: string, _max = 200) => v;",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: every ID-JAG kept back blamed on the limits",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "async function notRedeemed(response: Response | null): Promise<\"not_redeemed\" | \"too_large\" | \"client_refused\"> {\n",
+  "b": "async function notRedeemed(response: Response | null): Promise<\"not_redeemed\" | \"too_large\" | \"client_refused\"> {\n  if (response !== undefined) return \"not_redeemed\";\n",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: an ID token without exp accepted",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": ", requiredClaims: [\"sub\", \"exp\", \"iat\"] });",
+  "b": " });",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "flow: azp not checked",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "&& payload.azp !== flow.idpClientId) return runStopped(",
+  "b": "&& false) return runStopped(",
   "project": "workerd",
   "paths": [
    "test/examples/tester-flow.test.ts"

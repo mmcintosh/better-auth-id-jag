@@ -116,15 +116,17 @@ the ID-JAG's own rules follow, as above.
 sent only after your IdP issued an ID-JAG for the correct request and only for a confirmed registration (so they go
 only to an IdP whose key signed an ID-JAG here). Accepting one fails where the draft says MUST, and is a warn where it
 says SHOULD. A refusal with another error code fails where the draft names the code for that case, and is a warn where
-it only profiles one (section 4.3.4.3: "Any OAuth error code MAY be returned").
+it only profiles one (section 4.3.4.3: "Any OAuth error code MAY be returned"). An answer of HTTP 429 or 5xx isn't
+graded: the probe shows as skipped, since a rate limit or a server error says nothing about the request. An OAuth
+error sent with HTTP 200 is a refusal with the wrong status (RFC 6749 section 5.2), so at best a warn.
 
 | Rule | Level | Source | The request | Expected |
 |---|---|---|---|---|
 | `probe.no_client_auth` | MUST | draft -06 section 4.3.3 | No client authentication | `invalid_client` |
 | `probe.two_audiences` | MUST | draft -06 section 4.3.3 | Two `audience` values | `invalid_request` |
 | `probe.unknown_audience` | MUST | draft -06 section 4.3.3 | An `audience` no IdP has a trust relationship with | `invalid_target` |
-| `probe.resource_not_governed` | SHOULD | draft -06 section 4.3.3 | A `resource` the tester doesn't govern | `invalid_target`; accepting it, or another code, is a warn |
-| `probe.access_token_as_id_token` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The sign-in's access token as the subject token, said to be an ID token | refused; `invalid_request` profiled |
+| `probe.resource_not_governed` | SHOULD | draft -06 section 4.3.3 | A `resource` the tester doesn't govern | `invalid_target`; accepting it is a warn, refusing it with another code fails (it grants none of the resources asked for) |
+| `probe.access_token_as_id_token` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The sign-in's access token as the subject token, said to be an ID token (skipped if it is the ID token) | refused; `invalid_request` profiled |
 | `probe.id_jag_as_id_token` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The ID-JAG your IdP just issued as the subject token, said to be an ID token | refused; `invalid_request` profiled |
 | `probe.wrong_subject_type` | MUST | draft -06 sections 4.3.3, 4.3.4.3 | The ID token, said to be a SAML 2.0 assertion | refused; `invalid_request` profiled |
 
@@ -169,15 +171,17 @@ above claim to cover every MUST in the draft.
    `client_secret_basic`, the tester sends the id and secret form-encoded, as RFC 6749 section 2.3.1 says.
 3. **Press Run, then Continue** to your IdP's sign-in, and sign in. Your IdP sends you back to the tester.
 4. **The tester does the rest:** it exchanges the code for an ID token and verifies it (your JWKS, `iss`, `aud` your
-   client, the `nonce`), asks your IdP for an ID-JAG by token exchange, checks the answer, and redeems the ID-JAG
-   here as a pasted one (it can confirm the registration too). Then, if you asked, it sends the probes (once the
-   registration is confirmed, which this run's ID-JAG may do) and tries the refresh token. One report on your results
-   page holds the answer's rules, the probes', and the ID-JAG's, next to the receiver's decision.
+   client, `azp` if present, the `nonce`, and `sub`, `exp` and `iat` present), asks your IdP for an ID-JAG by token
+   exchange, checks the answer, and redeems the ID-JAG here as a pasted one (it can confirm the registration too).
+   Then, if you asked, it sends the probes (once the registration is confirmed, which this run's ID-JAG may do) and
+   tries the refresh token. One report on your results page holds the answer's rules, the probes', and the ID-JAG's,
+   next to the receiver's decision.
 
 A sign-in that doesn't complete (an error from your IdP, no ID token, one that doesn't verify) stops the run with a
 message, and records nothing: that part is OpenID Connect, not ID-JAG. If your IdP refuses the token exchange, the
-report shows the refusal, nothing reaches the receiver, and no probe is sent. If the tester's own daily limits keep
-the ID-JAG from the receiver, the report still shows your IdP's answers.
+report shows the refusal, nothing reaches the receiver, and no probe is sent. If the tester itself keeps the ID-JAG
+from the receiver (its limits, an ID-JAG too large for it, or a problem with your registration's client here), the
+report still shows your IdP's answers, and says why.
 
 **From your own code instead:** the registration page also shows the client secret, once, and how to redeem with it:
 

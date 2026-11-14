@@ -37,6 +37,8 @@ const oauthError = (status: number, error: string, description: string) => Respo
 const clientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown";
 const newId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 20);
 const redirect = (location: string) => new Response(null, { status: 302, headers: { location } });
+/** Text from the tester's IdP, shown back (escaped by the page): at most `max` characters. */
+const idpText = (v: string, max = 200) => (v.length > max ? `${v.slice(0, max)}…` : v);
 
 /** A request body, read up to the limit whether or not it declares its length; null when it is larger. */
 async function readBody(request: Request): Promise<string | null> {
@@ -525,9 +527,17 @@ async function resultsPage(request: Request, env: Env, origin: string): Promise<
 /**
  * Refusals the tester makes itself, before the receiver decides: the page shows these, not the receiver's.
  * exchange_failed: a run of the whole flow in which the IdP issued no ID-JAG, so nothing reached the receiver.
- * not_redeemed: a run whose ID-JAG the tester's own limits kept from the receiver.
+ * not_redeemed: a run whose ID-JAG the tester's own limits kept from the receiver; too_large: one too large for the
+ * tester's token endpoint; client_refused: one the tester's own client for the registration couldn't redeem.
  */
-const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming", "exchange_failed", "not_redeemed"]);
+const TESTER_REFUSALS = new Set(["not_confirmed", "issuer_taken", "confirming", "exchange_failed", "not_redeemed", "too_large", "client_refused"]);
+
+/** Why a run's ID-JAG didn't reach the receiver, from the tester's token endpoint's answer (null: no client to use). */
+async function notRedeemed(response: Response | null): Promise<"not_redeemed" | "too_large" | "client_refused"> {
+  if (response?.status === 429 || response?.status === 503) return "not_redeemed";
+  if (response?.status === 400 && ((await response.clone().json().catch(() => null)) as { error?: unknown } | null)?.error === "invalid_request") return "too_large";
+  return "client_refused";
+}
 
 /**
  * "Check an ID-JAG": the tester redeems a pasted ID-JAG with the registration's own client, through the same token
@@ -669,7 +679,7 @@ async function flowStart(request: Request, env: Env, origin: string): Promise<Re
   console.log(JSON.stringify({ event: "tester.flow_started", id: reg.id }));
   // A page with a link, not a redirect: the pages' Content-Security-Policy allows forms to post only to this site, and
   // browsers apply that to where a form's answer redirects.
-  return continueToIdp(to.href, to.host);
+  return continueToIdp(to.href, to.host, LIMITS.runMinutes);
 }
 
 /** A run's message page: what stopped it, and the way back. */
@@ -692,9 +702,10 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   if (!reg) return runStopped("This run's registration has ended.", 404);
   // RFC 9207: an iss on the way back must be the registered issuer (a mix-up with another IdP otherwise).
   const iss = url.searchParams.get("iss");
-  if (iss !== null && iss !== reg.issuer) return runStopped(`Your IdP's answer names another issuer (iss ${iss}), not ${reg.issuer} (RFC 9207).`);
+  if (iss !== null && iss !== reg.issuer) return runStopped(`Your IdP's answer names another issuer (iss ${idpText(iss)}), not ${reg.issuer} (RFC 9207).`);
   const error = url.searchParams.get("error");
-  if (error !== null) return runStopped(`Your IdP's sign-in answered error ${error}${url.searchParams.has("error_description") ? ` (${url.searchParams.get("error_description")})` : ""}.`);
+  const described = url.searchParams.get("error_description");
+  if (error !== null) return runStopped(`Your IdP's sign-in answered error ${idpText(error, 64)}${described !== null ? ` (${idpText(described)})` : ""}.`);
   const code = url.searchParams.get("code");
   if (!code) return runStopped("Your IdP's sign-in came back without a code.");
   const secret = await open(env.BETTER_AUTH_SECRET, flow.idpSecretEnc);
@@ -707,7 +718,7 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   const signIn = await postFormCapped(fetch, flow.tokenEndpoint, codeForm, { ...userAgent, ...idpClientAuth(flow, secret, codeForm) });
   if (!signIn.ok) return runStopped(`Your IdP's token endpoint ${signIn.why}.`, 502);
   const signedIn = isObject(signIn.json) ? signIn.json : {};
-  if (signIn.status !== 200 || typeof signedIn.id_token !== "string") return runStopped(`Your IdP gave no ID token for the sign-in's code: HTTP ${signIn.status}${typeof signedIn.error === "string" ? `, error ${signedIn.error}` : ""}${typeof signedIn.error_description === "string" ? ` (${signedIn.error_description})` : ""}. Its client needs the authorization code grant and the openid scope.`);
+  if (signIn.status !== 200 || typeof signedIn.id_token !== "string") return runStopped(`Your IdP gave no ID token for the sign-in's code: HTTP ${signIn.status}${typeof signedIn.error === "string" ? `, error ${idpText(signedIn.error, 64)}` : ""}${typeof signedIn.error_description === "string" ? ` (${idpText(signedIn.error_description)})` : ""}. Its client needs the authorization code grant and the openid scope.`);
   const idToken = signedIn.id_token;
   const fresh = await fetchJsonCapped(fetch, reg.jwksUri);
   let keys: unknown = fresh.ok ? fresh.json : null;
@@ -720,8 +731,10 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
   }
   if (!isJwks(keys)) return runStopped("Your issuer's JWKS couldn't be read, so the ID token couldn't be verified.", 502);
   try {
-    const { payload } = await jwtVerify(idToken, createLocalJWKSet(keys as JSONWebKeySet), { issuer: reg.issuer, audience: flow.idpClientId, algorithms: ID_TOKEN_ALGORITHMS, clockTolerance: 60 });
+    const { payload } = await jwtVerify(idToken, createLocalJWKSet(keys as JSONWebKeySet), { issuer: reg.issuer, audience: flow.idpClientId, algorithms: ID_TOKEN_ALGORITHMS, clockTolerance: 60, requiredClaims: ["sub", "exp", "iat"] });
     if (payload.nonce !== flow.nonce) return runStopped("Your IdP's ID token doesn't carry the nonce the tester sent (OpenID Connect Core section 3.1.3.7).");
+    // With several audiences, azp names the client it was issued to; when present, it must be this one.
+    if ((payload.azp !== undefined || (Array.isArray(payload.aud) && payload.aud.length > 1)) && payload.azp !== flow.idpClientId) return runStopped("Your IdP's ID token has several audiences without your IdP client as azp, or another client as azp (OpenID Connect Core section 3.1.3.7).");
   } catch (e) {
     return runStopped(`Your IdP's ID token didn't verify (OpenID Connect Core section 3.1.3.7): ${e instanceof Error ? e.message : "invalid"}. It must be signed with a key from your JWKS, with your issuer as iss and your IdP client as aud.`);
   }
@@ -751,8 +764,8 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
       const context: ProbeContext = { audience: `${origin}/api/auth`, resource, scope: flow.scope, idToken, accessToken: typeof signedIn.access_token === "string" ? signedIn.access_token : undefined, idJag: report.idJag, untrustedAudience: `${origin}/probe/never-trusted`, foreignResource: "https://example.com/not-the-tester" };
       for (const probe of PROBES) {
         const probeForm = probe.form(context);
-        if (!probeForm) {
-          later.push(gradeProbe(probe, null));
+        if (!(probeForm instanceof URLSearchParams)) {
+          later.push(skipProbe(probe, probeForm.skip));
           continue;
         }
         const answer = await postFormCapped(fetch, flow.tokenEndpoint, probeForm, probe.anonymous ? userAgent : { ...userAgent, ...idpClientAuth(flow, secret, probeForm) });
@@ -772,7 +785,7 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
       const body = answer.ok && isObject(answer.json) ? answer.json : {};
       if (!answer.ok) later.push(r("skip", `Not graded: your IdP's token endpoint ${answer.why}.`));
       else if (answer.status === 200 && body.issued_token_type === ID_JAG_TOKEN_TYPE && typeof body.access_token === "string") later.push(r("info", "Supported: your IdP issued an ID-JAG for a refresh token as the subject."));
-      else if (answer.status === 200) later.push(r("info", `Not supported as asked: HTTP 200, but issued_token_type is ${JSON.stringify(body.issued_token_type ?? null)}, not an ID-JAG.`));
+      else if (answer.status === 200) later.push(r("info", `Not supported as asked: HTTP 200, but issued_token_type is ${idpText(JSON.stringify(body.issued_token_type ?? null), 100)}, not an ID-JAG.`));
       else later.push(r("info", `Not supported: refused${typeof body.error === "string" ? ` with ${JSON.stringify(body.error.slice(0, 64))}` : ` (HTTP ${answer.status})`}. Allowed: an IdP MAY accept refresh tokens as the subject.`));
     }
   }
@@ -785,8 +798,9 @@ async function flowCallback(request: Request, env: Env, origin: string, url: URL
       await store.setCheckResults(env.DB, checkId, JSON.stringify([...results.slice(0, report.results.length), ...later, ...results.slice(report.results.length)]));
     }
   } else {
-    // Nothing reached the receiver: the IdP issued no ID-JAG, or the tester's own limits kept it back.
-    await store.insertCheck(env.DB, { id: checkId, registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: report.idJag ? "not_redeemed" : "exchange_failed", results: JSON.stringify([...report.results, ...later]), checkedAgainst: CHECKED_AGAINST });
+    // Nothing reached the receiver: the IdP issued no ID-JAG, or the tester's token endpoint answered before (its
+    // limits, the request's size, or the registration's own client).
+    await store.insertCheck(env.DB, { id: checkId, registrationId: reg.id, at: now, jti: null, httpStatus: 0, error: report.idJag ? await notRedeemed(redeemed) : "exchange_failed", results: JSON.stringify([...report.results, ...later]), checkedAgainst: CHECKED_AGAINST });
   }
   const limited = redeemed ? await limitedBy(redeemed) : null;
   if (limited) return message("Not redeemed", `${limited} Your IdP's answers are on your results page.`, redeemed?.status ?? 429);
@@ -909,7 +923,9 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return withExecutionContext(ctx, async () => {
       try {
-        // HEAD is answered as GET without the body (link checkers and uptime monitors send it).
+        // HEAD is answered as GET without the body (link checkers and uptime monitors send it), except where a GET
+        // changes something: the run's callback spends the run and sends requests to the IdP.
+        if (request.method === "HEAD" && new URL(request.url).pathname === "/flow/callback") return new Response(null, { status: 405, headers: { allow: "GET" } });
         if (request.method === "HEAD") {
           const got = await dispatch(new Request(request.url, { method: "GET", headers: request.headers }), env, new URL(request.url), ctx);
           return new Response(null, { status: got.status, headers: got.headers });

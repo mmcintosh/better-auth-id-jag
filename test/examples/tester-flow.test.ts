@@ -10,6 +10,7 @@ import init0003 from "../../examples/workers/tester/migrations/0003_client_secre
 import init0004 from "../../examples/workers/tester/migrations/0004_allowance.sql?raw";
 import init0005 from "../../examples/workers/tester/migrations/0005_flow.sql?raw";
 import { PROBES } from "../../examples/workers/tester/src/probes";
+import { createClient, createIssuerHost, type IssuerHost, signUp } from "../support/issuer-host";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const ORIGIN = "https://tester.example.net";
@@ -23,8 +24,9 @@ const IDP_CLIENT = "idp-client";
 const IDP_SECRET = "idp secret+/:%";
 
 // good: an IdP that refuses what it must, with the draft's codes. lax: accepts any exchange. wrong-codes: refuses
-// what it must, always with invalid_grant.
-type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token" | "no-refresh-subject" | "refresh-not-id-jag" | "foreign-key";
+// what it must, always with invalid_grant. busy: after the code exchange and the good exchange, 429 and 502 in turn.
+// error-200: refuses what it must with the draft's codes, but with HTTP 200.
+type Mode = "good" | "lax" | "wrong-codes" | "refuse" | "no-store-missing" | "wrong-nonce" | "other-audience" | "resource-normalised" | "no-id-token" | "no-refresh-subject" | "refresh-not-id-jag" | "foreign-key" | "busy" | "error-200" | "access-is-id-token" | "no-exp" | "azp-other" | "huge-id-jag";
 
 describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   let env: Record<string, unknown> & { DB: Cloudflare.Env["DB"] };
@@ -33,6 +35,9 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   let cf: typeof import("cloudflare:test");
   let signer: CryptoKey;
   let jwks: unknown;
+  /** Our own issuer plugin as the IdP, when a test sets it up (on its own database). */
+  let own: IssuerHost | undefined;
+  const OWN_BASE = "https://own-idp.example.net";
 
   /** The stub IdP: what it was sent, and how it answers. */
   const idp = {
@@ -68,8 +73,9 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     const form = new URLSearchParams(await request.text());
     const authorization = request.headers.get("authorization");
     idp.requests.push({ grant: form.get("grant_type"), form, authorization, userAgent: request.headers.get("user-agent") });
+    if (idp.mode === "busy" && idp.requests.length > 2) return idp.requests.length % 2 ? new Response("slow down", { status: 429 }) : new Response("bad gateway", { status: 502 });
     const exchanging = form.get("grant_type") === "urn:ietf:params:oauth:grant-type:token-exchange";
-    const refuse = (error: string, status = 400) => Response.json({ error: idp.mode === "wrong-codes" ? "invalid_grant" : error }, { status: idp.mode === "wrong-codes" ? 400 : status, headers: { "cache-control": "no-store" } });
+    const refuse = (error: string, status = 400) => Response.json({ error: idp.mode === "wrong-codes" ? "invalid_grant" : error }, { status: idp.mode === "wrong-codes" ? 400 : idp.mode === "error-200" ? 200 : status, headers: { "cache-control": "no-store" } });
     if (!authenticated(form, authorization) && !(exchanging && idp.mode === "lax")) return refuse("invalid_client", 401);
     if (form.get("grant_type") === "authorization_code") {
       const issued = idp.codes.get(form.get("code") ?? "");
@@ -80,8 +86,10 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       const accessToken = `at-${crypto.randomUUID()}`;
       idp.issued.push(accessToken);
       if (idp.mode === "no-id-token") return Response.json({ access_token: accessToken, token_type: "Bearer" }, { headers: { "cache-control": "no-store" } });
-      const idToken = await sign({ iss: issuer, sub: "u1", aud: idp.mode === "other-audience" ? "another-client" : IDP_CLIENT, nonce: idp.mode === "wrong-nonce" ? "another" : issued.nonce, iat: now(), exp: now() + 300, email: "u1@idp.example.org" });
+      const aud = idp.mode === "other-audience" ? "another-client" : idp.mode === "azp-other" ? [IDP_CLIENT, "another-client"] : IDP_CLIENT;
+      const idToken = await sign({ iss: issuer, sub: "u1", aud, ...(idp.mode === "azp-other" ? { azp: "another-client" } : {}), nonce: idp.mode === "wrong-nonce" ? "another" : issued.nonce, iat: now(), ...(idp.mode === "no-exp" ? {} : { exp: now() + 300 }), email: "u1@idp.example.org" });
       idp.issued.push(idToken);
+      if (idp.mode === "access-is-id-token") return Response.json({ access_token: idToken, token_type: "Bearer", id_token: idToken }, { headers: { "cache-control": "no-store" } });
       const refreshToken = issued.scope.split(" ").includes("offline_access") ? `rt-${crypto.randomUUID()}` : undefined;
       if (refreshToken) idp.refreshTokens.add(refreshToken);
       return Response.json({ access_token: accessToken, token_type: "Bearer", id_token: idToken, ...(refreshToken ? { refresh_token: refreshToken } : {}) }, { headers: { "cache-control": "no-store" } });
@@ -108,7 +116,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
         }
       }
       const resource = form.get("resource") ?? "";
-      const idJag = await sign({ iss: issuer, sub: "u1", aud: form.get("audience"), client_id: idp.testerClientIds.get(issuer), jti: crypto.randomUUID(), iat: now(), exp: now() + 300, resource: idp.mode === "resource-normalised" ? `${resource}/` : resource, scope: form.get("scope"), email: "u1@idp.example.org" }, "oauth-id-jag+jwt", idp.mode === "foreign-key" ? otherSigner : undefined);
+      const idJag = await sign({ iss: issuer, sub: "u1", aud: form.get("audience"), client_id: idp.testerClientIds.get(issuer), jti: crypto.randomUUID(), iat: now(), exp: now() + 300, resource: idp.mode === "resource-normalised" ? `${resource}/` : resource, scope: form.get("scope"), email: "u1@idp.example.org", ...(idp.mode === "huge-id-jag" ? { padding: "x".repeat(25_000) } : {}) }, "oauth-id-jag+jwt", idp.mode === "foreign-key" ? otherSigner : undefined);
       return Response.json({ issued_token_type: "urn:ietf:params:oauth:token-type:id-jag", access_token: idJag, token_type: "N_A", expires_in: 300 }, { headers: idp.mode === "no-store-missing" ? {} : { "cache-control": "no-store" } });
     }
     return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
@@ -179,6 +187,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       const url = request.url;
+      if (own && url.startsWith(OWN_BASE)) return own.auth.handler(request);
       const [, issuer, path] = url.match(IDP_URL) ?? [];
       if (issuer && path === "/.well-known/oauth-authorization-server") return Response.json({ issuer, jwks_uri: `${issuer}/jwks`, authorization_endpoint: `${issuer}/authorize?tenant=t1`, token_endpoint: `${issuer}/token`, identity_chaining_requested_token_types_supported: ["urn:ietf:params:oauth:token-type:id-jag"], ...idp.metadata.get(issuer) });
       if (issuer && path === "/jwks") return Response.json(jwks);
@@ -408,6 +417,8 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
   it("probes: a refusal with another code fails where the draft names the code, and warns where it only profiles one", async () => {
     const { probes } = await probeRun("codes", "wrong-codes");
     expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, p.codeRequired ? "fail" : "warn"])));
+    // The resource probe names one resource, so a refusal grants none: invalid_target is then a MUST.
+    expect(probes["probe.resource_not_governed"]).toBe("fail");
   });
 
   it("probes: only when asked for, only after an ID-JAG was issued, and only for a confirmed registration", async () => {
@@ -494,7 +505,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(outcomes(check)["exchange.status"]).toBe("pass");
     // Never redeemed, so not confirmed: no probe was sent.
     expect(outcomes(check)["probe.no_client_auth"]).toBe("skip");
-    expect(await (await call("/results", { cookie: t.cookie })).text()).toContain("limits for today");
+    expect(await (await call("/results", { cookie: t.cookie })).text()).toContain("the tester&#39;s limits kept the ID-JAG back");
   });
 
   it("at most LIMITS.runsPerDay runs a day across everyone; the registration's run is given back", async () => {
@@ -509,5 +520,152 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       LIMITS.runsPerDay = before as number;
     }
     expect(await rows(`select used from testerAllowance where key = ?`, `run:registration:${t.registrationId}:${day}`)).toEqual([{ used: 0 }]);
+  });
+
+  it("probes: a rate limit or a server error isn't graded", async () => {
+    const { probes, check } = await probeRun("busy", "busy");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "skip"])));
+    expect(check?.results).toContain("answered HTTP 429 (too many requests)");
+    expect(check?.results).toContain("answered HTTP 502 (a server error)");
+    expect(check?.httpStatus).toBe(200);
+  });
+
+  it("probes: an access token that is the ID token itself isn't sent as the wrong subject", async () => {
+    const { probes, check } = await probeRun("sameat", "access-is-id-token");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, p.id === "probe.access_token_as_id_token" ? "skip" : "pass"])));
+    expect(check?.results).toContain("access token is its ID token");
+    expect(idp.requests).toHaveLength(2 + PROBES.length - 1);
+  });
+
+  it("probes: an OAuth error sent with HTTP 200 is a refusal with the wrong status, at best a warn", async () => {
+    const { probes, check } = await probeRun("ok200", "error-200");
+    expect(probes).toEqual(Object.fromEntries(PROBES.map((p) => [p.id, "warn"])));
+    expect(check?.results).toContain("RFC 6749 section 5.2");
+  });
+
+  it("HEAD /flow/callback is refused: it doesn't spend the run or reach the IdP", async () => {
+    const t = await registeredTester("header");
+    const { to } = await start(t);
+    if (!to) throw new Error("no link");
+    const params = new URLSearchParams({ code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+    const head = await call(`/flow/callback?${params}`, { method: "HEAD", cookie: t.cookie });
+    expect(head.status).toBe(405);
+    expect(head.headers.get("allow")).toBe("GET");
+    expect(idp.requests).toEqual([]);
+    expect(await rows(`select 1 from testerFlow where registrationId = ?`, t.registrationId)).toHaveLength(1);
+    expect((await call(`/flow/callback?${params}`, { cookie: t.cookie })).status).toBe(302);
+    // Other pages still answer HEAD.
+    expect((await call("/", { method: "HEAD" })).status).toBe(200);
+  });
+
+  it("an ID-JAG the tester keeps from the receiver for another reason says which", async () => {
+    // Too large for the tester's token endpoint.
+    const big = await registeredTester("bigjag");
+    idp.mode = "huge-id-jag";
+    const first = await start(big);
+    if (!first.to) throw new Error("no link");
+    expect((await callback(big.cookie, { code: signInAtIdp(first.to), state: first.to.searchParams.get("state") ?? "" })).status).toBe(302);
+    expect(await lastCheck(big.registrationId)).toMatchObject({ httpStatus: 0, error: "too_large" });
+    expect(await (await call("/results", { cookie: big.cookie })).text()).toContain("too large for the tester&#39;s token endpoint");
+    // The registration's own client can't be used (its secret can't be opened).
+    idp.mode = "good";
+    const broken = await registeredTester("brokenclient");
+    const second = await start(broken);
+    if (!second.to) throw new Error("no link");
+    await env.DB.prepare(`update testerRegistration set clientSecretEnc = ? where id = ?`).bind("not-sealed", broken.registrationId).run();
+    expect((await callback(broken.cookie, { code: signInAtIdp(second.to), state: second.to.searchParams.get("state") ?? "" })).status).toBe(302);
+    expect(await lastCheck(broken.registrationId)).toMatchObject({ httpStatus: 0, error: "client_refused" });
+    expect(await (await call("/results", { cookie: broken.cookie })).text()).toContain("own client for this registration couldn&#39;t redeem it");
+  });
+
+  it("the ID token: sub, exp and iat present; azp, if present or with several audiences, is the IdP client", async () => {
+    const t = await registeredTester("claims");
+    for (const [mode, says] of [["no-exp", "exp"], ["azp-other", "azp"]] as const) {
+      idp.mode = mode;
+      const { to } = await start(t);
+      if (!to) throw new Error("no link");
+      const r = await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
+      expect(r.status).toBe(400);
+      expect(await r.text()).toContain(says);
+    }
+    expect(idp.requests.map((r) => r.grant)).toEqual(["authorization_code", "authorization_code"]);
+  });
+
+  it("the IdP's text shown back is cut short", async () => {
+    const t = await registeredTester("longtext");
+    const { to } = await start(t);
+    if (!to) throw new Error("no link");
+    const r = await callback(t.cookie, { state: to.searchParams.get("state") ?? "", error: "e".repeat(500), error_description: "d".repeat(5000) });
+    const html = await r.text();
+    expect(html).toContain(`${"e".repeat(64)}…`);
+    expect(html).toContain(`${"d".repeat(200)}…`);
+    expect(html).not.toContain("d".repeat(201));
+  });
+
+  it("a run with the probes and the refresh token: still nothing of the IdP's kept", async () => {
+    const t = await registeredTester("everything");
+    const { to } = await start(t, { probes: "1", refresh: "1" });
+    if (!to) throw new Error("no link");
+    expect((await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" })).status).toBe(302);
+    expect(idp.requests).toHaveLength(2 + PROBES.length + 1);
+    const tables = (await rows<{ name: string }>(`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not like '_cf_%'`)).map((r) => r.name);
+    const dump = JSON.stringify(await Promise.all(tables.map((t2) => rows(`select * from "${t2}"`))));
+    expect(dump).not.toContain(IDP_SECRET);
+    for (const token of [...idp.issued, ...idp.refreshTokens]) expect(dump).not.toContain(token);
+  });
+
+  it("against our own issuer plugin as the IdP: a run with the probes and the refresh token, every probe refused as the draft says", async () => {
+    // The package's issuer (oauthProvider + jwt + idJagIssuer) on its own database, its policy as the demo IdP's:
+    // the tester's authorization server and resource only, the tester's client there named in the ID-JAG.
+    let testerClientId = "";
+    own = await createIssuerHost({
+      baseURL: OWN_BASE,
+      database: (cf.env as unknown as { IDP_DB: unknown }).IDP_DB,
+      issuer: {
+        authorize: ({ audience, resource }) => {
+          if (audience !== `${ORIGIN}/api/auth`) return { decision: "unknown_audience", reason: "not the tester" };
+          if (resource !== undefined && resource !== `${ORIGIN}/mcp`) return { decision: "unknown_resource", reason: "not the tester's resource" };
+          return { decision: "allow", scopes: ["read"], resource: `${ORIGIN}/mcp`, clientIdAtResource: testerClientId, claims: { email: true } };
+        },
+      },
+    });
+    const host = own;
+    try {
+      const admin = await signUp(host);
+      const client = await createClient(host, admin.browser, { grantTypes: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:token-exchange"], extra: { redirect_uris: [`${ORIGIN}/flow/callback`], scope: "openid profile email offline_access" } });
+      const t = await signedIn("ownidp");
+      expect((await post("/register", t.cookie, { issuer: host.issuerUrl, authMethod: "client_secret_basic", "cf-turnstile-response": "ok" })).status).toBe(200);
+      const reg = (await rows<{ id: string; clientId: string }>(`select id, clientId from testerRegistration where userId = ?`, t.userId))[0];
+      if (!reg) throw new Error("not registered");
+      testerClientId = reg.clientId;
+
+      const { to } = await start({ cookie: t.cookie, registrationId: reg.id }, { client_id: client.client_id, client_secret: client.client_secret, probes: "1", refresh: "1" });
+      if (!to) throw new Error("no link");
+      expect(to.origin + to.pathname).toBe(`${host.issuerUrl}/oauth2/authorize`);
+      // The person signs in at the IdP and, for offline_access with prompt=consent, consents.
+      const user = await signUp(host);
+      // The issuer puts email in an ID-JAG only when it is verified.
+      await host.ctx.adapter.update({ model: "user", where: [{ field: "id", value: user.id }], update: { emailVerified: true } });
+      let back = new URL((await user.browser.fetch(to.href)).headers.get("location") ?? "", OWN_BASE);
+      if (back.pathname === "/consent") {
+        const consent = await user.browser.fetch(`${host.issuerUrl}/oauth2/consent`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accept: true, oauth_query: back.search.slice(1) }) });
+        back = new URL(((await consent.json()) as { url: string }).url, OWN_BASE);
+      }
+      expect(back.origin + back.pathname).toBe(`${ORIGIN}/flow/callback`);
+      expect(back.searchParams.get("iss")).toBe(host.issuerUrl);
+      const done = await call(`/flow/callback?${back.searchParams}`, { cookie: t.cookie });
+      expect(done.status).toBe(302);
+
+      const check = await lastCheck(reg.id);
+      expect(check?.httpStatus).toBe(200);
+      const results = JSON.parse(check?.results ?? "[]") as { id: string; outcome: string; message: string }[];
+      const notPassed = results.filter((r) => r.outcome !== "pass" && r.outcome !== "info").map((r) => `${r.id} ${r.outcome}: ${r.message}`);
+      expect(notPassed).toEqual([]);
+      expect(results.filter((r) => r.id.startsWith("probe.")).map((r) => r.id)).toEqual(PROBES.map((p) => p.id));
+      expect(results.find((r) => r.id === "exchange.refresh_subject")?.message).toContain("Supported");
+      expect((await rows<{ confirmedAt: number | null }>(`select confirmedAt from testerRegistration where id = ?`, reg.id))[0]?.confirmedAt).not.toBeNull();
+    } finally {
+      own = undefined;
+    }
   });
 });
