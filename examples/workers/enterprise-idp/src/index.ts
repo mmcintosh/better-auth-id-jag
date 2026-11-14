@@ -136,12 +136,15 @@ const CONSENT_PAGE = `<!doctype html>
 <style>body{font:16px system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem;margin-right:.5rem}#error{color:#b00020}</style>
 </head><body>
 <h1>Example IdP</h1>
-<p>The application <code id="client"></code> asks for: <code id="scope"></code>.</p>
+<p>The application <strong id="client"></strong> asks for: <code id="scope"></code>.</p>
 <p><button id="allow" type="button">Allow</button><button id="deny" type="button">Deny</button></p>
 <p id="error" role="alert"></p>
 <script>
 ${SIGNED_QUERY}
 document.getElementById("client").textContent = params.get("client_id") || "(unknown)";
+// The client's name, where the provider gives it (its public client fields, for the signed-in user).
+if (params.get("client_id")) fetch("/api/auth/oauth2/public-client?client_id=" + encodeURIComponent(params.get("client_id")), { credentials: "same-origin" })
+  .then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.client_name === "string" && c.client_name) document.getElementById("client").textContent = c.client_name; }).catch(() => {});
 document.getElementById("scope").textContent = params.get("scope") || "(none)";
 async function answer(accept) {
   const error = document.getElementById("error");

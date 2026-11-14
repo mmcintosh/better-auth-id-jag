@@ -57,7 +57,13 @@ describe.skipIf(!workerd)("example IdP as a Worker: a tester client, sign-in and
     const page = await call(`/consent${to.search}`);
     expect(page.status).toBe(200);
     expect(page.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
-    expect(await page.text()).toContain("/api/auth/oauth2/consent");
+    const html = await page.text();
+    expect(html).toContain("/api/auth/oauth2/consent");
+    // The page shows the client's name, from the provider's public client fields.
+    expect(html).toContain("/api/auth/oauth2/public-client?client_id=");
+    const shown = await call(`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(client_id)}`, { headers: { cookie } });
+    expect(shown.status).toBe(200);
+    expect(((await shown.json()) as { client_name?: string }).client_name).toBe("Example tester client (AI agent)");
 
     // What the page's Allow sends: the signed part of the query.
     const names = new Set(to.searchParams.getAll("ba_param"));
