@@ -158,13 +158,14 @@ above claim to cover every MUST in the draft.
    playground IdP); then anyone can confirm it.
 5. **Read the report** at `<tester>/results`: every rule, and the receiver's own decision.
 
-**Or run the whole flow (recommended).** The tester plays the client, as an AI agent would. After you register, the
-page links to "Run the whole flow" on your results page, which sets out these steps:
+**Or run the whole flow (recommended).** The tester plays the client, as an AI agent would. The page you see after
+you register sets out these steps, and so does your results page until your first report (then the reports come
+first, and "Test again" is below them):
 
 1. **At your IdP, create a client for the tester** (an "application" in most admin consoles; or reuse one): redirect
    URI `<tester>/flow/callback`, the authorization code grant (scope `openid`, PKCE S256) and the token exchange
    allowed, and permission to get ID-JAGs for audience `<tester>/api/auth` and resource `<tester>/mcp`, with your
-   registration's client id here as the ID-JAG's `client_id`. The results page lists these values, each with a copy
+   registration's client id here as the ID-JAG's `client_id`. The page lists these values, each with a copy
    button.
 2. **Enter that client's id and secret** under "Run the whole flow". Leave "How the client sends its secret" on
    Automatic: the tester uses what your IdP publishes in `token_endpoint_auth_methods_supported` (`client_secret_basic`
@@ -175,7 +176,10 @@ page links to "Run the whole flow" on your results page, which sets out these st
    Two boxes add checks: the refusal checks (recommended: seven wrong requests, which may appear in your IdP's
    security logs), and a refresh token as the subject (optional, only if your IdP issues refresh tokens; the sign-in
    then asks for `offline_access`, with `prompt=consent`).
-3. **Press Run, then Continue** to your IdP's sign-in, and sign in. Your IdP sends you back to the tester.
+3. **Press Run, then Continue** to your IdP's sign-in, and sign in there as one of your IdP's own users, not with
+   the GitHub or GitLab account you used for the tester. If you're already signed in at your IdP, it may only ask
+   you to allow the tester's client (with `offline_access` too when you asked for a refresh token). Your IdP sends
+   you back to the tester.
 4. **The tester does the rest:** it exchanges the code for an ID token and verifies it (your JWKS, `iss`, `aud` your
    client, `azp` if present, the `nonce`, and `sub`, `exp` and `iat` present), asks your IdP for an ID-JAG by token
    exchange, checks the answer, and redeems the ID-JAG here as a pasted one (it can confirm the registration too).

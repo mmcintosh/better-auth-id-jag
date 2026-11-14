@@ -560,20 +560,80 @@
   ]
  },
  {
-  "name": "pages: the page after registering doesn't link to the run",
+  "name": "pages: the newest report's rules folded",
   "file": "examples/workers/tester/src/pages.ts",
-  "a": "<a href=\"/results#run\">",
-  "b": "<a href=\"/results\">",
+  "a": "<details${fails || i === 0 ? \" open\" : \"\"}>",
+  "b": "<details${fails ? \" open\" : \"\"}>",
   "project": "workerd",
   "paths": [
    "test/examples/tester-flow.test.ts"
   ]
  },
  {
-  "name": "pages: the newest report's rules folded",
+  "name": "pages: the page after registering doesn't hold the run",
   "file": "examples/workers/tester/src/pages.ts",
-  "a": "<details${fails || i === 0 ? \" open\" : \"\"}>",
-  "b": "<details${fails ? \" open\" : \"\"}>",
+  "a": "<div class=\"box\"><h3 style=\"margin-top:0\">Run the whole flow (recommended)</h3>${runForm(o.origin, o.registrationId, o.clientId)}</div>",
+  "b": "<p><a href=\"/results\">Run the whole flow</a></p>",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: after a run the run form still comes before the reports",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "${v.active && !v.checks.length ? `",
+  "b": "${v.active ? `",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: after a run there's no way to run again",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "${v.active && v.checks.length ? `<details class=\"box\"><summary><strong>Test again",
+  "b": "${false ? `<details class=\"box\"><summary><strong>Test again",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the metadata and keys folded",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "return `<details open><summary>Your metadata and keys: ",
+  "b": "return `<details><summary>Your metadata and keys: ",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the Continue page doesn't say which account",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<p>There you sign in with one of <strong>your IdP's own users</strong>, not your GitHub or GitLab account (that sign-in was only for this site). ",
+  "b": "<p>",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: the register form doesn't say registrations end",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "A registration ends after 24 hours, with its results; register again.",
+  "b": "Register again.",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
+ },
+ {
+  "name": "pages: step 4 doesn't say Continue",
+  "file": "examples/workers/tester/src/pages.ts",
+  "a": "<strong>Step 4. Press Run, then Continue.</strong>",
+  "b": "<strong>Step 4. Press Run.</strong>",
   "project": "workerd",
   "paths": [
    "test/examples/tester-flow.test.ts"

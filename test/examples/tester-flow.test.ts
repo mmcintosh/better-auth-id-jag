@@ -676,6 +676,8 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     idp.metadata.set(issuerOf("autopost"), { token_endpoint_auth_methods_supported: ["client_secret_post"] });
     const first = await start(post, { auth_method: "auto" });
     expect(first.html).toContain("client_secret_post (in the form body), as your IdP&#39;s metadata lists");
+    // The two sign-ins: the IdP's own user there, not the GitHub or GitLab account used here.
+    expect(first.html).toContain("There you sign in with one of <strong>your IdP's own users</strong>, not your GitHub or GitLab account");
     if (!first.to) throw new Error("no link");
     expect((await callback(post.cookie, { code: signInAtIdp(first.to), state: first.to.searchParams.get("state") ?? "" })).status).toBe(302);
     expect(idp.requests[0]?.authorization).toBeNull();
@@ -721,13 +723,20 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(await bad.text()).toContain("redirect URI must be exactly");
   });
 
-  it("the pages lead to the run: the page after registering links to it; the results page sets it out as steps, the newest report open", async () => {
+  it("the pages lead to the run: the page after registering holds it; the results page sets it out first, then the reports first once there are any", async () => {
     const t = await signedIn("guided");
+    // Someone back after a day finds no registration: the form says why.
+    expect(await (await call("/register", { cookie: t.cookie })).text()).toContain("A registration ends after 24 hours, with its results; register again.");
     const page = await (await post("/register", t.cookie, { issuer: issuerOf("guided"), authMethod: "client_secret_basic", "cf-turnstile-response": "ok" })).text();
-    expect(page).toContain('href="/results#run"');
-    expect(page).toContain("A. Run the whole flow (recommended).");
+    const RUN_OPEN = '<div class="box"><h3 style="margin-top:0">Run the whole flow (recommended)</h3><form method="post" action="/flow/start" id="run">';
+    expect(page).toContain(RUN_OPEN);
+    expect(page).toContain("Step 4. Press Run, then Continue.");
+    expect(page).toContain("<summary><strong>Or mint an ID-JAG yourself and paste it</strong></summary>");
     const reg = (await rows<{ id: string; clientId: string }>(`select id, clientId from testerRegistration where userId = ?`, t.userId))[0];
     if (!reg) throw new Error("not registered");
+    const before = await (await call("/results", { cookie: t.cookie })).text();
+    expect(before).toContain(RUN_OPEN);
+    expect(before).not.toContain("Test again: run the whole flow");
     idp.testerClientIds.set(issuerOf("guided"), reg.clientId);
     for (let i = 0; i < 2; i++) {
       const { to } = await start({ cookie: t.cookie, registrationId: reg.id });
@@ -735,9 +744,13 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
       await callback(t.cookie, { code: signInAtIdp(to), state: to.searchParams.get("state") ?? "" });
     }
     const results = await (await call("/results", { cookie: t.cookie })).text();
-    expect(results).toContain('id="run"');
+    // After a run the reports come first; running again is folded below them.
+    expect(results).not.toContain(RUN_OPEN);
+    expect(results.indexOf("<h3>Reports</h3>")).toBeGreaterThan(-1);
+    expect(results.indexOf("<h3>Reports</h3>")).toBeLessThan(results.indexOf("<summary><strong>Test again: run the whole flow</strong></summary>"));
+    expect(results.indexOf("<h3>Reports</h3>")).toBeLessThan(results.indexOf('id="run"'));
     for (const text of ["Step 1. At your IdP, create a client for the tester", "Client id <span class=\"muted\">(from step 1, at your IdP)", '<option value="auto">Automatic', "Recommended: check that your IdP refuses wrong requests", "Optional: try a refresh token", "Step-by-step guide"]) expect(results).toContain(text);
-    expect(results).toContain("Your metadata and keys: <span class=\"pass\">every rule passed</span>");
+    expect(results).toContain("<details open><summary>Your metadata and keys: <span class=\"pass\">every rule passed</span>");
     // The newest report's rules open, older ones folded (unless they failed).
     expect(results.match(/<details open><summary>Rules<\/summary>/g)).toHaveLength(1);
     expect(results.match(/<details><summary>Rules<\/summary>/g)).toHaveLength(1);

@@ -32,9 +32,11 @@
   does a pasted one. One report holds the answer's rules and the ID-JAG's. The IdP client's secret is kept, sealed,
   only for the run (deleted when it ends, or at most 15 minutes after it starts); the IdP's ID token, access token and
   refresh token are never stored. At most 10 runs a day per registration,
-  and 100 across the tester. Migration `0005_flow.sql` adds the runs' table. The page after registering links to the
-  run; the results page sets it out as steps (the client to create at your IdP, then its id and secret), each field
-  saying where its value comes from; how the client sends its secret is taken from the IdP's published metadata by
+  and 100 across the tester. Migration `0005_flow.sql` adds the runs' table. The page after registering sets out the
+  run as steps (the client to create at your IdP, then its id and secret), each field saying where its value comes
+  from, and so does the results page until the first report (then the reports come first, and running again is folded
+  below them); the pages say the sign-in is at the IdP, as one of its users, not with the account used for the
+  tester; how the client sends its secret is taken from the IdP's published metadata by
   default.
 - **The tester's refusal probes** (opt-in, D-076): with "Run the whole flow", seven token exchanges with one thing
   wrong each (no client authentication, two audiences, an untrusted audience, a foreign resource, an access token, an
