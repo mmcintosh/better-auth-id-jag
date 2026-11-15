@@ -1,7 +1,7 @@
 // The example IdP's policy (examples/workers/enterprise-idp/src/auth.ts): the MCP server's audience as before, and the
 // public tester's when TESTER_AS_ISSUER and TESTER_RESOURCE are set, each only for clients registered for it.
 import { describe, expect, it } from "vitest";
-import { type Env, policy } from "../../examples/workers/enterprise-idp/src/auth";
+import { type Env, isNative, policy, redirectUrisFor } from "../../examples/workers/enterprise-idp/src/auth";
 
 const MCP_AS = "https://mcp.example.net/api/auth";
 const MCP_RESOURCE = "https://mcp.example.net/mcp";
@@ -43,5 +43,19 @@ describe("example IdP policy", () => {
     };
     for (const e of [without("TESTER_AS_ISSUER"), without("TESTER_RESOURCE")]) expect(decide(e, TESTER_AS, testerClient())).toMatchObject({ decision: "unknown_audience" });
     expect(decide(env, "https://elsewhere.example.net", mcpClient())).toMatchObject({ decision: "unknown_audience" });
+  });
+
+  it("redirect URIs: the IdP's own /callback or a loopback one; a tester client also, and by default, the tester's /flow/callback", () => {
+    const IDP = "https://idp.example.net";
+    const TESTER_CALLBACK = "https://tester.example.net/flow/callback";
+    expect(redirectUrisFor(env, IDP, false, undefined)).toEqual([`${IDP}/callback`]);
+    expect(redirectUrisFor(env, IDP, true, undefined)).toEqual([TESTER_CALLBACK]);
+    expect(redirectUrisFor(env, IDP, true, [TESTER_CALLBACK, `${IDP}/callback`, "http://localhost:3118/callback"])).toEqual([TESTER_CALLBACK, `${IDP}/callback`, "http://localhost:3118/callback"]);
+    // Only a client registered for the tester gets the tester's callback.
+    expect(redirectUrisFor(env, IDP, false, [TESTER_CALLBACK])).toHaveProperty("error");
+    for (const bad of [[], ["https://tester.example.net/callback"], ["https://evil.example.net/flow/callback"], [`${IDP}/callback/x`], "x", [1]]) expect(redirectUrisFor(env, IDP, true, bad)).toHaveProperty("error");
+    expect(isNative(IDP, [`${IDP}/callback`])).toBe(false);
+    expect(isNative(IDP, ["http://127.0.0.1:9/callback"])).toBe(true);
+    expect(isNative("http://localhost:8787", [TESTER_CALLBACK])).toBe(true);
   });
 });
