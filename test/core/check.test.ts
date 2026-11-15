@@ -2,7 +2,7 @@
 // says pass or fail for the right reason, and the metadata check stops registrations that would never work.
 import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
-import { checkIdJag, checkIssuerMetadata, type IdJagCheckInput, type RuleResult, show } from "../../src/core/check";
+import { checkExchange, checkIdJag, checkIssuerMetadata, type ExchangeCheckInput, type IdJagCheckInput, type RuleResult, show } from "../../src/core/check";
 
 const ISSUER = "https://idp.example.org";
 const AUD = "https://tester.example.net/api/auth";
@@ -165,5 +165,140 @@ describe("checkIssuerMetadata", () => {
     expect(outcome(r.results, "metadata.token_types")).toBe("warn");
     expect(outcome(r.results, "metadata.signing_algs")).toBe("fail");
     expect(r.blocking).toEqual([]);
+  });
+});
+
+describe("checkExchange", () => {
+  const ID_JAG_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
+  let jag: string;
+  beforeAll(async () => {
+    jag = await sign(good);
+  });
+  const answer = (body: Record<string, unknown> = {}, o: Partial<ExchangeCheckInput> = {}): ExchangeCheckInput => ({
+    status: 200,
+    contentType: "application/json; charset=utf-8",
+    cacheControl: "no-store",
+    body: { issued_token_type: ID_JAG_TYPE, access_token: jag, token_type: "N_A", scope: "read", expires_in: 300, ...body },
+    requestedScope: "read",
+    requestedResources: [RESOURCE],
+    ...o,
+  });
+  const ids = ["exchange.status", "exchange.issued_token_type", "exchange.token_type", "exchange.access_token", "exchange.scope", "exchange.expires_in", "exchange.refresh_token", "exchange.no_store", "exchange.resource_echo"];
+
+  it("a correct answer passes every rule, in order, and gives the ID-JAG", () => {
+    const r = checkExchange(answer());
+    expect(r.results.map((x) => x.id)).toEqual(ids);
+    expect(r.results.filter((x) => x.outcome !== "pass")).toEqual([]);
+    expect(r.idJag).toBe(jag);
+    expect(r.error).toBeNull();
+  });
+
+  it("a refusal: only exchange.status, failing, with the OAuth error", () => {
+    const r = checkExchange(answer({}, { status: 400, body: { error: "access_denied", error_description: "not assigned" } }));
+    expect(r.results.map((x) => [x.id, x.outcome])).toEqual([["exchange.status", "fail"]]);
+    expect(r.results[0]?.message).toContain("access_denied");
+    expect(r.error).toEqual({ code: "access_denied", description: "not assigned" });
+    expect(r.idJag).toBeNull();
+    const bare = checkExchange(answer({}, { status: 500, body: undefined }));
+    expect(bare.error).toBeNull();
+    expect(bare.results[0]?.message).toContain("without an OAuth error");
+    // A 200 is the only success, even with an ID-JAG in the body.
+    expect(checkExchange(answer({}, { status: 201 })).results.map((x) => x.outcome)).toEqual(["fail"]);
+  });
+
+  it("exchange.status: a JSON object, sent as application/json", () => {
+    for (const body of [undefined, null, [], "text"]) {
+      const r = checkExchange(answer({}, { body }));
+      expect(r.results.map((x) => [x.id, x.outcome])).toEqual([["exchange.status", "fail"]]);
+      expect(r.idJag).toBeNull();
+    }
+    const plain = checkExchange(answer({}, { contentType: "text/plain" }));
+    expect(outcome(plain.results, "exchange.status")).toBe("fail");
+    // The rest is still checked.
+    expect(plain.results.map((x) => x.id)).toEqual(ids);
+    expect(outcome(checkExchange(answer({}, { contentType: null })).results, "exchange.status")).toBe("fail");
+    expect(outcome(checkExchange(answer({}, { contentType: "application/jsonp" })).results, "exchange.status")).toBe("fail");
+    expect(outcome(checkExchange(answer({}, { contentType: "Application/JSON" })).results, "exchange.status")).toBe("pass");
+  });
+
+  it("exchange.issued_token_type and exchange.token_type (N_A, any case)", () => {
+    expect(outcome(checkExchange(answer({ issued_token_type: "urn:ietf:params:oauth:token-type:jwt" })).results, "exchange.issued_token_type")).toBe("fail");
+    expect(outcome(checkExchange(answer({ issued_token_type: undefined })).results, "exchange.issued_token_type")).toBe("fail");
+    expect(outcome(checkExchange(answer({ token_type: "n_a" })).results, "exchange.token_type")).toBe("pass");
+    expect(outcome(checkExchange(answer({ token_type: "Bearer" })).results, "exchange.token_type")).toBe("fail");
+    expect(outcome(checkExchange(answer({ token_type: undefined })).results, "exchange.token_type")).toBe("fail");
+  });
+
+  it("exchange.access_token: required; without a readable ID-JAG nothing is compared with it", () => {
+    for (const access_token of [undefined, "", 42]) {
+      const r = checkExchange(answer({ access_token }));
+      expect(outcome(r.results, "exchange.access_token")).toBe("fail");
+      expect(r.idJag).toBeNull();
+      expect(outcome(r.results, "exchange.scope")).toBe("skip");
+      expect(outcome(r.results, "exchange.resource_echo")).toBe("skip");
+    }
+    const garbled = checkExchange(answer({ access_token: "not.a.jwt" }));
+    expect(garbled.idJag).toBe("not.a.jwt");
+    expect(outcome(garbled.results, "exchange.scope")).toBe("skip");
+  });
+
+  it("exchange.scope: OPTIONAL when the ID-JAG's is the one requested, REQUIRED otherwise, and the same as the ID-JAG's", async () => {
+    // null: no scope requested.
+    const r = (body: Record<string, unknown>, requested: string | null = "read") => outcome(checkExchange(answer(body, { requestedScope: requested ?? undefined })).results, "exchange.scope");
+    expect(r({ scope: undefined })).toBe("pass");
+    expect(r({ scope: undefined }, "read write")).toBe("fail");
+    expect(r({ scope: undefined }, null)).toBe("fail");
+    expect(r({ scope: "read" }, "read write")).toBe("pass");
+    expect(r({ scope: "read write" })).toBe("fail");
+    expect(r({ scope: ["read"] })).toBe("fail");
+    const two = await sign({ ...good, scope: "write read" });
+    expect(r({ access_token: two, scope: "read write" })).toBe("pass");
+    expect(r({ access_token: two, scope: undefined }, "read  write")).toBe("pass");
+    const none = await sign({ ...good, scope: undefined });
+    expect(r({ access_token: none, scope: "read" })).toBe("fail");
+    expect(r({ access_token: none, scope: undefined }, null)).toBe("pass");
+  });
+
+  it("exchange.expires_in: RECOMMENDED, a positive whole number, close to the ID-JAG's lifetime", () => {
+    const r = (expires_in: unknown) => outcome(checkExchange(answer({ expires_in })).results, "exchange.expires_in");
+    expect(r(undefined)).toBe("warn");
+    for (const bad of ["300", 0, -300, 299.5]) expect(r(bad)).toBe("fail");
+    expect(r(305)).toBe("pass");
+    expect(r(295)).toBe("pass");
+    expect(r(306)).toBe("warn");
+    expect(r(3600)).toBe("warn");
+  });
+
+  it("exchange.refresh_token: SHOULD NOT", () => {
+    expect(outcome(checkExchange(answer({ refresh_token: "rt" })).results, "exchange.refresh_token")).toBe("warn");
+  });
+
+  it("exchange.no_store: Cache-Control has no-store", () => {
+    const r = (cacheControl: string | null) => outcome(checkExchange(answer({}, { cacheControl })).results, "exchange.no_store");
+    expect(r(null)).toBe("fail");
+    expect(r("no-cache")).toBe("fail");
+    expect(r("no-storex")).toBe("fail");
+    expect(r("private, NO-STORE")).toBe("pass");
+  });
+
+  it("exchange.resource_echo: each resource in the ID-JAG exactly as the client sent it", async () => {
+    const r = async (resource: unknown, requestedResources: string[] = [RESOURCE]) => outcome(checkExchange(answer({ access_token: await sign({ ...good, resource }) }, { requestedResources })).results, "exchange.resource_echo");
+    expect(await r(RESOURCE)).toBe("pass");
+    expect(await r([RESOURCE])).toBe("pass");
+    expect(await r([RESOURCE], [RESOURCE, "https://tester.example.net/other"])).toBe("pass");
+    expect(await r(`${RESOURCE}/`)).toBe("fail");
+    expect(await r("HTTPS://tester.example.net/mcp")).toBe("fail");
+    expect(await r([RESOURCE, "https://elsewhere.example"])).toBe("fail");
+    expect(await r([RESOURCE, 7])).toBe("fail");
+    expect(await r(undefined)).toBe("fail");
+    expect(await r([])).toBe("fail");
+    expect(await r(RESOURCE, [])).toBe("info");
+    expect(await r(undefined, [])).toBe("info");
+  });
+
+  it("never throws, whatever the answer holds", () => {
+    for (const body of [{ access_token: "a.b.c", scope: 1, expires_in: {}, refresh_token: null }, { access_token: "x".repeat(20_000) }, { error: { nested: true } }]) {
+      for (const status of [200, 400]) expect(() => checkExchange(answer({}, { status, body }))).not.toThrow();
+    }
   });
 });

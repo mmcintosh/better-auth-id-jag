@@ -1,7 +1,7 @@
 // The tester's outbound guard (examples/workers/tester/src/guard.ts): only public https names, no redirects, small
 // answers, a timeout.
 import { describe, expect, it } from "vitest";
-import { checkPublicHttpsUrl, fetchJsonCapped, guardedFetch, oauthMetadataUrl, openIdConfigurationUrl } from "../../examples/workers/tester/src/guard";
+import { checkPublicHttpsUrl, fetchJsonCapped, guardedFetch, oauthMetadataUrl, openIdConfigurationUrl, postFormCapped } from "../../examples/workers/tester/src/guard";
 
 describe("tester: checkPublicHttpsUrl", () => {
   it.each([
@@ -71,5 +71,28 @@ describe("tester: fetching", () => {
     expect(oauthMetadataUrl(new URL("https://idp.example.org"))).toBe("https://idp.example.org/.well-known/oauth-authorization-server");
     expect(oauthMetadataUrl(new URL("https://idp.example.org/t/a"))).toBe("https://idp.example.org/.well-known/oauth-authorization-server/t/a");
     expect(openIdConfigurationUrl(new URL("https://idp.example.org/t/a"))).toBe("https://idp.example.org/t/a/.well-known/openid-configuration");
+  });
+
+  it("a run's POST to a token endpoint: the guard's URLs only, no redirects, a capped answer, any status as an answer", async () => {
+    let called = 0;
+    let sent: { url: string; init: RequestInit | undefined } | undefined;
+    const answer = (r: Response) => async (url: string, init?: RequestInit) => {
+      called++;
+      sent = { url, init };
+      return r;
+    };
+    const form = new URLSearchParams({ grant_type: "x" });
+    for (const url of ["http://idp.example.org/token", "https://127.0.0.1/token", "https://metadata.internal/token", "https://idp.example.org:8443/token"]) expect((await postFormCapped(answer(json({})), url, form, {})).ok).toBe(false);
+    expect(called).toBe(0);
+    const ok = await postFormCapped(answer(Response.json({ error: "invalid_grant" }, { status: 400, headers: { "cache-control": "no-store" } })), "https://idp.example.org/token", form, { authorization: "Basic eA==" });
+    expect(ok).toEqual({ ok: true, status: 400, contentType: "application/json", cacheControl: "no-store", json: { error: "invalid_grant" } });
+    expect(sent?.init).toMatchObject({ method: "POST", redirect: "manual", body: "grant_type=x" });
+    expect(new Headers(sent?.init?.headers).get("content-type")).toBe("application/x-www-form-urlencoded");
+    expect(new Headers(sent?.init?.headers).get("authorization")).toBe("Basic eA==");
+    expect(await postFormCapped(answer(new Response("<html>", { status: 500 })), "https://idp.example.org/token", form, {})).toMatchObject({ ok: true, status: 500, json: undefined });
+    expect((await postFormCapped(answer(new Response(null, { status: 307, headers: { location: "https://elsewhere.example.org/" } })), "https://idp.example.org/token", form, {})).ok).toBe(false);
+    expect((await postFormCapped(answer(new Response("x".repeat(70_000))), "https://idp.example.org/token", form, {})).ok).toBe(false);
+    const slow = (_: string, init?: RequestInit) => new Promise<Response>((_r, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    expect(await postFormCapped(slow, "https://idp.example.org/token", form, {}, { timeoutMs: 50 })).toEqual({ ok: false, why: "didn't answer within 50 ms" });
   });
 });

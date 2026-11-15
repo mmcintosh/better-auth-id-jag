@@ -13,6 +13,12 @@ export const LIMITS = {
   redemptionsPerRegistrationPerDay: 50,
   /** Past this, across everyone, redemptions stop until 00:00 UTC: far more than real testing needs. */
   redemptionsPerDay: 300,
+  /** Runs of the whole flow (the tester as the client: sign-in, token exchange, redemption), per registration. */
+  runsPerRegistrationPerDay: 10,
+  /** Past this, across everyone, runs stop until 00:00 UTC. */
+  runsPerDay: 100,
+  /** How long a run waits for the IdP's sign-in to come back. */
+  runMinutes: 10,
   /** This many 5xx answers in 10 minutes closes the tester until the operator reopens it. */
   serverErrorsPer10Min: 10,
   maxBodyBytes: 20_000,

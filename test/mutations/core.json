@@ -631,5 +631,140 @@
   "paths": [
    "test/core/check.test.ts"
   ]
+ },
+ {
+  "name": "exchange: any 2xx counts as success",
+  "file": "src/core/check.ts",
+  "a": "if (input.status !== 200) {",
+  "b": "if (input.status < 200 || input.status > 299) {",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: Content-Type not checked",
+  "file": "src/core/check.ts",
+  "a": "const json = /^application\\/json\\s*(;|$)/i.test(input.contentType ?? \"\");",
+  "b": "const json = true;",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: Content-Type prefix match",
+  "file": "src/core/check.ts",
+  "a": "const json = /^application\\/json\\s*(;|$)/i.test(input.contentType ?? \"\");",
+  "b": "const json = /^application\\/json/i.test(input.contentType ?? \"\");",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: token_type case-sensitive",
+  "file": "src/core/check.ts",
+  "a": "body.token_type.toLowerCase() === \"n_a\"",
+  "b": "body.token_type === \"N_A\"",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: scope compared as a string",
+  "file": "src/core/check.ts",
+  "a": "  return x.size === y.size && [...x].every((s) => y.has(s));",
+  "b": "  return a === b;",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: scope compared as a subset",
+  "file": "src/core/check.ts",
+  "a": "  return x.size === y.size && [...x].every((s) => y.has(s));",
+  "b": "  return [...x].every((s) => y.has(s));",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: answer scope not compared with the claim",
+  "file": "src/core/check.ts",
+  "a": "sameScopes(body.scope, issued) ? \"pass\" : \"fail\"",
+  "b": "\"pass\"",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: answer scope without a claim passes",
+  "file": "src/core/check.ts",
+  "a": "    if (issued === undefined) add(",
+  "b": "    if (issued === \"never\") add(",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: expires_in tolerance ignored",
+  "file": "src/core/check.ts",
+  "a": "Math.abs(expiresIn - life) <= EXPIRES_IN_TOLERANCE_SECONDS",
+  "b": "true",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: expires_in fractions accepted",
+  "file": "src/core/check.ts",
+  "a": "!Number.isInteger(expiresIn) || ",
+  "b": "",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: refresh_token not reported",
+  "file": "src/core/check.ts",
+  "a": "body.refresh_token === undefined ? \"pass\" : \"warn\"",
+  "b": "\"pass\"",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: no-store as a substring",
+  "file": "src/core/check.ts",
+  "a": "const noStore = (input.cacheControl ?? \"\").split(\",\").some((d) => d.trim().toLowerCase() === \"no-store\");",
+  "b": "const noStore = (input.cacheControl ?? \"\").toLowerCase().includes(\"no-store\");",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: resource compared loosely",
+  "file": "src/core/check.ts",
+  "a": "!input.requestedResources.includes(x)",
+  "b": "!input.requestedResources.some((y) => y.toLowerCase().replace(/\\/$/, \"\") === x.toLowerCase().replace(/\\/$/, \"\"))",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: missing resource claim passes",
+  "file": "src/core/check.ts",
+  "a": "if (!list || list.length === 0) add(\"exchange.resource_echo\", \"MUST\", echoCite, \"fail\"",
+  "b": "if (!list || list.length === 0) add(\"exchange.resource_echo\", \"MUST\", echoCite, \"pass\"",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: error code not given back",
+  "file": "src/core/check.ts",
+  "a": "return { results, idJag: null, error: code ? { code, description } : null };",
+  "b": "return { results, idJag: null, error: null };",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
  }
 ]
