@@ -127,7 +127,8 @@ const isJwks = (v: unknown): v is { keys: Record<string, unknown>[] } => typeof 
 async function register(request: Request, env: Env, origin: string): Promise<Response> {
   const s = await session(env, origin, request);
   if (!s) return redirect("/");
-  if (request.method === "GET") return registerForm(env.TURNSTILE_SITE_KEY);
+  // Signing in lands here: someone with an active registration goes to its results, not an empty form.
+  if (request.method === "GET") return (await store.activeByUser(env.DB, s.user.id, Date.now())) ? redirect("/results") : registerForm(env.TURNSTILE_SITE_KEY);
   if (!sameOrigin(request, origin)) return message("Not allowed", "Register from this site's own page.", 403);
   const body = await readBody(request);
   if (body === null) return registerForm(env.TURNSTILE_SITE_KEY, "The form is too large.");

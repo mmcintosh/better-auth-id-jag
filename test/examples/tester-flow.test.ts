@@ -734,6 +734,10 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     expect(page).toContain("<summary><strong>Or mint an ID-JAG yourself and paste it</strong></summary>");
     const reg = (await rows<{ id: string; clientId: string }>(`select id, clientId from testerRegistration where userId = ?`, t.userId))[0];
     if (!reg) throw new Error("not registered");
+    // Signing in again lands on /register: with an active registration, that goes to the results.
+    const again = await call("/register", { cookie: t.cookie });
+    expect(again.status).toBe(302);
+    expect(again.headers.get("location")).toContain("/results");
     const before = await (await call("/results", { cookie: t.cookie })).text();
     expect(before).toContain(RUN_OPEN);
     expect(before).not.toContain("Test again: run the whole flow");

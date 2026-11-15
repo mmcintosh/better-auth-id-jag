@@ -638,5 +638,15 @@
   "paths": [
    "test/examples/tester-flow.test.ts"
   ]
+ },
+ {
+  "name": "register: an active registration still gets the empty form",
+  "file": "examples/workers/tester/src/index.ts",
+  "a": "return (await store.activeByUser(env.DB, s.user.id, Date.now())) ? redirect(\"/results\") : registerForm(env.TURNSTILE_SITE_KEY);",
+  "b": "return registerForm(env.TURNSTILE_SITE_KEY);",
+  "project": "workerd",
+  "paths": [
+   "test/examples/tester-flow.test.ts"
+  ]
  }
 ]
