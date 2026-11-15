@@ -9,6 +9,7 @@ import init0001 from "../../examples/workers/tester/migrations/0001_init.sql?raw
 import init0002 from "../../examples/workers/tester/migrations/0002_tester.sql?raw";
 import init0003 from "../../examples/workers/tester/migrations/0003_client_secret.sql?raw";
 import init0004 from "../../examples/workers/tester/migrations/0004_allowance.sql?raw";
+import init0005 from "../../examples/workers/tester/migrations/0005_flow.sql?raw";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const ORIGIN = "https://tester.example.net";
@@ -89,7 +90,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     cf = await import("cloudflare:test");
     const ok = { limit: async () => ({ success: true }) };
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", GITLAB_CLIENT_ID: "gl", GITLAB_CLIENT_SECRET: "gl-secret", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", ADMIN_STATS_KEY: KEYS.stats, ADMIN_CLOSE_KEY: KEYS.close, ADMIN_OPEN_KEY: KEYS.open, TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
-    for (const sql of [init0001, init0002, init0003, init0004]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
+    for (const sql of [init0001, init0002, init0003, init0004, init0005]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     for (const issuer of ISSUERS) {
       const pair = await generateKeyPair("RS256", { extractable: true });
       signers[issuer] = pair.privateKey;
@@ -322,7 +323,7 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(html).toContain("Confirmed.");
     expect(html).toContain("Delete my data now");
     // The values for the IdP, with copy buttons, are on the results page too, not only right after registering.
-    expect(html).toContain("Values for your IdP");
+    expect(html).toContain("Or mint an ID-JAG yourself and paste it");
     expect(html).toContain(`data-copy="${aliceClient.clientId}"`);
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
