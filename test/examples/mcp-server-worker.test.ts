@@ -40,6 +40,25 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
     return sign({ iss: `${MCP}/api/auth`, aud: `${MCP}/mcp`, sub: userId, azp: clientId, client_id: clientId, scope: "read write", iat: now, exp: now + 300, ...over });
   };
 
+  /** An ID-JAG from the test's IdP, exchanged at `origin`'s token endpoint by `client` (default: the one from /setup). */
+  const exchange = async (origin: string, workerEnv: Record<string, unknown>, claims: Record<string, unknown>, client = { client_id: clientId, client_secret: clientSecret }) => {
+    const now = Math.floor(Date.now() / 1000);
+    const assertion = await new SignJWT({ iss: IDP_ISSUER, aud: `${origin}/api/auth`, client_id: client.client_id, jti: crypto.randomUUID(), iat: now, exp: now + 300, resource: `${origin}/mcp`, scope: "read", ...claims })
+      .setProtectedHeader({ alg: "ES256", typ: "oauth-id-jag+jwt", kid: "idp-1" })
+      .sign(idpKey);
+    const ctx = cf.createExecutionContext();
+    const r = await worker.fetch(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers: { authorization: `Basic ${btoa(`${client.client_id}:${client.client_secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() }), workerEnv, ctx);
+    await cf.waitOnExecutionContext(ctx);
+    return { status: r.status, json: (await r.json()) as { error?: string; access_token?: string } };
+  };
+  /** POST /setup at `origin`, as the operator. */
+  const setupAt = async (origin: string, workerEnv: Record<string, unknown>, body: Record<string, unknown>) => {
+    const ctx = cf.createExecutionContext();
+    const r = await worker.fetch(new Request(`${origin}/setup`, { method: "POST", headers: { "x-setup-key": env.SETUP_KEY as string, "content-type": "application/json" }, body: JSON.stringify(body) }), workerEnv, ctx);
+    await cf.waitOnExecutionContext(ctx);
+    return r;
+  };
+
   beforeAll(async () => {
     cf = await import("cloudflare:test");
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: "example-mcp-test-secret-at-least-32-characters", SETUP_KEY: "setup-key-that-is-long-enough-for-the-example", IDP_ISSUER, IDP: { fetch: (url: string) => (url === `${IDP_ISSUER}/jwks` ? Response.json(idpJwks) : new Response("not found", { status: 404 })) } };
@@ -112,25 +131,30 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
     // origin, and its own client (a client is linked to one origin's resource).
     const KEPT = "https://mcp-kept.example.net";
     const keptEnv = { ...env, IDP_ACCOUNT_PROVIDER_ID: OLD_NAMESPACE };
-    const setupCtx = cf.createExecutionContext();
-    const made = await worker.fetch(new Request(`${KEPT}/setup`, { method: "POST", headers: { "x-setup-key": env.SETUP_KEY as string, "content-type": "application/json" }, body: JSON.stringify({ email: "operator-kept@example.net", password: "example-password-1234" }) }), keptEnv, setupCtx);
-    await cf.waitOnExecutionContext(setupCtx);
-    const keptClient = (await made.json()) as { client_id: string; client_secret: string };
-    const exchange = async (origin: string, workerEnv: Record<string, unknown>, client = { client_id: clientId, client_secret: clientSecret }) => {
-      const now = Math.floor(Date.now() / 1000);
-      const assertion = await new SignJWT({ iss: IDP_ISSUER, sub: "idp-sub-moved", aud: `${origin}/api/auth`, client_id: client.client_id, jti: crypto.randomUUID(), iat: now, exp: now + 300, resource: `${origin}/mcp`, scope: "read", email: "moved@example.net", email_verified: true })
-        .setProtectedHeader({ alg: "ES256", typ: "oauth-id-jag+jwt", kid: "idp-1" })
-        .sign(idpKey);
-      const ctx = cf.createExecutionContext();
-      const r = await worker.fetch(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers: { authorization: `Basic ${btoa(`${client.client_id}:${client.client_secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() }), workerEnv, ctx);
-      await cf.waitOnExecutionContext(ctx);
-      return { status: r.status, json: (await r.json()) as { error?: string; access_token?: string } };
-    };
+    const keptClient = (await (await setupAt(KEPT, keptEnv, { email: "operator-kept@example.net", password: "example-password-1234" })).json()) as { client_id: string; client_secret: string };
+    const subject = { sub: "idp-sub-moved", email: "moved@example.net", email_verified: true };
     // The default namespace is the new issuer's: this user is unknown there, and JIT refuses an email that has a user.
-    expect(await exchange(MCP, env)).toMatchObject({ status: 400, json: { error: "access_denied" } });
-    const kept = await exchange(KEPT, keptEnv, keptClient);
+    expect(await exchange(MCP, env, subject)).toMatchObject({ status: 400, json: { error: "access_denied" } });
+    const kept = await exchange(KEPT, keptEnv, subject, keptClient);
     expect(kept.status).toBe(200);
     const claims = JSON.parse(atob((kept.json.access_token ?? "").split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string };
     expect(claims.sub).toBe(moved.id);
+  });
+
+  it("after the server's own address changes, /setup's link keeps a client: its id and secret work for the new /mcp", async () => {
+    // A client registered through MCP (beforeAll) is linked to MCP's /mcp only; the same server at a new address refuses
+    // its ID-JAGs for the new /mcp until the client is linked there too.
+    const MOVED = "https://mcp-moved.example.net";
+    const subject = { sub: "idp-sub-link", email: "link@example.net", email_verified: true };
+    expect(await exchange(MOVED, env, subject)).toMatchObject({ status: 400, json: { error: "invalid_target" } });
+    const operator = { email: "operator@example.net", password: "example-password-1234" };
+    expect((await setupAt(MOVED, { ...env, SETUP_KEY: "another-setup-key-that-is-long-enough" }, { ...operator, link: clientId })).status).toBe(403);
+    expect(await (await setupAt(MOVED, env, { ...operator, link: "no-such-client" })).text()).toBe("no client no-such-client to link");
+    const linked = await setupAt(MOVED, env, { ...operator, link: clientId });
+    expect(await linked.json()).toEqual({ client_id: clientId, resource: `${MOVED}/mcp`, linked: true, already_linked: false });
+    expect(await (await setupAt(MOVED, env, { ...operator, link: clientId })).json()).toMatchObject({ already_linked: true });
+    expect((await exchange(MOVED, env, subject)).status).toBe(200);
+    // Still linked to the old address too.
+    expect((await exchange(MCP, env, { ...subject, sub: "idp-sub-link-old", email: "link-old@example.net" })).status).toBe(200);
   });
 });

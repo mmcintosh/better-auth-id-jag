@@ -81,6 +81,16 @@ The MCP server links the IdP's users under the account namespace `id-jag:<issuer
 set the MCP server's `IDP_ACCOUNT_PROVIDER_ID` to the old one (`id-jag:https://<old idp>/api/auth`) to keep them.
 Without it, each of them is unknown there (`unknown_subject`), and JIT provisioning refuses an email that already has a
 user. The clients `client.mjs` registered have the old address as their redirect: run it with `--setup` again.
+The MCP server's clients are each linked to the `/mcp` of the address they were registered through, and it refuses their
+ID-JAGs for another (`invalid_target`). After the MCP server moves, link each client you keep to its new `/mcp`, with
+its id and secret unchanged, so an Okta, xaa.dev or MCP client setup needs only the new addresses:
+
+```sh
+curl https://<new mcp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-type: application/json' \
+  -d '{"email":"operator@example.com","password":"<operator password>","link":"<client id>"}'
+```
+
+It answers `{"client_id", "resource", "linked": true, "already_linked"}`, and 404 for an unknown client.
 
 ```sh
 SETUP_KEY_FILE=<file> node examples/workers/client.mjs https://<idp> https://<mcp> --setup   # once

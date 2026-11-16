@@ -1,5 +1,6 @@
 // Routes: Better Auth under /api/auth (and the /.well-known documents), POST /setup (registers a
-// client, an AI agent or an app, as a confidential client here, x-setup-key), and /mcp: four tools
+// client, an AI agent or an app, as a confidential client here, or with "link" links an existing client to this
+// server's /mcp; x-setup-key), and /mcp: four tools
 // (`whoami`, `list_notes`, `add_note`, `delete_note`), for an access token audience-bound to this server's /mcp.
 //
 // /mcp checks the access token with requireMcpAuth (@better-auth/mcp): signature with this server's own keys, `iss` =
@@ -22,7 +23,7 @@ const authFor = (env: Env, origin: string) => {
 
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
-  const { email, password, name, tokenEndpointAuthMethod = "client_secret_basic" } = (await request.json()) as { email: string; password: string; name?: string; tokenEndpointAuthMethod?: string };
+  const { email, password, name, tokenEndpointAuthMethod = "client_secret_basic", link } = (await request.json()) as { email: string; password: string; name?: string; tokenEndpointAuthMethod?: string; link?: string };
   // VS Code and xaa.dev's tester send the secret in the body (client_secret_post); Better Auth holds a
   // client to the method it was registered with.
   if (tokenEndpointAuthMethod !== "client_secret_basic" && tokenEndpointAuthMethod !== "client_secret_post") return new Response("tokenEndpointAuthMethod: client_secret_basic or client_secret_post", { status: 400 });
@@ -36,6 +37,16 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
   }
   const signIn = await auth.api.signInEmail({ body: { email, password }, returnHeaders: true });
   const headers = new Headers({ cookie: (signIn.headers.get("set-cookie") ?? "").split(";")[0] ?? "", "x-setup-key": env.SETUP_KEY });
+  // A client registers for the resource at the address it was registered through, and the token endpoint refuses an
+  // ID-JAG for any other (invalid_target). After a move to a new address (PUBLIC_ORIGIN), "link" adds this address's
+  // /mcp to an existing client, keeping its id and secret, so what's configured elsewhere needs only the new address.
+  if (typeof link === "string" && link) {
+    const resource = `${origin}/mcp`;
+    const linker = auth.api as unknown as { adminLinkClientResource(o: { headers: Headers; params: { identifier: string; client_id: string } }): Promise<{ linked: boolean; alreadyLinked?: boolean }> };
+    const linked = await linker.adminLinkClientResource({ headers, params: { identifier: resource, client_id: link } }).catch(() => null);
+    if (!linked) return new Response(`no client ${link} to link`, { status: 404 });
+    return Response.json({ client_id: link, resource, linked: true, already_linked: linked.alreadyLinked === true });
+  }
   const api = auth.api as unknown as { adminCreateOAuthClient(o: { headers: Headers; body: Record<string, unknown> }): Promise<{ client_id: string; client_secret: string }> };
   const client = await api.adminCreateOAuthClient({
     headers,

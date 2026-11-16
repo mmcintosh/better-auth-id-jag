@@ -27,6 +27,9 @@
   the old issuer's account namespace (`id-jag:<old issuer>`), users linked under it are still found. Without it, they
   are unknown under the new issuer, and JIT provisioning refuses their emails, which already have users. Tested in
   workerd.
+- **The example MCP server's `/setup` can link an existing client to its current address** (`"link": "<client id>"`):
+  a client registered through the old address is otherwise refused for the new `/mcp` (`invalid_target`). The client
+  keeps its id and secret. It uses Better Auth's own `adminLinkClientResource`. Tested in workerd.
 - **The example MCP server checks tokens with `requireMcpAuth`** (`@better-auth/mcp`), as Better Auth intends: since
   1.7.25 it reads the server's keys in process, which a Worker needs (it can't fetch its own address), so the
   example's own check is gone, and the example MCP server needs Better Auth 1.7.25 or later. On 1.8 it also refuses a
