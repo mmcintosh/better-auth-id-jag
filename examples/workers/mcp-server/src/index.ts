@@ -2,13 +2,11 @@
 // client, an AI agent or an app, as a confidential client here, x-setup-key), and /mcp: four tools
 // (`whoami`, `list_notes`, `add_note`, `delete_note`), for an access token audience-bound to this server's /mcp.
 //
-// The token check is the one requireMcpAuth (@better-auth/mcp) makes: signature with this
-// server's JWKS, `iss` = this authorization server, `aud` = this /mcp, unexpired; a 401 carries
-// the RFC 9728 challenge. It's done in-process here because requireMcpAuth fetches the JWKS by
-// URL, and a Worker can't fetch its own workers.dev URL (the request never completes). A resource
-// server deployed apart from its authorization server uses requireMcpAuth as is
-// (test/receiver/exit.test.ts runs it against these tokens).
-import { createLocalJWKSet, jwtVerify } from "jose";
+// /mcp checks the access token with requireMcpAuth (@better-auth/mcp): signature with this server's own keys, `iss` =
+// this authorization server, `aud` = this /mcp, unexpired; a 401 carries the RFC 9728 challenge. Since Better Auth
+// 1.7.25 it reads the keys in process (better-auth#12501): before, it fetched them by URL, and a Worker can't fetch
+// its own address, so this example checked tokens itself.
+import { requireMcpAuth } from "@better-auth/mcp";
 import { withExecutionContext } from "../../background";
 import { createAuth, type Env } from "./auth";
 
@@ -55,17 +53,13 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
 }
 
 async function mcpEndpoint(request: Request, env: Env, origin: string): Promise<Response> {
+  const protect = requireMcpAuth(authFor(env, origin), (req, claims) => mcpRequest(req, claims as Record<string, unknown>, origin), { issuer: `${origin}/api/auth`, resource: `${origin}/mcp` });
+  return protect(request);
+}
+
+/** /mcp once requireMcpAuth has accepted the token: `claims` is its verified payload. */
+async function mcpRequest(request: Request, claims: Record<string, unknown>, origin: string): Promise<Response> {
   const challenge = { "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"` };
-  const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
-  if (!token) return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "unauthorized" } }, { status: 401, headers: challenge });
-  const auth = authFor(env, origin);
-  const jwks = (await (await auth.handler(new Request(`${origin}/api/auth/jwks`))).json()) as Parameters<typeof createLocalJWKSet>[0];
-  let claims: Record<string, unknown>;
-  try {
-    claims = (await jwtVerify(token, createLocalJWKSet(jwks), { issuer: `${origin}/api/auth`, audience: `${origin}/mcp` })).payload;
-  } catch {
-    return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "invalid token" } }, { status: 401, headers: { "WWW-Authenticate": `${challenge["WWW-Authenticate"]}, error="invalid_token"` } });
-  }
   // No server-to-client stream (a GET) and no sessions (a DELETE): Streamable HTTP's answer is 405.
   // A 200 here makes VS Code poll GET /mcp every few seconds.
   if (request.method !== "POST") return new Response(null, { status: 405, headers: { allow: "POST" } });

@@ -45,9 +45,10 @@ person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP
 - **Fetching another Worker on the same account:** a Worker can't reach another one by its URL. The MCP server reaches
   the IdP's JWKS through a **service binding** (`IDP`), passed to `idJagGrant({ fetch })`. Okta's JWKS goes over the
   internet as usual.
-- **Fetching itself:** a Worker can't fetch its own `workers.dev` URL; the request never completes.
-  `requireMcpAuth` fetches the server's own JWKS by URL, so `/mcp` makes the same check in-process instead, with jose
-  and the server's keys. A resource server deployed apart from its authorization server uses `requireMcpAuth` as is.
+- **Fetching itself:** a Worker can't fetch its own `workers.dev` URL; the request never completes. `requireMcpAuth`
+  used to fetch the server's own JWKS by URL, so this example checked tokens itself; since Better Auth 1.7.25 it reads
+  the keys in process (better-auth/better-auth#12501), and `/mcp` uses it as is. On 1.8 it also checks the token
+  against the authorization server's records: its client must exist and not be disabled.
   `test/receiver/exit.test.ts` runs it against these tokens.
 
 ## Deploy
