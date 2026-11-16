@@ -58,7 +58,7 @@ Each mutation applied to `test/support/ping.ts`, the suite run, the file restore
   `token_endpoint_auth_method: private_key_jwt`) authenticates at the extension grant through `authenticateClient`; the
   same client with no assertion is refused; a replayed assertion is refused (the provider's `oauthClientAssertion`
   table). CIMD permits only `none` and `private_key_jwt`, so a CIMD client at our receiver is confidential exactly when
-  it uses `private_key_jwt` — plan §3.4 step 1 holds. (Node only; the Worker had no CIMD fetch.)
+  it uses `private_key_jwt` — plan section 3.4 step 1 holds. (Node only; the Worker had no CIMD fetch.)
 - **`ssoProvider` via `ctx.context.adapter`:** yes, `adapter.findMany({ model: "ssoProvider" })` answers from inside the
   grant handler (Node, mcp() + sso()).
 - **Issuer identifier:** `ctx.context.baseURL`, which **includes the base path** (`https://host/api/auth`). That is the
@@ -97,7 +97,7 @@ Each mutation applied to `test/support/ping.ts`, the suite run, the file restore
    allowed `refresh_token`. The receiver's `issueRefreshToken: false` default is enforced by stripping `offline_access`
    from the granted scopes — no provider option needed. (Okta's guide: no refresh token.)
 4. `invalid_client` for a missing credential comes back as **400**, not 401; whatever the provider does, our handlers
-   inherit it. Fine for RFC 6749 §5.2 except the Basic-auth case (401 + `WWW-Authenticate`), which is the provider's.
+   inherit it. Fine for RFC 6749 section 5.2 except the Basic-auth case (401 + `WWW-Authenticate`), which is the provider's.
 5. **Admin client creation** is server-only at `/admin/oauth2/create-client`; over HTTP it's `/oauth2/create-client`
    behind a session and `clientPrivileges`. The example's setup script uses the latter.
 6. Better Auth **1.7.7** is out (2026-10-05). Pinned 1.7.6 for now (D-002); CI matrix will cover latest-1.7.

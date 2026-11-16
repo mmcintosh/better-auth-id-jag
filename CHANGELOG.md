@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Breaking
+
+What to change when you upgrade from 0.7.x:
+
+- **A receiver with `scim` on a trust entry needs a database adapter with native transactions**, or every ID-JAG for
+  that entry is refused (`subject_unavailable`, `invalid_grant`) and startup logs an error. A `pg` pool, a `mysql2`
+  pool or a SQLite database given straight to Better Auth has them; Drizzle, Prisma and Kysely given as `{ db, type }`
+  or `{ dialect, type }` have them only with `transaction: true`; Cloudflare D1 never does. Turn them on, or remove
+  `scim` from the trust entry. The details are under Security.
+- **A token exchange without client authentication gets `invalid_client`** (HTTP 401) from the issuer, as draft -06
+  section 4.3.3 requires; one that named no client at all got `invalid_request` (HTTP 400). The details are under
+  Fixed.
+
 ### Security
 
 - **The receiver refuses the SCIM step on a database without native transactions** (D-073): every ID-JAG whose trust
@@ -51,6 +64,14 @@
 
 ### Documentation
 
+- **README: install Better Auth's packages at one version.** The Install section says to install `better-auth` and
+  every `@better-auth/*` package you use at one exact version, each named in your own `package.json`: each plugin
+  requires a `better-auth` and `@better-auth/core` at least as new as itself, so one a package manager picks alone can
+  be too new (npm: `ERESOLVE`; pnpm: a set this package can't load). Errors says a
+  token exchange without client authentication is `invalid_client`; Examples says the example IdP issues ID-JAGs for
+  the tester's run; `docs/versioning.md` lists `checkExchange` with the other checkers as public API. README and
+  `docs/security.md` list the database adapters the SCIM step works on (Kysely needs `transaction: true` too).
+- **The README, the docs and this changelog write "section 4.3.3"** in full, not with the section sign.
 - **The tester's run of the whole flow, documented.** docs/test-your-idp.md: how to set up a client at your IdP
   for the tester and run it, the `exchange.*` and `probe.*` rules in the rules tables (the doc test checks them
   against the code), what a run still doesn't check, its limits, and what it keeps (for 15 minutes at most) and never
@@ -219,13 +240,13 @@ What to change when you upgrade from 0.5.x:
   the phone number plugin) and
   [GHSA-9p5w-h4pr-fcrc](https://github.com/better-auth/better-auth/security/advisories/GHSA-9p5w-h4pr-fcrc) (high;
   the Electron plugin). One of them reaches this package (see Security). No schema change.
-- **Implements ID-JAG draft -06** (D-062): `SUPPORTED_DRAFT` is
-  `draft-ietf-oauth-identity-assertion-authz-grant-06`, was -04. No claim, token type URN, grant type or metadata name
-  changed, so an -04 ID-JAG is a valid -06 one. What changed is below: error codes, the `resource` claim, client
-  authentication wording, a new optional metadata field. The README's conformance table cites -06's sections (several
-  moved: step-up §9.2 → §9.3, self-issued §9.3 → §9.4, subject trust §9.5 → §9.8, DPoP §9.8 → §9.11, refresh token
-  §4.4.3 → §4.4.4) and has rows for -06's new requirements. Single use of each ID-JAG is now ✅: -06 §4.4.4 allows a
-  receiver to accept each ID-JAG once by tracking `jti`.
+- **Implements ID-JAG draft -06** (D-062): `SUPPORTED_DRAFT` is `draft-ietf-oauth-identity-assertion-authz-grant-06`,
+  was -04. No claim, token type URN, grant type or metadata name changed, so an -04 ID-JAG is a valid -06 one. What
+  changed is below: error codes, the `resource` claim, client authentication wording, a new optional metadata field. The
+  README's conformance table cites -06's sections (several moved: step-up section 9.2 → section 9.3, self-issued section
+  9.3 → section 9.4, subject trust section 9.5 → section 9.8, DPoP section 9.8 → section 9.11, refresh token section
+  4.4.3 → section 4.4.4) and has rows for -06's new requirements. Single use of each ID-JAG is now ✅: -06 section 4.4.4
+  allows a receiver to accept each ID-JAG once by tracking `jti`.
 - **README**: plain headings (anchors lost their emoji prefix, so `#-conformance` is now `#conformance`), and the
   feature list says what the error codes tell a caller.
 - **Error codes follow ID-JAG draft -06** (D-059). Draft -05/-06 profile which OAuth error code each refusal uses, so a
@@ -245,40 +266,40 @@ What to change when you upgrade from 0.5.x:
     (`invalid_grant`, with its description), was `subject_rejected`.
   - Trust failures at the receiver (issuer, signature, `aud`, `client_id`, replay) are still one generic
     `invalid_grant`.
-- **Receiver: every resource in the ID-JAG's `resource` claim must be one of ours** (D-060, draft -06 §4.4.1). An
+- **Receiver: every resource in the ID-JAG's `resource` claim must be one of ours** (D-060, draft -06 section 4.4.1). An
   ID-JAG naming a resource this server doesn't govern, even beside one it does, is refused (`foreign_resource`,
   `invalid_grant`), whichever resource the request picks. It used to be accepted when the request picked ours, and
   refused as `unknown_resource` (`invalid_target`) otherwise. Identifiers are compared exactly.
-- **Codes the pre-release review corrected** (D-063). Receiver: a SAML `sub_id` the trust entry can't use (absent
-  under `requireSubId`, another format, transient, not mapped) stays `invalid_grant`, as draft -06 §3.2.2 requires
-  (new reason `sub_id_rejected`, split from `subject_rejected`, which is now `access_denied`). A
-  JIT user whose organization membership can't be added is `subject_unavailable` (`invalid_grant`), was
-  `subject_rejected`. Issuer: an `authorize` hook that throws is HTTP 500 `server_error` (new reason
-  `internal_error`), was `policy_denied`; so is a SAML verifier that crashes. A SAML Assertion whose user is banned or
-  gone (`ACCOUNT_INACTIVE`) is `banned_user` (`access_denied`), as for an ID token, was `invalid_subject_token`.
-- **`allowPublicClients`'s startup warning** (both sides) now says the option is outside draft -06 (§4.3.3 at the
-  issuer, §4.4 at the receiver), which makes client authentication a MUST. The option, its default (off) and its
+- **Codes the pre-release review corrected** (D-063). Receiver: a SAML `sub_id` the trust entry can't use (absent under
+  `requireSubId`, another format, transient, not mapped) stays `invalid_grant`, as draft -06 section 3.2.2 requires (new
+  reason `sub_id_rejected`, split from `subject_rejected`, which is now `access_denied`). A JIT user whose organization
+  membership can't be added is `subject_unavailable` (`invalid_grant`), was `subject_rejected`. Issuer: an `authorize`
+  hook that throws is HTTP 500 `server_error` (new reason `internal_error`), was `policy_denied`; so is a SAML verifier
+  that crashes. A SAML Assertion whose user is banned or gone (`ACCOUNT_INACTIVE`) is `banned_user` (`access_denied`),
+  as for an ID token, was `invalid_subject_token`.
+- **`allowPublicClients`'s startup warning** (both sides) now says the option is outside draft -06 (section 4.3.3 at the
+  issuer, section 4.4 at the receiver), which makes client authentication a MUST. The option, its default (off) and its
   behaviour are unchanged (D-061).
 
 ### Added
 
-- **Issuer: `id_jag_signing_alg_values_supported` in the metadata** (draft -06 §7.1, D-061), as `["RS256"]`, when the
-  issuer signs ID-JAGs with RS256. Omitted otherwise: if present the list MUST include RS256. Exported as
+- **Issuer: `id_jag_signing_alg_values_supported` in the metadata** (draft -06 section 7.1, D-061), as `["RS256"]`, when
+  the issuer signs ID-JAGs with RS256. Omitted otherwise: if present the list MUST include RS256. Exported as
   `ISSUER_SIGNING_ALG_METADATA_FIELD`. The signing default doesn't change (the `jwt()` plugin's key); set
   `signingAlgorithm: "RS256"` for a receiver that accepts only RS256.
 - **Issuer: `authorize` can answer `{ decision: "unknown_audience" }`** (D-059): the caller gets `invalid_target`,
-  as draft -06 §4.3.3 requires for an audience the IdP has no trust relationship with. A plain deny is
+  as draft -06 section 4.3.3 requires for an audience the IdP has no trust relationship with. A plain deny is
   `access_denied`.
 - **Issuer: `authorize` can answer `{ decision: "unknown_resource" }`** (D-063): `invalid_target`, for a `resource`
-  the audience doesn't govern (draft -06 §4.3.3). Type `AuthorizeUnknownResource`.
+  the audience doesn't govern (draft -06 section 4.3.3). Type `AuthorizeUnknownResource`.
 - **Issuer: `authorization_details` is refused by name** (D-063, `authorization_details_unsupported`,
-  `invalid_request`): draft -06 §4.3.3 says the IdP MUST process it, and ignoring it issued the policy's scopes to a
-  client that asked for less.
+  `invalid_request`): draft -06 section 4.3.3 says the IdP MUST process it, and ignoring it issued the policy's scopes
+  to a client that asked for less.
 - **Receiver: a startup warning when trust entries for different issuers share an `accountProviderId`** (D-063): a
   `sub` from any of them links to the same local user. Allowed, for an IdP that changed its issuer URL.
 - **Docs.** The conformance table marks as ⚠️ what is a deliberate limit: one resource per issuer request, refresh
-  tokens not rotated (§9.2), `tenant` enforced only when pinned, `aud_tenant`/`aud_sub` ignored; `act` minting is ✅
-  (it was listed as not minted). `docs/security.md`: pin `tenant` for a multi-tenant IdP with email fallback or JIT;
+  tokens not rotated (section 9.2), `tenant` enforced only when pinned, `aud_tenant`/`aud_sub` ignored; `act` minting is
+  ✅ (it was listed as not minted). `docs/security.md`: pin `tenant` for a multi-tenant IdP with email fallback or JIT;
   one `accountProviderId` per issuer. The README quick start answers `unknown_audience`.
 
 ## [0.5.4] - 2026-11-01
@@ -359,7 +380,7 @@ What to change when you upgrade from 0.5.x:
   `oauthTokenExchange()`, and refuses one with parts it would lose. Listing both plugins now fails with a message
   saying this. Nothing changes without the option. Tested against `oauthTokenExchange()` on Better Auth
   1.8.0-beta.1 (the CI's 1.8 row); this release's peer range is still 1.7.
-- **Issuer: step-up** (draft -04 §9.2, D-043). The `authorize` hook can deny with
+- **Issuer: step-up** (draft -04 section 9.2, D-043). The `authorize` hook can deny with
   `stepUp: { maxAge?, acrValues?, description?, uri? }`. The client then gets `insufficient_user_authentication`
   with `max_age`, `acr_values`, `error_description` and `error_uri` (RFC 9470's parameters), not the generic
   `invalid_grant`, so it can send the person back to sign in again, for example to a "confirm it's you" page. Off
@@ -517,7 +538,7 @@ The first release: Identity Assertion JWT Authorization Grants for Better Auth, 
 - Both: the OAuth provider's own client-authentication refusals reach the audit events; a startup warning on database
   adapters that don't enforce unique keys.
 - Issuer, experimental: **SAML assertions** from better-auth-saml-idp ≥ 1.2.0 as subject tokens, directly to an
-  ID-JAG, or to a refresh token first (draft -04 §4.5, MCP's SAML path; `saml: { subjectTokens, refreshTokens }`,
+  ID-JAG, or to a refresh token first (draft -04 section 4.5, MCP's SAML path; `saml: { subjectTokens, refreshTokens }`,
   `scope_required`, the `id-jag.refresh-issued` event). `maxIdTokenAgeSeconds` (an hour by default) and the `sid`
   session check stop old sign-ins; `blocks: { canManage }`; blocking from a `jti` falls back to the audit log.
 - Receiver: users resolved by SAML NameID (`sub_id`, `samlSubjects`, `requireSubId`); the email fallback needs a
