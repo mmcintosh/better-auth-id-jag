@@ -12,6 +12,12 @@ conformance or certification test, and its results are visible only to the accou
 
 **It runs at <https://idjag-tester.infowall.net>.**
 
+The tester has its own help, in short: [/help](https://idjag-tester.infowall.net/help) walks through each step with
+this deployment's values, how to read a report, and common problems, and the ⓘ next to each step on the tester's pages
+links to its part. The same text is plain Markdown at [/help.md](https://idjag-tester.infowall.net/help.md), and
+[/llms.txt](https://idjag-tester.infowall.net/llms.txt) points an AI assistant helping you build an issuer at what to
+read. This page is the full reference.
+
 ## What it checks
 
 Other tools cover other parts:

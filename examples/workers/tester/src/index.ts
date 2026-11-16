@@ -14,6 +14,7 @@ import { withExecutionContext } from "../../background";
 import { createAuth, type Env, internalKey, providers, SCOPES } from "./auth";
 import { checkPublicHttpsUrl, fetchJsonCapped, oauthMetadataUrl, openIdConfigurationUrl, postFormCapped } from "./guard";
 import { APP_JS } from "./app";
+import { helpMarkdown, helpPage, llmsTxt } from "./help";
 import { CHECKED_AGAINST, LIMITS } from "./limits";
 import { LOGO_SVG } from "./logo";
 import { continueToIdp, landing, message, page, registered, registerForm, results, type ResultView } from "./pages";
@@ -915,6 +916,10 @@ async function dispatch(request: Request, env: Env, url: URL, ctx: ExecutionCont
   const path = url.pathname;
   if (path.startsWith("/admin/")) return admin(request, env, url);
   if (path === "/logo.svg" && request.method === "GET") return new Response(LOGO_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+  // The help, as a page, as Markdown and as llms.txt: static, so served before the rate limit and while the tester is closed.
+  if (path === "/help" && request.method === "GET") return helpPage(origin);
+  if (path === "/help.md" && request.method === "GET") return helpMarkdown(origin);
+  if (path === "/llms.txt" && request.method === "GET") return llmsTxt(origin);
   if (path === "/app.js" && request.method === "GET") return new Response(APP_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
   if (!(await env.IP_LIMIT.limit({ key: `ip:${clientIp(request)}` })).success) {
     store.bump("ratelimited.ip");

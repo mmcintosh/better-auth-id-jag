@@ -15,6 +15,11 @@
 
 ### Example
 
+- **The public tester has its own help**: `/help` walks through each step with the deployment's own values, how to
+  read a report, and common problems, and an ⓘ next to each step on the tester's pages links to its part. The same
+  text is Markdown at `/help.md`, for a builder's AI assistant, and `/llms.txt` points an assistant at it, the full
+  guide and the draft. One source (`src/help.ts`) makes all three. Tested in workerd: every info link points at a
+  section.
 - **The example IdP and MCP server can serve from one custom domain** (`PUBLIC_ORIGIN`): their issuer identifier is
   then always that origin's, and a request to another address (the `workers.dev` one) gets a 308 to the same path
   there. Unset, as in local development, nothing changes. Tested in workerd for both.
