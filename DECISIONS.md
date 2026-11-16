@@ -1830,3 +1830,24 @@ and the issuer passed that on.
 - **Found by** the public tester's own probe `probe.no_client_auth` (D-076), run against this package's issuer in
   `test/examples/tester-flow.test.ts`.
 - **Evidence:** `test/issuer/refusals.test.ts` (both projects). 3 entries in `test/mutations/issuer.json`, all caught.
+
+## D-079: development pin 1.7.25, the floor stays 1.7.16 (2026-11-15)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.22 → 1.7.25 (1.7.23 published 2026-11-13,
+  1.7.24 and 1.7.25 on 2026-11-14), and the SAML end-to-end project with them. `better-call` stays 1.4.5 and
+  `@better-auth/utils` 0.5.1. The peer range and CI's floor rows stay on 1.7.16: no Better Auth advisory affects 1.7.16
+  or later (checked 2026-11-15).
+  better-auth-saml-idp and better-auth-scim-provisioning already develop on 1.7.25.
+- **1.7.23 to 1.7.25's changes we checked:** one `better-call` copy shared across plugins (#12502) and an `APIError`
+  from another copy recognised (#12503): this package already tells refusals apart with `isAPIError`, not
+  `instanceof` (`src/core/errors.ts`), so either way works. oauth-provider checks PKCE and DPoP before it consumes an
+  authorization code (#12499), verifies the tokens it issues with its own keys in process (#12578), and no longer
+  puts a double slash in its endpoint URLs (#12598); `requireMcpAuth` resolves its signing keys without a request to
+  itself (#12501). None of those is the token-exchange or jwt-bearer grant this package adds. #12501 is the Workers
+  limit the example MCP server works around by checking tokens in process; using `requireMcpAuth` there again is a
+  separate change.
+- **Evidence:** typecheck, lint, `docs:check`, `pack:check`, and the example Workers' typecheck; the suite 1246
+  passed, 198 skipped (Node and workerd); every `better-auth` and `@better-auth/*` package once in the lockfile, at
+  1.7.25; the SAML end-to-end project on 1.7.25 with better-auth-saml-idp 1.2.0, 19 passed.
