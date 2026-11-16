@@ -23,7 +23,7 @@ const authFor = (env: Env, origin: string) => {
 
 async function setup(request: Request, env: Env, origin: string): Promise<Response> {
   if (!env.SETUP_KEY || request.headers.get("x-setup-key") !== env.SETUP_KEY) return new Response("forbidden", { status: 403 });
-  const { email, password, name, tokenEndpointAuthMethod = "client_secret_basic", link } = (await request.json()) as { email: string; password: string; name?: string; tokenEndpointAuthMethod?: string; link?: string };
+  const { email, password, name, tokenEndpointAuthMethod = "client_secret_basic", link, rotate } = (await request.json()) as { email: string; password: string; name?: string; tokenEndpointAuthMethod?: string; link?: string; rotate?: string };
   // VS Code and xaa.dev's tester send the secret in the body (client_secret_post); Better Auth holds a
   // client to the method it was registered with.
   if (tokenEndpointAuthMethod !== "client_secret_basic" && tokenEndpointAuthMethod !== "client_secret_post") return new Response("tokenEndpointAuthMethod: client_secret_basic or client_secret_post", { status: 400 });
@@ -46,6 +46,14 @@ async function setup(request: Request, env: Env, origin: string): Promise<Respon
     const linked = await linker.adminLinkClientResource({ headers, params: { identifier: resource, client_id: link } }).catch(() => null);
     if (!linked) return new Response(`no client ${link} to link`, { status: 404 });
     return Response.json({ client_id: link, resource, linked: true, already_linked: linked.alreadyLinked === true });
+  }
+  // "rotate" gives an existing client a new secret, through Better Auth's own rotateClientSecret (only the operator who
+  // registered it may). The old secret stops working at once; the client id and its links stay.
+  if (typeof rotate === "string" && rotate) {
+    const rotator = auth.api as unknown as { rotateClientSecret(o: { headers: Headers; body: { client_id: string } }): Promise<{ client_id: string; client_secret: string }> };
+    const rotated = await rotator.rotateClientSecret({ headers, body: { client_id: rotate } }).catch(() => null);
+    if (!rotated) return new Response(`no client ${rotate} of this operator to rotate`, { status: 404 });
+    return Response.json({ client_id: rotated.client_id, client_secret: rotated.client_secret });
   }
   const api = auth.api as unknown as { adminCreateOAuthClient(o: { headers: Headers; body: Record<string, unknown> }): Promise<{ client_id: string; client_secret: string }> };
   const client = await api.adminCreateOAuthClient({

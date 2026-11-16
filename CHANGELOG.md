@@ -30,6 +30,9 @@
 - **The example MCP server's `/setup` can link an existing client to its current address** (`"link": "<client id>"`):
   a client registered through the old address is otherwise refused for the new `/mcp` (`invalid_target`). The client
   keeps its id and secret. It uses Better Auth's own `adminLinkClientResource`. Tested in workerd.
+- **The example MCP server's `/setup` can give a client a new secret** (`"rotate": "<client id>"`), for a secret that
+  was shown somewhere it shouldn't have been. The old secret stops working at once; the client id and its links stay.
+  Only the operator who registered the client may. It uses Better Auth's own `rotateClientSecret`. Tested in workerd.
 - **The example MCP server checks tokens with `requireMcpAuth`** (`@better-auth/mcp`), as Better Auth intends: since
   1.7.25 it reads the server's keys in process, which a Worker needs (it can't fetch its own address), so the
   example's own check is gone, and the example MCP server needs Better Auth 1.7.25 or later. On 1.8 it also refuses a
