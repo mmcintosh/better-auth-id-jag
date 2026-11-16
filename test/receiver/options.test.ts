@@ -181,7 +181,11 @@ describe("act reaches the access token on Better Auth 1.7 and 1.8", () => {
             [JWT_BEARER_GRANT]: (input) => {
               const provider = new Proxy(input.provider, {
                 get(target, key, receiver) {
-                  if (key === "issueTokens") return (params: Record<string, unknown>) => (seen.push(params), target.issueTokens(params as never));
+                  if (key === "issueTokens")
+                    return (params: Record<string, unknown>) => {
+                      seen.push(params);
+                      return target.issueTokens(params as never);
+                    };
                   const value = Reflect.get(target, key, receiver);
                   return typeof value === "function" ? value.bind(target) : value;
                 },
@@ -210,7 +214,7 @@ describe("act reaches the access token on Better Auth 1.7 and 1.8", () => {
     expect((await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id, act })))).status).toBe(200);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.act).toEqual(act);
-    expect((seen[0]?.accessTokenClaims as Record<string, unknown>).act).toEqual(act);
+    expect((seen[0]?.accessTokenClaims as Record<string, unknown> | undefined)?.act).toEqual(act);
     // Without act in the ID-JAG, neither.
     expect((await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id })))).status).toBe(200);
     expect(seen[1]).not.toHaveProperty("act");
