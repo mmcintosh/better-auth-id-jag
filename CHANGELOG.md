@@ -15,6 +15,11 @@
 
 ### Example
 
+- **The example MCP server checks tokens with `requireMcpAuth`** (`@better-auth/mcp`), as Better Auth intends: since
+  1.7.25 it reads the server's keys in process, which a Worker needs (it can't fetch its own address), so the
+  example's own check is gone, and the example MCP server needs Better Auth 1.7.25 or later. On 1.8 it also refuses a
+  token whose client is gone or disabled. A workerd test covers `/mcp` (`test/examples/mcp-server-worker.test.ts`), on
+  1.7.25 and 1.8; it is skipped on earlier versions.
 - **The example Workers' migrations add the columns Better Auth 1.8's oauth-provider adds** (for a database made on
   1.7; 1.7 ignores them).
 
