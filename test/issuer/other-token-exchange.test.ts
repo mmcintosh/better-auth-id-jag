@@ -106,6 +106,12 @@ describe("tokenExchangeFrom (D-046)", () => {
     expect(tokenExchangeFrom(plugin({ grants: { [TOKEN_EXCHANGE_GRANT]: handler } }))).toBe(handler);
   });
 
+  it("keeps an extension's name: a label, as Better Auth 1.8's oauthTokenExchange() sets, so nothing is lost", () => {
+    expect(tokenExchangeFrom(plugin({ name: "oauth-token-exchange", grants: { [TOKEN_EXCHANGE_GRANT]: handler } }))).toBe(handler);
+    // Only a string is a label.
+    expect(() => tokenExchangeFrom(plugin({ name: { not: "a label" }, grants: { [TOKEN_EXCHANGE_GRANT]: handler } }))).toThrow(/extension also has name/);
+  });
+
   it("refuses what would be lost: other plugin parts, other grants, other extension parts, more than one extension", () => {
     const cases: [unknown, RegExp][] = [
       [plugin({ grants: { [TOKEN_EXCHANGE_GRANT]: handler } }, { endpoints: {} }), /also has endpoints/],

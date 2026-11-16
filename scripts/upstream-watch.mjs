@@ -17,6 +17,13 @@ const ACKNOWLEDGED = [
   // D-056: #11763 is phase 1 (impersonation only); access-token acr/auth_time waits for #11267, whose closing fires
   // issue:11267:closed.
   "issue:11267:pr:11763",
+  // D-080: 1.8 pre-releases are run by CI's latest-1.8 row, which fails when one breaks the suite. 1.8.0 itself still
+  // fires npm:better-auth@1.8 and npm:@better-auth/oauth-provider@1.8: then widen the peer range.
+  "npm:better-auth@1.8-pre",
+  "npm:@better-auth/oauth-provider@1.8-pre",
+  // D-080: #12517 is oauthTokenExchange({ publicClients: "dpop-bound" }), Better Auth's own exchange (1.8); ID-JAG
+  // requests stay with idJagIssuer, which still requires client authentication, and tokenExchangeFrom keeps its options.
+  "issue:8023:pr:12517",
 ];
 
 const what = {

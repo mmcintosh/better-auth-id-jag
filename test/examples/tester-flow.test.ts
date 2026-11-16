@@ -9,6 +9,7 @@ import init0002 from "../../examples/workers/tester/migrations/0002_tester.sql?r
 import init0003 from "../../examples/workers/tester/migrations/0003_client_secret.sql?raw";
 import init0004 from "../../examples/workers/tester/migrations/0004_allowance.sql?raw";
 import init0005 from "../../examples/workers/tester/migrations/0005_flow.sql?raw";
+import init0006 from "../../examples/workers/tester/migrations/0006_better_auth_1_8.sql?raw";
 import { PROBES } from "../../examples/workers/tester/src/probes";
 import { createClient, createIssuerHost, type IssuerHost, signUp } from "../support/issuer-host";
 
@@ -178,7 +179,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     cf = await import("cloudflare:test");
     const ok = { limit: async () => ({ success: true }) };
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: SECRET, GITHUB_CLIENT_ID: "gh", GITHUB_CLIENT_SECRET: "gh-secret", GITLAB_CLIENT_ID: "", TURNSTILE_SITE_KEY: "site", TURNSTILE_SECRET_KEY: "turnstile", TESTER_ENABLED: "true", TOKEN_LIMIT: ok, IP_LIMIT: ok, MCP_LIMIT: ok };
-    for (const sql of [init0001, init0002, init0003, init0004, init0005]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
+    for (const sql of [init0001, init0002, init0003, init0004, init0005, init0006]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await env.DB.prepare(stmt).run();
     const pair = await generateKeyPair("RS256", { extractable: true });
     signer = pair.privateKey;
     otherSigner = (await generateKeyPair("RS256")).privateKey;

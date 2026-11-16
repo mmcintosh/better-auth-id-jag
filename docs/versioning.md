@@ -44,6 +44,14 @@ A change to any of these that could break an app using them as documented counts
 
 The peer range covers the Better Auth versions this release is tested with: `>=1.7.16 <1.8.0` for `better-auth`, `@better-auth/core` and `@better-auth/oauth-provider`, so far. CI runs the suite on 1.7.16 and the latest 1.7.x. The floor rises past a Better Auth security fix (0.5.0 raised it from 1.7.5: 1.7.7 fixed account-takeover advisories; 0.6.0 from 1.7.10: 1.7.16 fixed twelve advisories); that is a minor release, with the reason at the top of its notes. A new Better Auth minor (1.8) gets a release of this package that widens the range once it's tested, usually a minor one. Until then, npm will warn about the peer range. A weekly watch (`scripts/upstream-watch.mjs`) fails when a 1.8 pre-release or release of `better-auth` or `@better-auth/oauth-provider` appears, and when the upstream changes this package tracks land (better-auth/better-auth#8023 and #11267; #9935 was closed unmerged, replaced by #11787, D-056).
 
+### On Better Auth 1.8, once it is supported
+
+This package isn't released for Better Auth 1.8 yet (the peer range stops at `<1.8.0`), but runs on its pre-releases in CI. Three of 1.8's changes affect hosts of this package, beyond Better Auth's own upgrade notes:
+
+- **New columns.** 1.8's `@better-auth/oauth-provider` adds columns to its tables and refuses to start until they exist ("Database schema mismatch"). Run your usual migration (`npx auth migrate`, or `npx auth generate`) when you upgrade. The example Workers carry a migration that adds them.
+- **A client assertion's `aud` is the issuer alone.** 1.8 follows [RFC 10070](https://www.rfc-editor.org/info/rfc10070) by default: a client authenticating with `private_key_jwt` (at the issuer, or at the receiver, as CIMD clients do) must sign its assertion for the authorization server's issuer identifier, not the token endpoint URL; anything else is `invalid_client`. Better Auth's `assertionAudience: "issuer-or-endpoint"` accepts either.
+- **`act` for pairwise clients.** The receiver carries the ID-JAG's `act` into the access token on 1.8 as on 1.7. When the client that redeems it is a pairwise client, 1.8 presents `act.sub` as a pairwise value unless its `sub_profile` is `service`, so an agent's id from the IdP reaches that client hashed; `sub_profile` itself (Okta's `ai_agent`, for example) is kept.
+
 ## Node.js and runtimes
 
 Node.js 22 and later, and Cloudflare Workers, as tested in CI. Dropping a Node.js version that's still maintained comes only in a major release (from 1.0).

@@ -23,7 +23,7 @@ describe("token exchange: an ID token from this IdP becomes an ID-JAG", () => {
     expect(parsed.claims.jti).toMatch(/^[A-Za-z0-9_-]{22}$/);
   });
 
-  it("answers per RFC 8693 §2.2.1, with no-store caching headers", async () => {
+  it("answers per RFC 8693 section 2.2.1, with no-store caching headers", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allowRead } });
     const { client, idToken } = await setup(host);
     const r = await exchange(host, client, idToken, { scope: "read" });
@@ -275,14 +275,15 @@ describe.skipIf(!BETTER_AUTH_1_8)("on Better Auth 1.8, how the person signed in 
       const { client, idToken } = await setup(host);
       const r = await exchange(host, client, idToken);
       expect(r.status, JSON.stringify(r.body)).toBe(400);
-      expect(r.body.error).toBe("invalid_grant");
+      // invalid_subject_token is invalid_request (draft -06: a subject token that fails validation).
+      expect(r.body.error).toBe("invalid_request");
       expect(takeReasons(host)).toEqual(["invalid_subject_token"]);
     }
   });
 });
 
 describe("discovery metadata", () => {
-  it("advertises identity_chaining_requested_token_types_supported and the grant; no id_jag_signing_alg_values_supported for an ES256 issuer (draft -06 §7.1: it MUST include RS256)", async () => {
+  it("advertises identity_chaining_requested_token_types_supported and the grant; no id_jag_signing_alg_values_supported for an ES256 issuer (draft -06 section 7.1: it MUST include RS256)", async () => {
     const host = await createIssuerHost({ issuer: { authorize: allowRead } });
     for (const path of ["/.well-known/oauth-authorization-server/api/auth", "/api/auth/.well-known/openid-configuration"]) {
       const res = await host.auth.handler(new Request(`${BASE}${path}`));

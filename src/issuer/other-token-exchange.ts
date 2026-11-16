@@ -17,7 +17,7 @@ export const BETTER_AUTH_TOKEN_EXCHANGE_PLUGIN_ID = "oauth-token-exchange";
  * 1.8), for `idJagIssuer({ otherTokenExchange })`. The plugin's `init` runs once, now, against a stand-in that
  * captures what it passes to `extendOAuthProvider`; the host doesn't list the plugin itself. Throws when the plugin
  * does anything that would be lost that way: anything besides `id` and `init` (endpoints, schema, hooks, …), an
- * `init` that returns something or is async, or an extension with more than the token-exchange grant.
+ * `init` that returns something or is async, or an extension with more than the token-exchange grant (and its `name`).
  */
 export function tokenExchangeFrom(plugin: { id: string; init?: unknown }): TokenExchangeHandler {
   const name = typeof plugin?.id === "string" ? plugin.id : "the plugin";
@@ -40,7 +40,8 @@ export function tokenExchangeFrom(plugin: { id: string; init?: unknown }): Token
   const captured = provider.options.extensions ?? [];
   if (captured.length !== 1) fail(`it registered ${captured.length} extensions, not one`);
   const extension = captured[0] as OAuthProviderExtension;
-  const other = Object.keys(extension).filter((k) => k !== "grants" && (extension as Record<string, unknown>)[k] !== undefined);
+  // `name` labels the extension (1.8's is "oauth-token-exchange"); nothing is lost without it.
+  const other = Object.keys(extension).filter((k) => k !== "grants" && !(k === "name" && typeof (extension as Record<string, unknown>).name === "string") && (extension as Record<string, unknown>)[k] !== undefined);
   if (other.length > 0) fail(`its extension also has ${other.join(", ")}`);
   const grants = Object.keys(extension.grants ?? {});
   const handler = extension.grants?.[TOKEN_EXCHANGE_GRANT];

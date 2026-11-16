@@ -7,6 +7,10 @@ import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { BASE, createClient, createHost, ISSUER, uniqueEmail, MCP_RESOURCE, seed, tokenRequest } from "./support/hosts";
 import { PING_GRANT, PING_METADATA_FIELD, ping, type PingObservation } from "./support/ping";
+import { BETTER_AUTH_1_8 } from "./support/better-auth-version";
+
+// A client assertion's aud: Better Auth 1.7 wants the token endpoint; 1.8, by default, the issuer alone (RFC 10070).
+const ASSERTION_AUD = BETTER_AUTH_1_8 ? ISSUER : `${ISSUER}/oauth2/token`;
 
 for (const kind of ["oauth-provider", "mcp"] as const) {
   describe(`extension grant under ${kind}()`, () => {
@@ -156,7 +160,7 @@ describe("desk check: a CIMD client authenticating with private_key_jwt (receive
         .setProtectedHeader({ alg: "ES256", kid: "k1" })
         .setIssuer(clientId)
         .setSubject(clientId)
-        .setAudience(`${ISSUER}/oauth2/token`)
+        .setAudience(ASSERTION_AUD)
         .setJti(crypto.randomUUID())
         .setIssuedAt()
         .setExpirationTime("2m")

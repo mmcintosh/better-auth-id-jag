@@ -4,6 +4,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import m0001 from "../../examples/workers/enterprise-idp/migrations/0001_init.sql?raw";
 import m0002 from "../../examples/workers/enterprise-idp/migrations/0002_phase2.sql?raw";
+import m0003 from "../../examples/workers/enterprise-idp/migrations/0003_better_auth_1_8.sql?raw";
 import { testerCallbackOf } from "../../examples/workers/enterprise-idp/src/auth";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
@@ -38,7 +39,7 @@ describe.skipIf(!workerd)("example IdP as a Worker: a tester client, sign-in and
   beforeAll(async () => {
     cf = await import("cloudflare:test");
     env = { DB: cf.env.DB, BETTER_AUTH_SECRET: "example-idp-test-secret-at-least-32-characters", SETUP_KEY, MCP_AS_ISSUER: "https://mcp.example.net/api/auth", MCP_RESOURCE: "https://mcp.example.net/mcp", TESTER_AS_ISSUER: `${TESTER}/api/auth`, TESTER_RESOURCE: `${TESTER}/mcp` };
-    for (const sql of [m0001, m0002]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await cf.env.DB.prepare(stmt).run();
+    for (const sql of [m0001, m0002, m0003]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await cf.env.DB.prepare(stmt).run();
     worker = (await import("../../examples/workers/enterprise-idp/src/index")).default as never;
   }, 60_000);
 

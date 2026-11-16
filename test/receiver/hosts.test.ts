@@ -18,6 +18,10 @@ import {
   testIdp,
   tokenRequest,
 } from "../support/receiver-host";
+import { BETTER_AUTH_1_8 } from "../support/better-auth-version";
+
+// A client assertion's aud: Better Auth 1.7 wants the token endpoint; 1.8, by default, the issuer alone (RFC 10070).
+const ASSERTION_AUD = BETTER_AUTH_1_8 ? ISSUER : `${ISSUER}/oauth2/token`;
 
 describe("replay under concurrency (S3)", () => {
   it("10 concurrent redemptions of one ID-JAG across two instances on one database: exactly one succeeds", async () => {
@@ -65,7 +69,7 @@ describe("a CIMD client (URL client id) authenticating with private_key_jwt", ()
     const sub = crypto.randomUUID();
     const user = await linkedUser(h, `id-jag:${idp.issuer}`, sub);
     const clientAssertion = () =>
-      new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: "c1" }).setIssuer(clientId).setSubject(clientId).setAudience(`${ISSUER}/oauth2/token`).setJti(crypto.randomUUID()).setIssuedAt().setExpirationTime("2m").sign(privateKey);
+      new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: "c1" }).setIssuer(clientId).setSubject(clientId).setAudience(ASSERTION_AUD).setJti(crypto.randomUUID()).setIssuedAt().setExpirationTime("2m").sign(privateKey);
     const idJag = await idp.mint(idp.claims({ sub, client_id: clientId }));
     const form = async (withAssertion: boolean) => ({
       grant_type: JWT_BEARER_GRANT,
