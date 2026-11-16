@@ -12,8 +12,8 @@ What to change when you upgrade from 0.7.x:
   or `{ dialect, type }` have them only with `transaction: true`; Cloudflare D1 never does. Turn them on, or remove
   `scim` from the trust entry. The details are under Security.
 - **A token exchange without client authentication gets `invalid_client`** (HTTP 401) from the issuer, as draft -06
-  section 4.3.3 requires; one that named no client at all got `invalid_request` (HTTP 400). The details are under
-  Fixed.
+  section 4.3.3 requires; one without a `client_id` got `invalid_request` (HTTP 400), even with a `client_secret`. The
+  details are under Fixed.
 
 ### Security
 
@@ -29,7 +29,8 @@ What to change when you upgrade from 0.7.x:
 - **The issuer answers a token exchange without any client authentication with `invalid_client`** (D-078), as draft
   -06 section 4.3.3 says it MUST: HTTP 401 with a Basic challenge, reason `client_authentication_failed`. A request
   that named no client at all (no `client_id`, no credentials) got Better Auth's `invalid_request` ("Missing required
-  client_id"). A `client_id` without a secret was already `invalid_client` (`public_client`).
+  client_id"), and so did one with a `client_secret` but no `client_id`. A `client_id` without a secret was already
+  `invalid_client` (`public_client`).
 
 ### Added
 
@@ -37,8 +38,9 @@ What to change when you upgrade from 0.7.x:
   for an ID-JAG (draft -06 section 4.3.4) as `checkIdJag` checks the ID-JAG: nine `exchange.*` rules (a 200 with
   JSON, `issued_token_type`, `token_type`, `access_token`, `scope`, `expires_in`, `refresh_token`,
   `Cache-Control: no-store`, and each resource in the ID-JAG exactly as the client sent it), each with its level and
-  source. It returns the ID-JAG, for `checkIdJag`, and for a refusal the OAuth error. Pure, and never throws. Its
-  types are `ExchangeCheckInput` and `ExchangeReport`.
+  source. It returns the ID-JAG, for `checkIdJag`, and for a refusal the OAuth error, also when the IdP sends it with
+  HTTP 200 (which fails `exchange.status`). Pure, and never throws. Its types are `ExchangeCheckInput` and
+  `ExchangeReport`.
 - **The public tester runs the whole flow** (`examples/workers/tester`, D-075). Given a client at their IdP for the
   tester, a person presses Run: the tester sends them to their IdP to sign in, exchanges the ID token for an ID-JAG
   (draft -06 section 4.3), checks the IdP's answer with `checkExchange`, and redeems the ID-JAG at its receiver as it

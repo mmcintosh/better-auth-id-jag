@@ -202,6 +202,14 @@ describe("checkExchange", () => {
     const bare = checkExchange(answer({}, { status: 500, body: undefined }));
     expect(bare.error).toBeNull();
     expect(bare.results[0]?.message).toContain("without an OAuth error");
+    // A refusal sent with HTTP 200 is still a refusal: its error is given back, and nothing else is checked.
+    const as200 = checkExchange(answer({}, { body: { error: "invalid_request", error_description: "bad audience" } }));
+    expect(as200.results.map((x) => [x.id, x.outcome])).toEqual([["exchange.status", "fail"]]);
+    expect(as200.results[0]?.message).toContain("HTTP 200");
+    expect(as200.error).toEqual({ code: "invalid_request", description: "bad audience" });
+    expect(as200.idJag).toBeNull();
+    // With a token beside the error it is an answer, checked as one.
+    expect(checkExchange(answer({ error: "invalid_request" })).results.map((x) => x.id)).toEqual(ids);
     // A 200 is the only success, even with an ID-JAG in the body.
     expect(checkExchange(answer({}, { status: 201 })).results.map((x) => x.outcome)).toEqual(["fail"]);
   });
@@ -257,12 +265,24 @@ describe("checkExchange", () => {
     const none = await sign({ ...good, scope: undefined });
     expect(r({ access_token: none, scope: "read" })).toBe("fail");
     expect(r({ access_token: none, scope: undefined }, null)).toBe("pass");
+    // An empty scope grants nothing, as an ID-JAG without a scope claim says too.
+    expect(r({ access_token: none, scope: "" })).toBe("pass");
+    expect(r({ access_token: none, scope: "  " })).toBe("pass");
+    expect(r({ scope: "" })).toBe("fail");
+    // A scope claim that isn't a string isn't compared, and says why (claim.scope fails it).
+    const listed = await sign({ ...good, scope: ["read"] });
+    const odd = checkExchange(answer({ access_token: listed, scope: "read" })).results.find((x) => x.id === "exchange.scope");
+    expect(odd?.outcome).toBe("skip");
+    expect(odd?.message).toContain("isn't one string");
   });
 
   it("exchange.expires_in: RECOMMENDED, a positive whole number, close to the ID-JAG's lifetime", () => {
     const r = (expires_in: unknown) => outcome(checkExchange(answer({ expires_in })).results, "exchange.expires_in");
     expect(r(undefined)).toBe("warn");
     for (const bad of ["300", 0, -300, 299.5]) expect(r(bad)).toBe("fail");
+    // Malformed is the field's own definition (RFC 6749 section 5.1), so MUST; absent or far off is the RECOMMENDED part.
+    const level = (expires_in: unknown) => checkExchange(answer({ expires_in })).results.find((x) => x.id === "exchange.expires_in")?.level;
+    expect([level("300"), level(undefined), level(3600)]).toEqual(["MUST", "RECOMMENDED", "RECOMMENDED"]);
     expect(r(305)).toBe("pass");
     expect(r(295)).toBe("pass");
     expect(r(306)).toBe("warn");

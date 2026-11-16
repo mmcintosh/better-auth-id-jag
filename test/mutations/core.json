@@ -698,8 +698,8 @@
  {
   "name": "exchange: answer scope without a claim passes",
   "file": "src/core/check.ts",
-  "a": "    if (issued === undefined) add(",
-  "b": "    if (issued === \"never\") add(",
+  "a": "    else if (issued === undefined) add(",
+  "b": "    else if (issued === \"never\") add(",
   "paths": [
    "test/core/check.test.ts"
   ]
@@ -763,6 +763,51 @@
   "file": "src/core/check.ts",
   "a": "return { results, idJag: null, error: code ? { code, description } : null };",
   "b": "return { results, idJag: null, error: null };",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: an empty scope against no scope claim fails",
+  "file": "src/core/check.ts",
+  "a": "if (issued === undefined && body.scope.trim() === \"\")",
+  "b": "if (issued === undefined && body.scope.trim() === \"\" && false)",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: a scope claim that isn't a string is compared anyway",
+  "file": "src/core/check.ts",
+  "a": "else if (claims.scope !== undefined && issued === undefined) add(",
+  "b": "else if (false) add(",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: a refusal sent with HTTP 200 is checked as an answer",
+  "file": "src/core/check.ts",
+  "a": "if (isNonEmptyString(body.error) && body.access_token === undefined) {",
+  "b": "if (false) {",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: a refusal sent with HTTP 200 loses its error",
+  "file": "src/core/check.ts",
+  "a": "return { results, idJag: null, error: { code: body.error, description } };",
+  "b": "return { results, idJag: null, error: null };",
+  "paths": [
+   "test/core/check.test.ts"
+  ]
+ },
+ {
+  "name": "exchange: a malformed expires_in only RECOMMENDED",
+  "file": "src/core/check.ts",
+  "a": "add(\"exchange.expires_in\", \"MUST\", \"RFC 6749 section 5.1\", \"fail\",",
+  "b": "add(\"exchange.expires_in\", \"RECOMMENDED\", \"RFC 6749 section 5.1\", \"fail\",",
   "paths": [
    "test/core/check.test.ts"
   ]

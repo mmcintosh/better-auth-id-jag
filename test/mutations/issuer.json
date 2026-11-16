@@ -2370,7 +2370,7 @@
  {
   "name": "D-061 issuer public-client warning loses the draft section",
   "file": "src/issuer/plugin.ts",
-  "a": "This is outside draft -06 §4.3.3, which",
+  "a": "This is outside draft -06 section 4.3.3, which",
   "b": "The draft says",
   "paths": [
    "test/issuer/refusals.test.ts"
@@ -2507,8 +2507,26 @@
  {
   "name": "exchange: no client authentication at all answered invalid_request",
   "file": "src/issuer/exchange.ts",
-  "a": "      if (isAPIError(e) && !hasClientCredentials(ctx, form) && claimed === undefined) throw new IdJagRefusal(\"client_authentication_failed\", \"no client authentication\");\n",
+  "a": "      if (isAPIError(e) && claimed === undefined && !hasAuthorizationHeader(ctx) && !form.has(\"client_assertion\")) throw new IdJagRefusal(\"client_authentication_failed\", \"no client authentication\");\n",
   "b": "",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "no client authentication: a request naming a client relabelled invalid_client",
+  "file": "src/issuer/exchange.ts",
+  "a": "if (isAPIError(e) && claimed === undefined && !hasAuthorizationHeader(ctx)",
+  "b": "if (isAPIError(e) && !hasAuthorizationHeader(ctx)",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "no client authentication: a client_secret without client_id counts as authentication",
+  "file": "src/issuer/exchange.ts",
+  "a": "claimed === undefined && !hasAuthorizationHeader(ctx) && !form.has(\"client_assertion\")) throw",
+  "b": "claimed === undefined && !hasClientCredentials(ctx, form)) throw",
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
