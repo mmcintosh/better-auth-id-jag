@@ -454,7 +454,7 @@ ID-JAG is **coarse-grained, enterprise-controlled access**: may this agent act f
 | Layer | Who decides | With this package |
 |---|---|---|
 | Which agents may act for which users at which apps | The IdP: its connections, assignments and user status, checked at every exchange | Our issuer: your `authorize` policy, the registry and blocks. Okta: its resource connections (verified live, [docs/interop.md](docs/interop.md)) |
-| Which scopes the agent gets | The IdP grants them; the receiver intersects the request's scopes with the ID-JAG's | The access token is audience-bound to the resource and carries only those scopes |
+| Which scopes the agent gets | The IdP grants them (Okta 2026.45.1 issued any scope asked for: [docs/interop.md](docs/interop.md#re-run-after-the-server-moved-2026-11-16)); the receiver keeps only the scopes in all of: the ID-JAG, the request, the client's and the resource's | The access token is audience-bound to the resource and carries only those scopes |
 | Which tools a scope unlocks | **Your MCP server**: check the token's `scope` on every tool call (for example `read` for listing, `write` for changes) | This package never sees tool calls |
 | Different rights for different users | The IdP's policies (per group); your app's roles | JIT can add new users to an organization with a role (`organizationId`, `jitRole`) |
 | Which records | **Your app** | Rich Authorization Requests (`authorization_details`) are refused for now |
