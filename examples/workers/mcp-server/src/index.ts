@@ -157,6 +157,8 @@ function corsHeaders(request: Request, env: Env, url: URL): Record<string, strin
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  // One address: with PUBLIC_ORIGIN set, the issuer never depends on the address a request used (env.PUBLIC_ORIGIN).
+  if (env.PUBLIC_ORIGIN && url.origin !== env.PUBLIC_ORIGIN) return Response.redirect(`${env.PUBLIC_ORIGIN}${url.pathname}${url.search}`, 308);
   const cors = corsHeaders(request, env, url);
   if (request.method === "OPTIONS" && cors) return new Response(null, { status: 204, headers: cors });
   const response = await dispatch(request, env, url);

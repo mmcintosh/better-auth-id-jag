@@ -10,6 +10,12 @@ import { idJagGrant, type StaticTrustedIssuer } from "better-auth-id-jag";
 
 export interface Env {
   DB: D1Database;
+  /**
+   * Optional: this Worker's one public origin (a custom domain, such as https://demo-idp.example.com). Its issuer
+   * identifier is then always this origin's /api/auth, and a request to any other address (the workers.dev one) gets a
+   * 308 to the same path here, which keeps the method and body. Unset: the address the request used (local development).
+   */
+  PUBLIC_ORIGIN?: string;
   BETTER_AUTH_SECRET: string;
   SETUP_KEY: string;
   /** The enterprise IdP's issuer identifier (its /api/auth base URL). */
@@ -29,7 +35,7 @@ export function createAuth(env: Env, origin: string) {
   const idpHost = new URL(env.IDP_ISSUER).host;
   const trustedIssuers: StaticTrustedIssuer[] = [{ issuer: env.IDP_ISSUER, jwksUri: `${env.IDP_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } }];
   if (env.OKTA_ISSUER && env.OKTA_JWKS_URI) trustedIssuers.push({ issuer: env.OKTA_ISSUER, jwksUri: env.OKTA_JWKS_URI, jitProvisioning: { trustEmailVerified: true } });
-  // xaa.dev's SAML variant puts the SAML NameID in sub_id (draft §3.2): users resolve by that NameID,
+  // xaa.dev's SAML variant puts the SAML NameID in sub_id (draft section 3.2): users resolve by that NameID,
   // under the account key ("xaa-saml", NameID), not by sub.
   if (env.XAA_ISSUER)
     trustedIssuers.push({

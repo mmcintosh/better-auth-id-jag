@@ -17,6 +17,12 @@ import { type AuthorizeInput, type AuthorizeResult, idJagIssuer } from "better-a
 
 export interface Env {
   DB: D1Database;
+  /**
+   * Optional: this Worker's one public origin (a custom domain, such as https://demo-idp.example.com). Its issuer
+   * identifier is then always this origin's /api/auth, and a request to any other address (the workers.dev one) gets a
+   * 308 to the same path here, which keeps the method and body. Unset: the address the request used (local development).
+   */
+  PUBLIC_ORIGIN?: string;
   BETTER_AUTH_SECRET: string;
   /** Required by /setup (the demo's one admin action). */
   SETUP_KEY: string;

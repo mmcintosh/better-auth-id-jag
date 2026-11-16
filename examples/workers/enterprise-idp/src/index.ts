@@ -70,6 +70,8 @@ export default {
 
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  // One address: with PUBLIC_ORIGIN set, the issuer never depends on the address a request used (env.PUBLIC_ORIGIN).
+  if (env.PUBLIC_ORIGIN && url.origin !== env.PUBLIC_ORIGIN) return Response.redirect(`${env.PUBLIC_ORIGIN}${url.pathname}${url.search}`, 308);
   if (url.pathname === "/setup" && request.method === "POST") return setup(request, env, url.origin);
   if (url.pathname === "/login") return new Response(LOGIN_PAGE, { headers: PAGE_HEADERS });
   if (url.pathname === "/consent") return new Response(CONSENT_PAGE, { headers: PAGE_HEADERS });

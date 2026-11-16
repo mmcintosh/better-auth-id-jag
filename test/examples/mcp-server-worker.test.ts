@@ -84,4 +84,11 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
     const deleted = (await (await call("delete_note", agent)).json()) as { result?: { isError?: boolean; structuredContent?: { status?: string } } };
     expect(deleted.result).toMatchObject({ isError: true, structuredContent: { status: "approval_required" } });
   });
+  it("with PUBLIC_ORIGIN, any other address gets a 308 to the same path there", async () => {
+    const ctx = cf.createExecutionContext();
+    const r = await worker.fetch(new Request("https://id-jag-example-mcp.someone.workers.dev/mcp", { method: "POST", body: "{}", redirect: "manual" }), { ...env, PUBLIC_ORIGIN: MCP }, ctx);
+    await cf.waitOnExecutionContext(ctx);
+    expect(r.status).toBe(308);
+    expect(r.headers.get("location")).toBe(`${MCP}/mcp`);
+  });
 });

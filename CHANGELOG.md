@@ -15,6 +15,9 @@
 
 ### Example
 
+- **The example IdP and MCP server can serve from one custom domain** (`PUBLIC_ORIGIN`): their issuer identifier is
+  then always that origin's, and a request to another address (the `workers.dev` one) gets a 308 to the same path
+  there. Unset, as in local development, nothing changes. Tested in workerd for both.
 - **The example MCP server checks tokens with `requireMcpAuth`** (`@better-auth/mcp`), as Better Auth intends: since
   1.7.25 it reads the server's keys in process, which a Worker needs (it can't fetch its own address), so the
   example's own check is gone, and the example MCP server needs Better Auth 1.7.25 or later. On 1.8 it also refuses a
