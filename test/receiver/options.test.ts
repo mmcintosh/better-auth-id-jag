@@ -165,6 +165,59 @@ describe("handleIdJagGrant as a plain function", () => {
   });
 });
 
+describe("act reaches the access token on Better Auth 1.7 and 1.8", () => {
+  it("passes act both in accessTokenClaims (1.7 reads it there) and as issueTokens' own act (1.8 reads it there)", async () => {
+    // 1.8 drops act from accessTokenClaims as a reserved claim; without the act parameter, an agent's access token
+    // would read as a person's. Checked through the parameters, so it holds whichever Better Auth runs the suite.
+    const idp = await testIdp();
+    const resolved = resolveReceiverOptions({ trustedIssuers: [{ issuer: idp.issuer, jwksUri: idp.jwksUri }], fetch: network(idp).fetch });
+    const seen: Record<string, unknown>[] = [];
+    const watching: BetterAuthPlugin = {
+      id: "watch-issue-tokens",
+      schema: jtiSchema(),
+      init(ctx) {
+        extendOAuthProvider(ctx, {
+          grants: {
+            [JWT_BEARER_GRANT]: (input) => {
+              const provider = new Proxy(input.provider, {
+                get(target, key, receiver) {
+                  if (key === "issueTokens") return (params: Record<string, unknown>) => (seen.push(params), target.issueTokens(params as never));
+                  const value = Reflect.get(target, key, receiver);
+                  return typeof value === "function" ? value.bind(target) : value;
+                },
+              });
+              return handleIdJagGrant({ ...input, provider }, resolved);
+            },
+          },
+        });
+      },
+    };
+    const auth = betterAuth({
+      baseURL: BASE,
+      secret: "test-secret-that-is-at-least-32-characters-long",
+      telemetry: { enabled: false },
+      database: (await database()) as never,
+      emailAndPassword: { enabled: true },
+      plugins: [jwt(), oauthProvider({ loginPage: "/l", consentPage: "/c", scopes: ["read"], resources: [MCP_RESOURCE], clientRegistrationDefaultResources: [MCP_RESOURCE] }) as unknown as BetterAuthPlugin, watching],
+    });
+    const ctx = await auth.$context;
+    await (await getMigrations(ctx.options)).runMigrations();
+    const h = { auth, ctx } as unknown as ReceiverHost;
+    const client = await createClient(h, { scope: "read" });
+    const sub = crypto.randomUUID();
+    await linkedUser(h, `id-jag:${idp.issuer}`, sub);
+    const act = { sub: "0oa-agent", sub_profile: "ai_agent web_app" };
+    expect((await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id, act })))).status).toBe(200);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.act).toEqual(act);
+    expect((seen[0]?.accessTokenClaims as Record<string, unknown>).act).toEqual(act);
+    // Without act in the ID-JAG, neither.
+    expect((await redeem(h, client, await idp.mint(idp.claims({ sub, client_id: client.client_id })))).status).toBe(200);
+    expect(seen[1]).not.toHaveProperty("act");
+    expect(seen[1]?.accessTokenClaims).not.toHaveProperty("act");
+  });
+});
+
 describe("handleIdJagGrant: our own public-client guard (S5), behind the provider's", () => {
   it("a client the provider let through as public (method none) is refused, unauthenticated, and nothing else runs", async () => {
     const h = await receiverHost("mcp", { receiver: {} });

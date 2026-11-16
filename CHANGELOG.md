@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Ready for Better Auth 1.8, which the peer range doesn't allow yet (`<1.8.0`).** On 1.8.0-beta.10, the suite
+  passes. The receiver also passes the ID-JAG's `act` to oauth-provider as its own `act` parameter: 1.8 drops `act`
+  from the extra claims, where 1.7 takes it, so an agent's access token would have read as a person's.
+  `tokenExchangeFrom` accepts an extension's `name`, which 1.8's `oauthTokenExchange()` sets. Nothing changes on 1.7.
+  `docs/versioning.md` lists what changes for hosts on 1.8: new oauth-provider columns, a client assertion's `aud`
+  as the issuer alone (RFC 10070), and `act` for pairwise clients. CI's 1.8 row now fails when a 1.8 pre-release
+  breaks the suite (it isn't required for merging), and the weekly watch no longer reports 1.8 pre-releases; it still
+  reports 1.8.0 itself.
+
+### Example
+
+- **The example Workers' migrations add the columns Better Auth 1.8's oauth-provider adds** (for a database made on
+  1.7; 1.7 ignores them).
+
 ## [0.8.0] - 2026-11-16
 
 A receiver with SCIM needs a database with native transactions, the issuer answers a token exchange without client authentication with invalid_client, and checkExchange checks an IdP's answer to the token exchange.
