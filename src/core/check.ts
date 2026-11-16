@@ -321,6 +321,12 @@ export function checkExchange(input: ExchangeCheckInput): ExchangeReport {
     add("exchange.status", "MUST", statusCite, "fail", "HTTP 200, but the body isn't a JSON object.");
     return { results, idJag: null, error: null };
   }
+  // A refusal sent with HTTP 200: an OAuth error and no token. It is still a refusal, so its error is given back.
+  if (isNonEmptyString(body.error) && body.access_token === undefined) {
+    const description = typeof body.error_description === "string" ? body.error_description : null;
+    add("exchange.status", "MUST", `${statusCite}; RFC 6749 section 5.2`, "fail", `The IdP refused the exchange (error ${show(body.error)}${description === null ? "" : `, ${show(description)}`}), but with HTTP 200: an error response is HTTP 400, or 401 for failed client authentication (RFC 6749 section 5.2).`);
+    return { results, idJag: null, error: { code: body.error, description } };
+  }
   const json = /^application\/json\s*(;|$)/i.test(input.contentType ?? "");
   add("exchange.status", "MUST", `${statusCite}; RFC 6749 section 5.1`, json ? "pass" : "fail", json ? "HTTP 200 with a JSON object." : `HTTP 200 with a JSON object, but Content-Type is ${show(input.contentType)}: it must be application/json.`);
 
@@ -343,8 +349,11 @@ export function checkExchange(input: ExchangeCheckInput): ExchangeReport {
   const issued = claims && typeof claims.scope === "string" ? claims.scope : undefined;
   if (body.scope !== undefined && typeof body.scope !== "string") add("exchange.scope", "MUST", scopeCite, "fail", "scope must be one string of space-separated scopes.");
   else if (!claims) add("exchange.scope", "MUST", scopeCite, "skip", unreadable);
+  else if (claims.scope !== undefined && issued === undefined) add("exchange.scope", "MUST", scopeCite, "skip", "Not compared: the ID-JAG's scope claim isn't one string of space-separated scopes (claim.scope, below).");
   else if (typeof body.scope === "string") {
-    if (issued === undefined) add("exchange.scope", "MUST", `${D("4.3.3")}; ${scopeCite}`, "fail", `The answer grants scope ${show(body.scope)}, but the ID-JAG has no scope claim: the IdP includes the granted values in it.`);
+    // An empty scope grants nothing, which agrees with an ID-JAG that has no scope claim ("the granted values, if any").
+    if (issued === undefined && body.scope.trim() === "") add("exchange.scope", "MUST", `${D("4.3.3")}; ${scopeCite}`, "pass", "The answer's scope is empty and the ID-JAG has no scope claim: both say no scope was granted.");
+    else if (issued === undefined) add("exchange.scope", "MUST", `${D("4.3.3")}; ${scopeCite}`, "fail", `The answer grants scope ${show(body.scope)}, but the ID-JAG has no scope claim: the IdP includes the granted values in it.`);
     else add("exchange.scope", "MUST", scopeCite, sameScopes(body.scope, issued) ? "pass" : "fail", sameScopes(body.scope, issued) ? `scope ${show(body.scope)}, the same as the ID-JAG's.` : `The answer's scope ${show(body.scope)} isn't the ID-JAG's scope ${show(issued)}: both name the scopes granted.`);
   } else {
     const same = sameScopes(input.requestedScope ?? "", issued ?? "");
@@ -353,7 +362,7 @@ export function checkExchange(input: ExchangeCheckInput): ExchangeReport {
 
   const expiresIn = body.expires_in;
   if (expiresIn === undefined) add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), "warn", "No expires_in: RECOMMENDED, the ID-JAG's lifetime in seconds.");
-  else if (typeof expiresIn !== "number" || !Number.isInteger(expiresIn) || expiresIn <= 0) add("exchange.expires_in", "RECOMMENDED", `${D("4.3.4")}; RFC 6749 section 5.1`, "fail", `expires_in must be a positive whole number of seconds; it is ${show(expiresIn)}.`);
+  else if (typeof expiresIn !== "number" || !Number.isInteger(expiresIn) || expiresIn <= 0) add("exchange.expires_in", "MUST", "RFC 6749 section 5.1", "fail", `expires_in must be a positive whole number of seconds; it is ${show(expiresIn)}.`);
   else if (!claims || !isNumericDate(claims.exp) || !isNumericDate(claims.iat)) add("exchange.expires_in", "RECOMMENDED", D("4.3.4"), "pass", `expires_in ${expiresIn} s (not compared: the ID-JAG's exp or iat couldn't be read).`);
   else {
     const life = claims.exp - claims.iat;

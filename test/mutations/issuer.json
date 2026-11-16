@@ -2512,5 +2512,23 @@
   "paths": [
    "test/issuer/refusals.test.ts"
   ]
+ },
+ {
+  "name": "no client authentication: a request naming a client relabelled invalid_client",
+  "file": "src/issuer/exchange.ts",
+  "a": "if (isAPIError(e) && claimed === undefined && !hasAuthorizationHeader(ctx)",
+  "b": "if (isAPIError(e) && !hasAuthorizationHeader(ctx)",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
+ },
+ {
+  "name": "no client authentication: a client_secret without client_id counts as authentication",
+  "file": "src/issuer/exchange.ts",
+  "a": "claimed === undefined && !hasAuthorizationHeader(ctx) && !form.has(\"client_assertion\")) throw",
+  "b": "claimed === undefined && !hasClientCredentials(ctx, form)) throw",
+  "paths": [
+   "test/issuer/refusals.test.ts"
+  ]
  }
 ]

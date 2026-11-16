@@ -101,12 +101,12 @@ the ID-JAG's own rules follow, as above.
 
 | Rule | Level | Source | What it checks |
 |---|---|---|---|
-| `exchange.status` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2.1; RFC 6749 section 5.1 | A 200 with a JSON object, sent as `application/json`; any other status fails, with your IdP's error, and nothing else is checked |
+| `exchange.status` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2.1; RFC 6749 section 5.1 | A 200 with a JSON object, sent as `application/json`; any other status, or an error sent with HTTP 200, fails with your IdP's error, and nothing else is checked |
 | `exchange.issued_token_type` | MUST | draft -06 section 4.3.4 | `issued_token_type` is `urn:ietf:params:oauth:token-type:id-jag` |
 | `exchange.token_type` | MUST | draft -06 section 4.3.4; RFC 8693 section 2.2.1 | `token_type` is `N_A` (any case, as RFC 6749 section 5.1 allows) |
 | `exchange.access_token` | MUST | draft -06 section 4.3.4 | `access_token` holds the ID-JAG |
-| `exchange.scope` | MUST | draft -06 sections 4.3.3, 4.3.4; RFC 6749 section 5.1 | `scope`, if present, is the ID-JAG's `scope`; if absent, the ID-JAG's scope is the one requested (it is REQUIRED when they differ) |
-| `exchange.expires_in` | RECOMMENDED | draft -06 section 4.3.4; RFC 6749 section 5.1 | `expires_in` is present, a positive whole number, and within 5 s of the ID-JAG's `exp` minus `iat` |
+| `exchange.scope` | MUST | draft -06 sections 4.3.3, 4.3.4; RFC 6749 section 5.1 | `scope`, if present, is the ID-JAG's `scope` (an empty one says none was granted); if absent, the ID-JAG's scope is the one requested (it is REQUIRED when they differ) |
+| `exchange.expires_in` | RECOMMENDED; MUST be a positive whole number when present | draft -06 section 4.3.4; RFC 6749 section 5.1 | `expires_in` is present, a positive whole number, and within 5 s of the ID-JAG's `exp` minus `iat` |
 | `exchange.refresh_token` | SHOULD | draft -06 section 4.3.4; RFC 8693 section 2.2.1 | No `refresh_token` (SHOULD NOT be used) |
 | `exchange.no_store` | MUST | draft -06 section 4.3.4; RFC 6749 section 5.1 | `Cache-Control: no-store` |
 | `exchange.resource_echo` | MUST; OPTIONAL with no resource requested | draft -06 section 4.3.3 | Each resource in the ID-JAG is one the tester sent, exactly as sent |
@@ -135,8 +135,9 @@ error sent with HTTP 200 is a refusal with the wrong status (RFC 6749 section 5.
 A pasted ID-JAG shows only what a receiver can see: the ID-JAG, and your metadata and keys. A run of the whole flow
 also sees your IdP's side of the exchange (section 4.3.3), within the rules above. Not checked even then: an ID token
 issued to another client, or expired, as the subject token; SAML assertions as the subject token;
-`authorization_details`; `actor_token`; DPoP; client authentication other than a client secret. Nor does the list
-above claim to cover every MUST in the draft.
+`authorization_details`; `actor_token`; DPoP; client authentication other than a client secret; `Pragma: no-cache` on
+the answer, which RFC 6749 section 5.1 also asks for (HTTP caches go by `Cache-Control`, and RFC 9111 section 5.4
+deprecates `Pragma`). Nor does the list above claim to cover every MUST in the draft.
 
 ## How to use it
 
