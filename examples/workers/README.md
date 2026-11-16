@@ -74,6 +74,10 @@ Deploy the IdP first, because the MCP server's service binding needs it to exist
 origin, such as `"https://demo-idp.example.com"`, with the other Worker's URLs (`MCP_AS_ISSUER`, `MCP_RESOURCE`,
 `IDP_ISSUER`) on its domain too. The issuer identifier is then always that origin's `/api/auth`, and a request to any
 other address, such as the `workers.dev` one, gets a 308 to the same path on the domain (the method and body are kept).
+That redirect doesn't help a browser-based tool still set to the old address, such as xaa.dev's tester: a browser
+never follows a redirect on a CORS preflight, so it reports only "Failed to fetch". A token made for the old address is
+refused at the new one anyway. Once every client and IdP setup names the domain, set `"workers_dev": false` in the
+Worker's `wrangler.deploy.jsonc` and deploy, so the old address answers nothing.
 Without `PUBLIC_ORIGIN`, each Worker answers as the address it was reached at, which is what local development needs. An
 issuer identifier that changes this way also changes for every client and trust setting that names it: the MCP server's
 `IDP_ISSUER`, a registration at the public tester, an Okta or xaa.dev resource-app setup, an MCP client's configuration.
