@@ -332,6 +332,43 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(await (await call("/results", { cookie: mallory.cookie })).text()).toContain("Pending");
   });
 
+  it("the help: a page, Markdown and llms.txt with this deployment's values; every info link on the pages points at a section", async () => {
+    const { HELP } = await import("../../examples/workers/tester/src/help");
+    const pages = await import("../../examples/workers/tester/src/pages");
+    const page = await call("/help");
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
+    const html = await page.text();
+    for (const section of HELP) expect(html, section.id).toContain(`<h2 id="${section.id}">`);
+    expect(html).toContain(`<code>${ORIGIN}/flow/callback</code>`);
+    expect(html).toContain('<a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-identity-assertion-authz-grant/06/">');
+    expect(html).not.toMatch(/\{origin\}|\*\*|`/);
+    const md = await call("/help.md");
+    expect(md.headers.get("content-type")).toContain("text/markdown");
+    const markdown = await md.text();
+    for (const section of HELP) expect(markdown).toContain(`\n## ${section.title}\n`);
+    expect(markdown).toContain(`\`${ORIGIN}/api/auth\``);
+    expect(markdown).not.toMatch(/\{origin\}|<a |<code>/);
+    const llms = await call("/llms.txt");
+    expect(llms.headers.get("content-type")).toContain("text/plain");
+    const txt = await llms.text();
+    expect(txt.startsWith("# ")).toBe(true);
+    expect(txt).toContain("\n> ");
+    expect(txt).toContain(`(${ORIGIN}/help.md)`);
+    expect(txt).toContain(`\`${ORIGIN}/api/auth\``);
+    // The info links: on the home page, the register form, the page after registering, and the results page (with the
+    // run's form and the mint box). Each points at a section, and each step of the run has one.
+    const view = { registrationId: "r", active: true, issuer: "https://idp.example.org", clientId: "c", expiresAt: Date.now() + 3_600_000, pending: true, ended: null, metadata: [], checks: [{ at: Date.now(), checkedAgainst: "x", jti: "j", httpStatus: 200, error: null, results: [], receiver: null }] };
+    const rendered = await Promise.all(
+      [pages.landing(false, false, ["github"]), pages.registerForm("k"), pages.registered({ origin: ORIGIN, registrationId: "r", clientId: "c", clientSecret: "s", authMethod: "client_secret_basic", issuer: "https://idp.example.org", expiresAt: Date.now() + 3_600_000, report: [] }), pages.results([view], "n", ORIGIN)].map((r) => r.text()),
+    );
+    const linked = new Set(rendered.flatMap((h) => [...h.matchAll(/href="\/help#([a-z-]+)"/g)].map((m) => m[1] as string)));
+    expect([...linked].filter((id) => !HELP.some((s) => s.id === id)), "info links to no section").toEqual([]);
+    for (const id of ["register", "confirm", "run", "run-client", "run-details", "run-checks", "run-sign-in", "mint", "own-code", "report"]) expect(linked, id).toContain(id);
+    for (const h of rendered) expect(h).toContain('<a href="/help">Help</a>');
+  });
+
   it("one active registration per tester, accounts at least 30 days old, same-origin forms only", async () => {
     expect(await (await register(alice.cookie, ISSUERS[1])).text()).toContain("one at a time");
     expect(await (await register((await signedIn("newbie", { ageDays: 3 })).cookie, ISSUERS[1])).text()).toContain("at least 30 days old");

@@ -10,8 +10,8 @@ Two Better Auth apps on Cloudflare Workers with D1, and a script that plays the 
 - **`tester/`**: a separate, public "test your IdP" receiver: anyone building an ID-JAG issuer registers it (GitHub
   or GitLab sign-in, 24 hours, confirmed by an ID-JAG signed with the issuer's key), redeems ID-JAGs, and reads a
   rule-by-rule report next to the receiver's decision. Locked down: isolated sandbox users, rate limits, daily budgets,
-  a blocklist, kill switches, and personal data kept a day at most. See
-  [docs/test-your-idp.md](../../docs/test-your-idp.md).
+  a blocklist, kill switches, and personal data kept a day at most. Its own help is at `/help` (also as `/help.md`,
+  and `/llms.txt` for AI assistants), from `src/help.ts`. See [docs/test-your-idp.md](../../docs/test-your-idp.md).
 - **`client.mjs`**: the five steps of the flow, printing every token it gets, then a replay to show single use. It runs
   as an AI agent or, with `--client=app`, as an ordinary app.
 

@@ -732,7 +732,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     const RUN_OPEN = '<div class="box"><h3 style="margin-top:0">Run the whole flow (recommended)</h3><form method="post" action="/flow/start" id="run">';
     expect(page).toContain(RUN_OPEN);
     expect(page).toContain("Step 4. Press Run, then Continue.");
-    expect(page).toContain("<summary><strong>Or mint an ID-JAG yourself and paste it</strong></summary>");
+    expect(page).toContain("<summary><strong>Or mint an ID-JAG yourself and paste it</strong>");
     const reg = (await rows<{ id: string; clientId: string }>(`select id, clientId from testerRegistration where userId = ?`, t.userId))[0];
     if (!reg) throw new Error("not registered");
     // Signing in again lands on /register: with an active registration, that goes to the results.
@@ -751,10 +751,10 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     const results = await (await call("/results", { cookie: t.cookie })).text();
     // After a run the reports come first; running again is folded below them.
     expect(results).not.toContain(RUN_OPEN);
-    expect(results.indexOf("<h3>Reports</h3>")).toBeGreaterThan(-1);
-    expect(results.indexOf("<h3>Reports</h3>")).toBeLessThan(results.indexOf("<summary><strong>Test again: run the whole flow</strong></summary>"));
-    expect(results.indexOf("<h3>Reports</h3>")).toBeLessThan(results.indexOf('id="run"'));
-    for (const text of ["Step 1. At your IdP, create a client for the tester", "Client id <span class=\"muted\">(from step 1, at your IdP)", '<option value="auto">Automatic', "Recommended: check that your IdP refuses wrong requests", "Optional: try a refresh token", "Step-by-step guide"]) expect(results).toContain(text);
+    expect(results.indexOf("<h3>Reports")).toBeGreaterThan(-1);
+    expect(results.indexOf("<h3>Reports")).toBeLessThan(results.indexOf("<summary><strong>Test again: run the whole flow</strong></summary>"));
+    expect(results.indexOf("<h3>Reports")).toBeLessThan(results.indexOf('id="run"'));
+    for (const text of ["Step 1. At your IdP, create a client for the tester", "Client id <span class=\"muted\">(from step 1, at your IdP)", '<option value="auto">Automatic', "Recommended: check that your IdP refuses wrong requests", "Optional: try a refresh token", "Step-by-step help"]) expect(results).toContain(text);
     expect(results).toContain("<details open><summary>Your metadata and keys: <span class=\"pass\">every rule passed</span>");
     // The newest report's rules open, older ones folded (unless they failed).
     expect(results.match(/<details open><summary>Rules<\/summary>/g)).toHaveLength(1);

@@ -29,6 +29,7 @@ button { padding: 8px 16px; font: inherit; border-radius: 4px; border: 1px solid
 .wrap { overflow-x: auto; }
 .copy { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 button.small { padding: 2px 8px; font-size: 0.8rem; background: var(--bg); color: var(--fg); border-color: var(--line); }
+a.help { text-decoration: none; margin-left: 6px; font-weight: normal; }
 textarea { width: 100%; font: 0.88em ui-monospace, monospace; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 `;
 
@@ -39,10 +40,10 @@ export function page(title: string, body: string, { turnstile = false, status = 
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": csp(formAction), "x-content-type-options": "nosniff", "referrer-policy": "same-origin", "cache-control": "no-store", ...headers } });
 }
 
-const FOOTER = `<p class="muted" style="margin-top:48px">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it: <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/docs/test-your-idp.md#the-rules">the rules</a>, each with its source, and <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts">their code</a>. A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
+export const FOOTER = `<p class="muted" style="margin-top:48px"><a href="/help">Help</a> &middot; <a href="/llms.txt">For AI assistants</a></p><p class="muted">Checked against ${esc(SUPPORTED_DRAFT)} as <a href="https://github.com/mmcintosh/better-auth-id-jag">better-auth-id-jag</a> reads it: <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/docs/test-your-idp.md#the-rules">the rules</a>, each with its source, and <a href="https://github.com/mmcintosh/better-auth-id-jag/blob/main/src/core/check.ts">their code</a>. A testing aid, not a conformance or certification test. Test data only. A registration lasts 24 hours; then its client, users, results and logs are deleted. Results are visible only to the account that registered. No uptime promise: the tester may close at any time.</p>`;
 
-/** The step-by-step guide to a run of the whole flow. */
-const GUIDE = "https://github.com/mmcintosh/better-auth-id-jag/blob/main/docs/test-your-idp.md#how-to-use-it";
+/** An info link to a section of /help (help.ts, HELP; a test checks every one points at a section there). */
+export const helpLink = (id: string, about: string) => `<a class="help" href="/help#${id}" title="Help: ${esc(about)}" aria-label="Help: ${esc(about)}">&#9432;</a>`;
 
 /** A value with a copy button (the script at /app.js). */
 const copyable = (value: string) => `<span class="copy"><code>${esc(value)}</code><button type="button" class="small" data-copy="${esc(value)}">Copy</button></span>`;
@@ -61,20 +62,20 @@ const checkForm = (registrationId: string) => `<form method="post" action="/chec
  */
 const runForm = (origin: string, registrationId: string, clientId: string) => `<form method="post" action="/flow/start" id="run">
 <input type="hidden" name="registration" value="${esc(registrationId)}">
-<p>The tester plays the client, as an AI agent would: it sends you to your IdP to sign in, asks your IdP for an ID-JAG, checks your IdP's answer, and redeems the ID-JAG here. Your IdP's ID token, access token and refresh token are never stored or shown. <a href="${GUIDE}">Step-by-step guide</a>.</p>
-<p><strong>Step 1. At your IdP, create a client for the tester</strong> (an "application" in most admin consoles), with:</p>
+<p>The tester plays the client, as an AI agent would: it sends you to your IdP to sign in, asks your IdP for an ID-JAG, checks your IdP's answer, and redeems the ID-JAG here. Your IdP's ID token, access token and refresh token are never stored or shown. <a href="/help#run">Step-by-step help</a>.</p>
+<p><strong>Step 1. At your IdP, create a client for the tester</strong>${helpLink("run-client", "a client at your IdP")} (an "application" in most admin consoles), with:</p>
 <table><tr><td>Redirect URI</td><td>${copyable(`${origin}/flow/callback`)}</td></tr>
 <tr><td>Grant types</td><td>authorization code (scope <code>openid</code>, PKCE S256) and token exchange (<code>urn:ietf:params:oauth:grant-type:token-exchange</code>)</td></tr>
 <tr><td>Allowed to get</td><td>ID-JAGs for audience ${copyable(`${origin}/api/auth`)}<br>and resource ${copyable(`${origin}/mcp`)}<br>with <code>client_id</code> ${copyable(clientId)} in the ID-JAG <span class="muted">(your client here, from this registration)</span></td></tr></table>
-<p><strong>Step 2. Enter that client's details</strong></p>
+<p><strong>Step 2. Enter that client's details</strong>${helpLink("run-details", "that client's details")}</p>
 <p><label>Client id <span class="muted">(from step 1, at your IdP)</span><br><input type="text" name="client_id" required maxlength="256" autocomplete="off"></label></p>
 <p><label>Client secret <span class="muted">(from step 1; kept encrypted for this run only, then deleted)</span><br><input type="password" name="client_secret" required maxlength="512" autocomplete="off"></label></p>
 <p><label>How the client sends its secret<br><select name="auth_method"><option value="auto">Automatic: as your IdP's published settings say</option><option value="client_secret_basic">client_secret_basic (HTTP Basic)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label><br><span class="muted">Leave on Automatic unless the client is set up differently from what your IdP publishes (<code>token_endpoint_auth_methods_supported</code>).</span></p>
 <p><label>Scope to ask for<br><input type="text" name="scope" value="read" maxlength="256"></label><br><span class="muted"><code>read</code> is the scope the tester grants; change it only to see how your IdP handles another.</span></p>
-<p><strong>Step 3. Extra checks</strong> <span class="muted">(each adds lines to the report)</span></p>
+<p><strong>Step 3. Extra checks</strong> <span class="muted">(each adds lines to the report)</span>${helpLink("run-checks", "extra checks")}</p>
 <p><label><input type="checkbox" name="probes" value="1"> <strong>Recommended: check that your IdP refuses wrong requests.</strong> After the run's ID-JAG is redeemed, the tester sends 7 token exchanges with one thing wrong each (no client authentication, two audiences, an untrusted audience, a foreign resource, the wrong kind of subject token) and checks each is refused with the right error. Sent only once the registration is confirmed, which this run does. They may appear in your IdP's security logs.</label></p>
 <p><label><input type="checkbox" name="refresh" value="1"> <strong>Optional: try a refresh token.</strong> Only if your IdP issues refresh tokens. The sign-in then also asks for <code>offline_access</code>, with a consent prompt at your IdP, and the report says whether your IdP gives an ID-JAG for a refresh token (the draft allows it, but doesn't require it).</label></p>
-<p><strong>Step 4. Press Run, then Continue.</strong> You sign in <strong>at your IdP</strong>, with one of your IdP's own users, not your GitHub or GitLab account (that sign-in was only for this site). If you're already signed in there, your IdP may only ask you to allow the tester's client. Then you come back here, and the report appears on your results page.</p>
+<p><strong>Step 4. Press Run, then Continue.</strong>${helpLink("run-sign-in", "signing in at your IdP")} You sign in <strong>at your IdP</strong>, with one of your IdP's own users, not your GitHub or GitLab account (that sign-in was only for this site). If you're already signed in there, your IdP may only ask you to allow the tester's client. Then you come back here, and the report appears on your results page.</p>
 <p><button>Run</button></p>
 </form>`;
 
@@ -106,7 +107,7 @@ const idpValues = (origin: string, issuer: string, clientId: string) => {
 
 /** "Mint an ID-JAG yourself and paste it", folded: the run is the recommended way. */
 const mintBox = (origin: string, registrationId: string, issuer: string, clientId: string) =>
-  `<details class="box"><summary><strong>Or mint an ID-JAG yourself and paste it</strong></summary><p>Have your IdP mint one with these values, then paste it below.</p>${idpValues(origin, issuer, clientId)}${checkForm(registrationId)}</details>`;
+  `<details class="box"><summary><strong>Or mint an ID-JAG yourself and paste it</strong>${helpLink("mint", "minting an ID-JAG yourself")}</summary><p>Have your IdP mint one with these values, then paste it below.</p>${idpValues(origin, issuer, clientId)}${checkForm(registrationId)}</details>`;
 
 const PROVIDER_NAMES = { github: "GitHub", gitlab: "GitLab" } as const;
 
@@ -119,6 +120,7 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
 <p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
 <ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint, or let the tester run the whole flow with a client at your IdP. The first ID-JAG signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+<p><a href="/help">Help: every step in detail</a></p>
 ${signInFailed ? '<p class="fail">The sign-in didn\'t complete. Try again.</p>' : ""}
 ${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
 ${FOOTER}`,
@@ -133,9 +135,9 @@ export function registerForm(siteKey: string, error?: string): Response {
 <p class="muted">Registered before and it's not on <a href="/results">your results page</a>? A registration ends after 24 hours, with its results; register again.</p>
 ${error ? `<p class="fail">${esc(error)}</p>` : ""}
 <form method="post" action="/register" class="box">
-<p><label>Issuer identifier (exactly as your ID-JAGs' <code>iss</code>)<br><input type="url" name="issuer" required maxlength="512" placeholder="https://idp.example.com"></label></p>
+<p><label>Issuer identifier (exactly as your ID-JAGs' <code>iss</code>)${helpLink("register", "registering your issuer")}<br><input type="url" name="issuer" required maxlength="512" placeholder="https://idp.example.com"></label></p>
 <p class="muted">The tester reads your metadata (RFC 8414's location, else OpenID Connect Discovery's), checks it, and fetches your JWKS. https only, a public DNS name, no redirects.</p>
-<details><summary class="muted">Advanced</summary>
+<details><summary class="muted">Advanced${helpLink("own-code", "redeeming from your own code")}</summary>
 <p><label>Only if you will also redeem from your own code: how that code authenticates its client here<br><select name="authMethod"><option value="client_secret_basic">client_secret_basic (HTTP Basic, the default)</option><option value="client_secret_post">client_secret_post (in the form body)</option></select></label></p>
 </details>
 <div class="cf-turnstile" data-sitekey="${esc(siteKey)}"></div>
@@ -150,7 +152,7 @@ ${FOOTER}`,
 /** The registration's metadata and keys, open (folded, they were missed), with a one-line summary. */
 const metadataSection = (rules: RuleResult[]) => {
   const fails = rules.filter((r) => r.outcome === "fail").length;
-  return `<details open><summary>Your metadata and keys: ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}</summary><div class="wrap"><table>${ruleRows(rules)}</table></div></details>`;
+  return `<details open><summary>Your metadata and keys: ${fails ? `<span class="fail">${fails} rule(s) failed</span>` : '<span class="pass">every rule passed</span>'}${helpLink("register", "your metadata and keys")}</summary><div class="wrap"><table>${ruleRows(rules)}</table></div></details>`;
 };
 
 const ruleRows = (results: RuleResult[]) =>
@@ -161,13 +163,13 @@ export function registered(o: { origin: string; registrationId: string; clientId
   const auth = o.authMethod === "client_secret_post" ? `-d client_id=${o.clientId} -d client_secret=YOUR_SECRET` : `-u ${o.clientId}:YOUR_SECRET`;
   return page(
     "Registered",
-    `<h1>Registered, pending</h1>
+    `<h1>Registered, pending${helpLink("confirm", "pending and confirmed")}</h1>
 <p>Until ${esc(new Date(o.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC. Your first ID-JAG signed with a key from your issuer's published JWKS confirms the registration (proof that you run the issuer). Until then, anyone else may register the same issuer too; the first to confirm holds it.</p>
 <h2>Next: test your IdP</h2>
 <div class="box"><h3 style="margin-top:0">Run the whole flow (recommended)</h3>${runForm(o.origin, o.registrationId, o.clientId)}</div>
 ${mintBox(o.origin, o.registrationId, o.issuer, o.clientId)}
 <p>Every report is kept on <a href="/results">your results page</a>, with each rule and the receiver's own decision.</p>
-<details><summary>Redeem from your own code instead</summary>
+<details><summary>Redeem from your own code instead${helpLink("own-code", "redeeming from your own code")}</summary>
 <p><strong>Client secret, shown once:</strong> ${copyable(o.clientSecret)}</p>
 <pre>curl ${esc(o.origin)}/api/auth/oauth2/token ${esc(auth)} \\
   -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \\
@@ -201,7 +203,7 @@ export function results(views: ResultView[], name: string, origin: string): Resp
 <p class="muted">Client <code>${esc(v.clientId)}</code>. ${v.ended ? `Ended: ${esc(v.ended)}.` : `Until ${esc(new Date(v.expiresAt).toISOString().replace("T", " ").slice(0, 16))} UTC.`} ${v.pending ? '<span class="warn">Pending: confirmed by your first ID-JAG signed with your issuer\'s published key.</span>' : '<span class="pass">Confirmed.</span>'}</p>
 ${metadataSection(v.metadata)}
 ${v.active && !v.checks.length ? `<div class="box"><h3 style="margin-top:0">Run the whole flow (recommended)</h3>${runForm(origin, v.registrationId, v.clientId)}</div>${mintBox(origin, v.registrationId, v.issuer, v.clientId)}` : ""}
-${v.checks.length ? '<h3>Reports</h3>' : ""}
+${v.checks.length ? `<h3>Reports${helpLink("report", "reading a report")}</h3>` : ""}
 ${
   v.checks.length
     ? v.checks
