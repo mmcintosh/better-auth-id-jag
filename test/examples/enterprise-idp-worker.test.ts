@@ -87,4 +87,20 @@ describe.skipIf(!workerd)("example IdP as a Worker: a tester client, sign-in and
     expect(made.status).toBe(400);
     expect(await made.text()).toContain("TESTER_AS_ISSUER");
   });
+  it("with PUBLIC_ORIGIN, any other address gets a 308 to the same path there; the public origin serves, as the issuer", async () => {
+    const pinned = { ...env, PUBLIC_ORIGIN: IDP };
+    const at = async (url: string, init: RequestInit = {}) => {
+      const ctx = cf.createExecutionContext();
+      const r = await worker.fetch(new Request(url, { ...init, redirect: "manual" }), pinned, ctx);
+      await cf.waitOnExecutionContext(ctx);
+      return r;
+    };
+    const old = "https://id-jag-example-idp.someone.workers.dev";
+    const moved = await at(`${old}/api/auth/oauth2/token?x=1`, { method: "POST", body: "grant_type=client_credentials", headers: { "content-type": "application/x-www-form-urlencoded" } });
+    expect(moved.status).toBe(308);
+    expect(moved.headers.get("location")).toBe(`${IDP}/api/auth/oauth2/token?x=1`);
+    const metadata = await at(`${IDP}/api/auth/.well-known/openid-configuration`);
+    expect(metadata.status).toBe(200);
+    expect(((await metadata.json()) as { issuer?: string }).issuer).toBe(`${IDP}/api/auth`);
+  });
 });
