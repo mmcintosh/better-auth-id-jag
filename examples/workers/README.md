@@ -92,6 +92,10 @@ curl https://<new mcp>/setup -H "x-setup-key: $(cat <file>)" -H 'content-type: a
 
 It answers `{"client_id", "resource", "linked": true, "already_linked"}`, and 404 for an unknown client.
 
+To give a client a new secret (one that was shown somewhere it shouldn't have been), send `"rotate": "<client id>"`
+the same way, as the operator who registered it. It answers `{"client_id", "client_secret"}` with the new secret, once;
+the old one stops working at once, and the client id and its links stay. Put the new secret wherever the old one was.
+
 ```sh
 SETUP_KEY_FILE=<file> node examples/workers/client.mjs https://<idp> https://<mcp> --setup   # once
 node examples/workers/client.mjs https://<idp> https://<mcp>                                 # any time after

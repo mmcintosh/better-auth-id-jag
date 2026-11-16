@@ -157,4 +157,22 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
     // Still linked to the old address too.
     expect((await exchange(MCP, env, { ...subject, sub: "idp-sub-link-old", email: "link-old@example.net" })).status).toBe(200);
   });
+
+  it("/setup's rotate gives a client a new secret: the old one stops working, the id and its links stay", async () => {
+    const operator = { email: "operator@example.net", password: "example-password-1234" };
+    const made = (await (await setupAt(MCP, env, operator)).json()) as { client_id: string; client_secret: string };
+    const subject = { sub: "idp-sub-rotate", email: "rotate@example.net", email_verified: true };
+    expect((await exchange(MCP, env, subject, made)).status).toBe(200);
+    expect((await setupAt(MCP, { ...env, SETUP_KEY: "another-setup-key-that-is-long-enough" }, { ...operator, rotate: made.client_id })).status).toBe(403);
+    expect(await (await setupAt(MCP, env, { ...operator, rotate: "no-such-client" })).text()).toBe("no client no-such-client of this operator to rotate");
+    // Only the operator who registered the client may rotate its secret.
+    expect((await setupAt(MCP, env, { email: "other-operator@example.net", password: "example-password-5678", rotate: made.client_id })).status).toBe(404);
+    const rotated = await setupAt(MCP, env, { ...operator, rotate: made.client_id });
+    const fresh = (await rotated.json()) as { client_id: string; client_secret: string };
+    expect(fresh.client_id).toBe(made.client_id);
+    expect(fresh.client_secret).toBeTruthy();
+    expect(fresh.client_secret).not.toBe(made.client_secret);
+    expect(await exchange(MCP, env, { ...subject, sub: "idp-sub-rotate-old", email: "rotate-old@example.net" }, made)).toMatchObject({ status: 401, json: { error: "invalid_client" } });
+    expect((await exchange(MCP, env, { ...subject, sub: "idp-sub-rotate-new", email: "rotate-new@example.net" }, fresh)).status).toBe(200);
+  });
 });
