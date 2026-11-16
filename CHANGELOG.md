@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Breaking
+
+What to change when you upgrade from 0.7.x:
+
+- **A receiver with `scim` on a trust entry needs a database adapter with native transactions**, or every ID-JAG for
+  that entry is refused (`subject_unavailable`, `invalid_grant`) and startup logs an error. A `pg` pool, a `mysql2`
+  pool or a SQLite database given straight to Better Auth has them; Drizzle, Prisma and Kysely given as `{ db, type }`
+  or `{ dialect, type }` have them only with `transaction: true`; Cloudflare D1 never does. Turn them on, or remove
+  `scim` from the trust entry. The details are under Security.
+- **A token exchange without client authentication gets `invalid_client`** (HTTP 401) from the issuer, as draft -06
+  section 4.3.3 requires; one that named no client at all got `invalid_request` (HTTP 400). The details are under
+  Fixed.
+
 ### Security
 
 - **The receiver refuses the SCIM step on a database without native transactions** (D-073): every ID-JAG whose trust
@@ -49,12 +62,13 @@
 
 ### Documentation
 
-- **README: install Better Auth's packages at one version.** The Install section says to install `better-auth`,
-  `@better-auth/core` and `@better-auth/oauth-provider` at the same version and to name each `@better-auth/*` package
-  in your own `package.json`: each requires a `better-auth` and `@better-auth/core` at least as new as itself, so one
-  a package manager picks alone can be too new (npm: `ERESOLVE`; pnpm: a set this package can't load). Errors says a
+- **README: install Better Auth's packages at one version.** The Install section says to install `better-auth` and
+  every `@better-auth/*` package you use at one exact version, each named in your own `package.json`: each plugin
+  requires a `better-auth` and `@better-auth/core` at least as new as itself, so one a package manager picks alone can
+  be too new (npm: `ERESOLVE`; pnpm: a set this package can't load). Errors says a
   token exchange without client authentication is `invalid_client`; Examples says the example IdP issues ID-JAGs for
-  the tester's run; `docs/versioning.md` lists `checkExchange` with the other checkers as public API.
+  the tester's run; `docs/versioning.md` lists `checkExchange` with the other checkers as public API. README and
+  `docs/security.md` list the database adapters the SCIM step works on (Kysely needs `transaction: true` too).
 - **The README, the docs and this changelog write "section 4.3.3"** in full, not with the section sign.
 - **The tester's run of the whole flow, documented.** docs/test-your-idp.md: how to set up a client at your IdP
   for the tester and run it, the `exchange.*` and `probe.*` rules in the rules tables (the doc test checks them
