@@ -1,5 +1,5 @@
 // idJagIssuer(): makes a Better Auth OIDC provider (@better-auth/oauth-provider + jwt) an ID-JAG
-// issuer (draft-ietf-oauth-identity-assertion-authz-grant-06 §4.3). It registers, from `init`:
+// issuer (draft-ietf-oauth-identity-assertion-authz-grant-06 section 4.3). It registers, from `init`:
 // - grants["urn:ietf:params:oauth:grant-type:token-exchange"], serving only
 //   requested_token_type=urn:ietf:params:oauth:token-type:id-jag;
 // - metadata: identity_chaining_requested_token_types_supported (grant_types_supported lists the
@@ -56,7 +56,7 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
       "idJagIssuer: the saml option needs better-auth-saml-idp (>= 1.2.0) with token exchange enabled, installed before idJagIssuer() in plugins: ctx.context.samlIdpExchange (version 1) is missing",
     );
   if (state.options.allowPublicClients)
-    ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs without client authentication. This is outside draft -06 §4.3.3, which says the IdP MUST authenticate the client.");
+    ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs without client authentication. This is outside draft -06 section 4.3.3, which says the IdP MUST authenticate the client.");
   if (!state.options.authorize && !state.directory) ctx.logger.warn("[id-jag] no policy source (authorize or registry): every token exchange is refused (no_policy).");
 }
 
@@ -90,7 +90,7 @@ export function idJagIssuer(options: IdJagIssuerOptions = {}) {
   const resolved = state.options;
   const extension: OAuthProviderExtension = {
     grants: { [TOKEN_EXCHANGE_GRANT]: (input) => handleTokenExchange(input, state) },
-    // Draft -06 §7.1: id_jag_signing_alg_values_supported is OPTIONAL and, if present, MUST include RS256. We sign
+    // Draft -06 section 7.1: id_jag_signing_alg_values_supported is OPTIONAL and, if present, MUST include RS256. We sign
     // with one algorithm, so it is published only when that one is RS256 (D-061).
     metadata: () => ({
       [ISSUER_METADATA_FIELD]: [ID_JAG_TOKEN_TYPE],

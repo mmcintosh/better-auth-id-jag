@@ -698,8 +698,8 @@
  {
   "name": "exchange: answer scope without a claim passes",
   "file": "src/core/check.ts",
-  "a": "    if (issued === undefined) add(",
-  "b": "    if (issued === \"never\") add(",
+  "a": "    else if (issued === undefined) add(",
+  "b": "    else if (issued === \"never\") add(",
   "paths": [
    "test/core/check.test.ts"
   ]
