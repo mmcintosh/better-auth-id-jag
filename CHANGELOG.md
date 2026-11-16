@@ -27,6 +27,9 @@
   the old issuer's account namespace (`id-jag:<old issuer>`), users linked under it are still found. Without it, they
   are unknown under the new issuer, and JIT provisioning refuses their emails, which already have users. Tested in
   workerd.
+- **The examples README says when to turn a Worker's `workers.dev` address off** after a move to a custom domain:
+  the redirect to the domain can't serve a browser-based tool (a CORS preflight never follows a redirect), nor a token
+  for the old address.
 - **The example MCP server's `/setup` can link an existing client to its current address** (`"link": "<client id>"`):
   a client registered through the old address is otherwise refused for the new `/mcp` (`invalid_target`). The client
   keeps its id and secret. It uses Better Auth's own `adminLinkClientResource`. Tested in workerd.
