@@ -82,7 +82,7 @@ idJagGrant({
 | A user deprovisioned at the IdP still reaching the app (with `scim`) | The user is the one the trust entry's SCIM connection provisioned with `externalId` = `sub`, found by `@better-auth/scim`'s `acquireActiveSCIMUserLink` only while the SCIM user is active and the connection live. None found is refused (required by default), so an older account link, the email fallback or JIT can't bring the user back; an ID-JAG issued before the deprovisioning is refused too. The lookup runs in the adapter's transaction and detects a concurrent lifecycle change. |
 | A SAML NameID naming the wrong user (`sub_id`) | NameID mappings come only from the trust entry `iss` already matched, so `sub_id.issuer` never makes an issuer trusted (draft -06 section 9.8). Qualifiers must match exactly, absent meaning absent. A transient NameID, a malformed `sub_id` or one with no mapping is refused, never resolved by `sub` instead. |
 | Claims the receiver can't honour | `authorization_details` and `cnf` are refused by name rather than ignored. |
-| Scope escalation | The token gets the request's scopes ∩ the ID-JAG's; an empty intersection is `invalid_scope` unless `allowEmptyScope`. The token is audience-restricted to the resource. |
+| Scope escalation | The token gets only the scopes in all of: the ID-JAG, the request (when it names any), the client's registered scopes (when it has any) and the resource's; an empty intersection is `invalid_scope` unless `allowEmptyScope`. The token is audience-restricted to the resource. |
 
 ## Known limitations
 

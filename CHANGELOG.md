@@ -38,6 +38,18 @@
 - **The example Workers' migrations add the columns Better Auth 1.8's oauth-provider adds** (for a database made on
   1.7; 1.7 ignores them).
 
+### Documentation
+
+- **Okta and xaa.dev re-run after the example MCP server moved to a custom domain** (`docs/interop.md`): Okta's ID
+  token and refresh token, and xaa.dev's OIDC and SAML variants, accepted at the new address, each finding the same
+  user as before. **Okta 2026.45.1 issued an ID-JAG with any scope asked for**, whatever the connection allowed
+  (`admin`, which no Okta setting named; `read` with the connection set to `write`); on 2026-11-06 the same org
+  refused `read admin`. Our receiver never sees the connection: it granted only the scopes the client and the
+  resource also have, and refused when none was left. `docs/okta.md` follows: Okta's current menu and field names,
+  the resource app's scope list, what turning cross-app access off and on removes, and that with Okta 2026.45.1 what
+  limits an agent is its client's registered scopes at your server. README and `docs/security.md` state the
+  receiver's scope rule in full: the scopes in all of the ID-JAG, the request, the client's and the resource's.
+
 ## [0.8.0] - 2026-11-16
 
 A receiver with SCIM needs a database with native transactions, the issuer answers a token exchange without client authentication with invalid_client, and checkExchange checks an IdP's answer to the token exchange.

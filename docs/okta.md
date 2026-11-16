@@ -44,7 +44,9 @@ idJagGrant({
 - **The agent is a client of your server too.** Register it at your server as a confidential client for the
   jwt-bearer grant, and note the client id your server gives it: Okta puts that id in the ID-JAG's `client_id`,
   and the receiver checks it against the client that authenticates (D-004). The example's `/setup` does this
-  (`examples/workers/mcp-server/src/index.ts`).
+  (`examples/workers/mcp-server/src/index.ts`). Register it with only the scopes the agent should get: in the live
+  run, Okta 2026.45.1 issued whatever scope the agent asked for
+  ([docs/interop.md](interop.md#re-run-after-the-server-moved-2026-11-16)), so the client's scopes are the limit.
 
 ### Finding the user
 
@@ -69,20 +71,23 @@ require them: a rule that requires MFA refuses every ID-JAG without it.
 
 | Where | Field | Value |
 |---|---|---|
-| Resource app → **Machine Assignments** → **Resource server access** | **Cross-app access (XAA)** | On |
+| Resource app → **Machine Assignments** → **Callers** → **Cross-app access (XAA)** → Edit (Okta 2026.09.1 called it **Resource server access**) | **Cross-app access (XAA)** | On |
 | Same | **Issuer URL** | Your server's issuer **exactly as its metadata publishes it**, path included: the `issuer` of `https://<your server>/.well-known/oauth-authorization-server/api/auth`, for example `https://mcp.example.com/api/auth`. No trailing slash. The receiver compares `aud` with it exactly. |
+| Same, further down | **Scopes** | The scopes your server offers, for example `read` and `write` |
 | AI agent's app | Grants | Authorization Code, Refresh Token, Token Exchange |
 | AI agent → its **resource connection** (Application > App configured for AI Agent access) | Resource app | The resource app above |
-| Same | **Resource indicator** | Your MCP resource, for example `https://mcp.example.com/mcp` |
-| Same | **Client id** | The agent's client id **at your server** (section 2), not its Okta client id |
-| Same | Scopes | The scopes the agent may get, for example `read` |
+| Same | **Resource identifier** (earlier: resource indicator) | Your MCP resource, for example `https://mcp.example.com/mcp` |
+| Same | **Client id** (the "client ID registered in" box) | The agent's client id **at your server** (section 2), not its Okta client id |
+| Same | Scopes | The scopes the agent may get, for example `read`. Okta 2026.45.1 didn't enforce them in the live run ([docs/interop.md](interop.md#re-run-after-the-server-moved-2026-11-16)): what limits an agent is its client's registered scopes at your server (section 2) |
 | Resource app → Assignments | Users or groups | Who may use it through the agent (unassigning a user here made Okta refuse their exchanges in the live run) |
 
 Things the live runs ran into:
 - **The connection's client id can come up filled in with the issuer URL.** Our receiver then refuses every ID-JAG
   (`client_mismatch`). The client id can't be edited: deactivate the connection, remove it, and add it again.
-- **Turning cross-app access off and on again** asks for the issuer URL again and drops the connection's resource
-  indicator; set it again.
+- **Turning cross-app access off and on again**, which on Okta 2026.45.1 was how the issuer URL could be changed,
+  asks for the issuer URL again. It has dropped the connection's resource identifier (2026-10-06, then called
+  resource indicator), and has removed the AI agent's resource connection and emptied the resource app's scope list
+  (2026-11-16). Check both and add back what's missing: until then Okta refuses every exchange with `invalid_target`.
 - **For refresh tokens as subject tokens**, the agent's app needs the Refresh Token grant; a persistent refresh token
   (not rotated on each use) is simpler for testing.
 - **Group assignments can't be removed for one user**: **Convert assignments** to individual ones first.
@@ -96,7 +101,7 @@ Things the live runs ran into:
 | `aud` | The issuer URL entered on the resource app | Must equal your issuer exactly |
 | `client_id` | The client id entered in the resource connection | Must be the client that authenticates |
 | `sub`, `sub_profile`, `email` | The Okta user id, `user`, the user's email | Find the user by `sub` and `email` (section 2) |
-| `resource`, `scope` | As on the connection | The access token is for that resource, with the scopes in all of: the ID-JAG, the request, the client's and the resource's (`openid` and `offline_access` dropped) |
+| `resource`, `scope` | The `resource` asked for, which must be the connection's; the `scope` asked for, which Okta 2026.45.1 didn't limit to the connection's scopes in the live run ([docs/interop.md](interop.md#re-run-after-the-server-moved-2026-11-16)) | The access token is for that resource, with the scopes in all of: the ID-JAG, the request, the client's and the resource's (`openid` and `offline_access` dropped) |
 | `act` | `{ "sub": "<the agent's Okta client id>", "sub_profile": "ai_agent web_app" }` | Accepted and **carried into the access token** (D-010) |
 | `exp − iat`, `jti` | 300 s, `IDAAG.…` | At most 900 s; each `jti` once |
 
@@ -112,7 +117,7 @@ From the lifecycle checks against the live org ([docs/interop.md](interop.md#the
 |---|---|---|
 | Cross-app access turned off on the resource app | Okta, at the exchange | `invalid_target` |
 | An audience with no resource connection | Okta | `invalid_target` |
-| A scope the connection doesn't allow | Okta | `invalid_scope` |
+| A scope the connection doesn't allow | Okta, until at least 2026-11-06. On Okta 2026.45.1 nobody: Okta issued it ([docs/interop.md](interop.md#re-run-after-the-server-moved-2026-11-16)) | `invalid_scope` from Okta then. Now your receiver only drops the scopes your client or your resource doesn't have, and refuses when none is left (`invalid_scope`, audit `no_scope`): limit an agent with its client's registered scopes |
 | The user unassigned | Okta | `access_denied` ("User is not assigned to the client application.") |
 | The user deactivated | Okta | `invalid_request` ("'subject_token' is invalid.") |
 | The same ID-JAG twice | Your receiver | `invalid_grant` (audit: `replay`) |
@@ -148,8 +153,8 @@ after an `unknown_subject`, the agent needs a new ID-JAG.
 | `bad_signature` | The keys come from somewhere else than the org's, for example a half-updated entry with the org issuer but `/oauth2/default/v1/keys` (Okta's `kid` isn't there) | The org's `/oauth2/v1/keys` |
 | `wrong_audience` | The resource app's Issuer URL isn't your issuer exactly (a trailing slash, no `/api/auth`, the MCP URL) | Copy `issuer` from your `/.well-known/oauth-authorization-server/api/auth` |
 | `client_mismatch` | The connection's client id isn't the client authenticating at your server (for example the issuer URL filled in), or that client isn't in the trust entry's `allowedClientIds` | Re-create the connection with the agent's client id at your server; check `allowedClientIds` |
-| `no_scope` | No scope is in all of: the ID-JAG (the connection's scopes), the request, the client's registered scopes and your resource's. Or the ID-JAG has no `scope` at all: Okta omits it when the client asked for none (Claude Code does), and no scope in the ID-JAG means none was granted (draft -06 section 4.3.3) | Align the connection's scopes with your client's and your resource's. A client that asks for no scope can't be served; it has to ask the IdP for scopes |
-| `foreign_resource` | The connection's resource indicator isn't a resource your server registered (`invalid_grant`) | Use your MCP resource URL exactly |
+| `no_scope` | No scope is in all of: the ID-JAG (the scopes the agent asked Okta for), the request, the client's registered scopes and your resource's. Or the ID-JAG has no `scope` at all: Okta omits it when the client asked for none (Claude Code does), and no scope in the ID-JAG means none was granted (draft -06 section 4.3.3) | Have the agent ask Okta for a scope your client and your resource both have. A client that asks for no scope can't be served; it has to ask the IdP for scopes |
+| `foreign_resource` | The connection's resource identifier isn't a resource your server registered (`invalid_grant`) | Use your MCP resource URL exactly |
 | `unknown_resource` | The agent's request names more than one resource, or one the ID-JAG doesn't carry or your server didn't register, or none can be chosen (`invalid_target`) | Request the resource from the connection, or set `defaultResource` |
 | `replay` | The agent presented the same ID-JAG twice | Get a new ID-JAG for each access token |
 | `unknown_subject` | No step in "Finding the user" found or created the user: no link, no `emailFallback` domain, no JIT, SCIM required with no provisioned user, or JIT found the email taken | Section 2, "Finding the user" |
