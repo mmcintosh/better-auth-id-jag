@@ -6,11 +6,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import m0001 from "../../examples/workers/mcp-server/migrations/0001_init.sql?raw";
 import m0002 from "../../examples/workers/mcp-server/migrations/0002_better_auth_1_8.sql?raw";
+import { REQUIRE_MCP_AUTH_IN_PROCESS } from "../support/better-auth-version";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const MCP = "https://mcp.example.net";
 
-describe.skipIf(!workerd)("example MCP server as a Worker: /mcp behind requireMcpAuth (workerd, D1)", () => {
+// Better Auth 1.7.25 or later: older requireMcpAuth fetches the server's own keys by URL, which a Worker can't do.
+describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as a Worker: /mcp behind requireMcpAuth (workerd, D1)", () => {
   let cf: typeof import("cloudflare:test");
   let worker: { fetch(r: Request, e: unknown, c: unknown): Promise<Response> };
   let env: Record<string, unknown>;
