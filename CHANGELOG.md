@@ -12,8 +12,8 @@ What to change when you upgrade from 0.7.x:
   or `{ dialect, type }` have them only with `transaction: true`; Cloudflare D1 never does. Turn them on, or remove
   `scim` from the trust entry. The details are under Security.
 - **A token exchange without client authentication gets `invalid_client`** (HTTP 401) from the issuer, as draft -06
-  section 4.3.3 requires; one that named no client at all got `invalid_request` (HTTP 400). The details are under
-  Fixed.
+  section 4.3.3 requires; one without a `client_id` got `invalid_request` (HTTP 400), even with a `client_secret`. The
+  details are under Fixed.
 
 ### Security
 
