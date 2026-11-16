@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-16
+
+A receiver with SCIM needs a database with native transactions, the issuer answers a token exchange without client authentication with invalid_client, and checkExchange checks an IdP's answer to the token exchange.
+
 ### Breaking
 
 What to change when you upgrade from 0.7.x:
