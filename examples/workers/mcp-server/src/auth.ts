@@ -20,6 +20,13 @@ export interface Env {
   SETUP_KEY: string;
   /** The enterprise IdP's issuer identifier (its /api/auth base URL). */
   IDP_ISSUER: string;
+  /**
+   * Optional: the account namespace users from IDP_ISSUER are linked under (the trust entry's accountProviderId), when
+   * it isn't the default `id-jag:<IDP_ISSUER>`. Set it to the old default after the IdP's issuer changes (a move to a
+   * custom domain), so its users keep their accounts here: a new namespace makes each of them unknown, and the JIT
+   * provisioning refuses an email that already belongs to a user.
+   */
+  IDP_ACCOUNT_PROVIDER_ID?: string;
   /** The same IdP, reached through a service binding: a Worker can't fetch another on the same account by URL. */
   IDP: Fetcher;
   /** Optional: an Okta authorization server issuer, for Cross App Access. */
@@ -33,7 +40,9 @@ export interface Env {
 
 export function createAuth(env: Env, origin: string) {
   const idpHost = new URL(env.IDP_ISSUER).host;
-  const trustedIssuers: StaticTrustedIssuer[] = [{ issuer: env.IDP_ISSUER, jwksUri: `${env.IDP_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true } }];
+  const trustedIssuers: StaticTrustedIssuer[] = [
+    { issuer: env.IDP_ISSUER, jwksUri: `${env.IDP_ISSUER}/jwks`, jitProvisioning: { trustEmailVerified: true }, ...(env.IDP_ACCOUNT_PROVIDER_ID ? { accountProviderId: env.IDP_ACCOUNT_PROVIDER_ID } : {}) },
+  ];
   if (env.OKTA_ISSUER && env.OKTA_JWKS_URI) trustedIssuers.push({ issuer: env.OKTA_ISSUER, jwksUri: env.OKTA_JWKS_URI, jitProvisioning: { trustEmailVerified: true } });
   // xaa.dev's SAML variant puts the SAML NameID in sub_id (draft section 3.2): users resolve by that NameID,
   // under the account key ("xaa-saml", NameID), not by sub.

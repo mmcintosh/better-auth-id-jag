@@ -3,6 +3,8 @@
 // Tokens are signed here with the server's own keys (the same database and secret), as its token endpoint signs them,
 // for a client registered through its /setup and that client's user: on Better Auth 1.8, requireMcpAuth also checks
 // both exist (and that the client isn't disabled), as they do for every token the endpoint issues.
+// One test also exchanges an ID-JAG at the token endpoint, signed with a stand-in IdP key served through the IDP binding.
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 import m0001 from "../../examples/workers/mcp-server/migrations/0001_init.sql?raw";
 import m0002 from "../../examples/workers/mcp-server/migrations/0002_better_auth_1_8.sql?raw";
@@ -10,6 +12,7 @@ import { REQUIRE_MCP_AUTH_IN_PROCESS } from "../support/better-auth-version";
 
 const workerd = navigator.userAgent === "Cloudflare-Workers";
 const MCP = "https://mcp.example.net";
+const IDP_ISSUER = "https://idp.example.net/api/auth";
 
 // Better Auth 1.7.25 or later: older requireMcpAuth fetches the server's own keys by URL, which a Worker can't do.
 describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as a Worker: /mcp behind requireMcpAuth (workerd, D1)", () => {
@@ -18,7 +21,11 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
   let env: Record<string, unknown>;
   let sign: (claims: Record<string, unknown>) => Promise<string>;
   let clientId: string;
+  let clientSecret: string;
   let userId: string;
+  let idpKey: CryptoKey;
+  let idpJwks: { keys: unknown[] };
+  let createAuthFor: (e: Record<string, unknown>) => unknown;
 
   const rpc = async (body: unknown, token?: string, method = "POST") => {
     const ctx = cf.createExecutionContext();
@@ -35,16 +42,20 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
 
   beforeAll(async () => {
     cf = await import("cloudflare:test");
-    env = { DB: cf.env.DB, BETTER_AUTH_SECRET: "example-mcp-test-secret-at-least-32-characters", SETUP_KEY: "setup-key-that-is-long-enough-for-the-example", IDP_ISSUER: "https://idp.example.net/api/auth", IDP: { fetch: () => new Response("not used", { status: 500 }) } };
+    env = { DB: cf.env.DB, BETTER_AUTH_SECRET: "example-mcp-test-secret-at-least-32-characters", SETUP_KEY: "setup-key-that-is-long-enough-for-the-example", IDP_ISSUER, IDP: { fetch: (url: string) => (url === `${IDP_ISSUER}/jwks` ? Response.json(idpJwks) : new Response("not found", { status: 404 })) } };
+    const pair = await generateKeyPair("ES256", { extractable: true });
+    idpKey = pair.privateKey;
+    idpJwks = { keys: [{ ...(await exportJWK(pair.publicKey)), kid: "idp-1", alg: "ES256", use: "sig" }] };
     for (const sql of [m0001, m0002]) for (const stmt of sql.replace(/^--.*$/gm, "").split(/;\s*\n/).map((s: string) => s.trim()).filter(Boolean)) await cf.env.DB.prepare(stmt).run();
     worker = (await import("../../examples/workers/mcp-server/src/index")).default as never;
     const { createAuth } = await import("../../examples/workers/mcp-server/src/auth");
+    createAuthFor = (e) => createAuth(e as never, MCP);
     const auth = createAuth(env as never, MCP) as unknown as { api: { signJWT(o: { body: { payload: Record<string, unknown> } }): Promise<{ token: string }> } };
     sign = async (payload) => (await auth.api.signJWT({ body: { payload } })).token;
     const ctx = cf.createExecutionContext();
     const made = await worker.fetch(new Request(`${MCP}/setup`, { method: "POST", headers: { "x-setup-key": env.SETUP_KEY as string, "content-type": "application/json" }, body: JSON.stringify({ email: "operator@example.net", password: "example-password-1234" }) }), env, ctx);
     await cf.waitOnExecutionContext(ctx);
-    clientId = ((await made.json()) as { client_id: string }).client_id;
+    ({ client_id: clientId, client_secret: clientSecret } = (await made.json()) as { client_id: string; client_secret: string });
     const context = await (createAuth(env as never, MCP) as unknown as { $context: Promise<{ internalAdapter: { findUserByEmail(e: string): Promise<{ user: { id: string } } | null> } }> }).$context;
     userId = (await context.internalAdapter.findUserByEmail("operator@example.net"))?.user.id ?? "";
     expect(clientId && userId).toBeTruthy();
@@ -90,5 +101,36 @@ describe.skipIf(!workerd || !REQUIRE_MCP_AUTH_IN_PROCESS)("example MCP server as
     await cf.waitOnExecutionContext(ctx);
     expect(r.status).toBe(308);
     expect(r.headers.get("location")).toBe(`${MCP}/mcp`);
+  });
+
+  it("after the IdP's issuer changes, IDP_ACCOUNT_PROVIDER_ID keeps its users: without it, a user linked under the old issuer is unknown", async () => {
+    const OLD_NAMESPACE = "id-jag:https://old-idp.example.net/api/auth";
+    const context = await (createAuthFor(env) as unknown as { $context: Promise<{ internalAdapter: { createUser(u: Record<string, unknown>): Promise<{ id: string }>; linkAccount(a: Record<string, unknown>): Promise<unknown> } }> }).$context;
+    const moved = await context.internalAdapter.createUser({ email: "moved@example.net", name: "Moved", emailVerified: true });
+    await context.internalAdapter.linkAccount({ userId: moved.id, providerId: OLD_NAMESPACE, accountId: "idp-sub-moved" });
+    // The Worker keeps one auth instance per origin, built from the env of its first request: each setting gets its own
+    // origin, and its own client (a client is linked to one origin's resource).
+    const KEPT = "https://mcp-kept.example.net";
+    const keptEnv = { ...env, IDP_ACCOUNT_PROVIDER_ID: OLD_NAMESPACE };
+    const setupCtx = cf.createExecutionContext();
+    const made = await worker.fetch(new Request(`${KEPT}/setup`, { method: "POST", headers: { "x-setup-key": env.SETUP_KEY as string, "content-type": "application/json" }, body: JSON.stringify({ email: "operator-kept@example.net", password: "example-password-1234" }) }), keptEnv, setupCtx);
+    await cf.waitOnExecutionContext(setupCtx);
+    const keptClient = (await made.json()) as { client_id: string; client_secret: string };
+    const exchange = async (origin: string, workerEnv: Record<string, unknown>, client = { client_id: clientId, client_secret: clientSecret }) => {
+      const now = Math.floor(Date.now() / 1000);
+      const assertion = await new SignJWT({ iss: IDP_ISSUER, sub: "idp-sub-moved", aud: `${origin}/api/auth`, client_id: client.client_id, jti: crypto.randomUUID(), iat: now, exp: now + 300, resource: `${origin}/mcp`, scope: "read", email: "moved@example.net", email_verified: true })
+        .setProtectedHeader({ alg: "ES256", typ: "oauth-id-jag+jwt", kid: "idp-1" })
+        .sign(idpKey);
+      const ctx = cf.createExecutionContext();
+      const r = await worker.fetch(new Request(`${origin}/api/auth/oauth2/token`, { method: "POST", headers: { authorization: `Basic ${btoa(`${client.client_id}:${client.client_secret}`)}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString() }), workerEnv, ctx);
+      await cf.waitOnExecutionContext(ctx);
+      return { status: r.status, json: (await r.json()) as { error?: string; access_token?: string } };
+    };
+    // The default namespace is the new issuer's: this user is unknown there, and JIT refuses an email that has a user.
+    expect(await exchange(MCP, env)).toMatchObject({ status: 400, json: { error: "access_denied" } });
+    const kept = await exchange(KEPT, keptEnv, keptClient);
+    expect(kept.status).toBe(200);
+    const claims = JSON.parse(atob((kept.json.access_token ?? "").split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub?: string };
+    expect(claims.sub).toBe(moved.id);
   });
 });

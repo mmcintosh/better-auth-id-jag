@@ -77,6 +77,10 @@ other address, such as the `workers.dev` one, gets a 308 to the same path on the
 Without `PUBLIC_ORIGIN`, each Worker answers as the address it was reached at, which is what local development needs. An
 issuer identifier that changes this way also changes for every client and trust setting that names it: the MCP server's
 `IDP_ISSUER`, a registration at the public tester, an Okta or xaa.dev resource-app setup, an MCP client's configuration.
+The MCP server links the IdP's users under the account namespace `id-jag:<issuer>`, so after the IdP's issuer changes,
+set the MCP server's `IDP_ACCOUNT_PROVIDER_ID` to the old one (`id-jag:https://<old idp>/api/auth`) to keep them.
+Without it, each of them is unknown there (`unknown_subject`), and JIT provisioning refuses an email that already has a
+user. The clients `client.mjs` registered have the old address as their redirect: run it with `--setup` again.
 
 ```sh
 SETUP_KEY_FILE=<file> node examples/workers/client.mjs https://<idp> https://<mcp> --setup   # once
