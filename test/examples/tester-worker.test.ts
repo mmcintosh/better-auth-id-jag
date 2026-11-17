@@ -357,16 +357,29 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     expect(txt).toContain("\n> ");
     expect(txt).toContain(`(${ORIGIN}/help.md)`);
     expect(txt).toContain(`\`${ORIGIN}/api/auth\``);
-    // The info links: on the home page, the register form, the page after registering, and the results page (with the
-    // run's form and the mint box). Each points at a section, and each step of the run has one.
+    // The info links: on the home page (signed out), the register form, the page after registering, the page before the
+    // IdP's sign-in, and the results page (with the run's form and the mint box). Each points at a section, and each step
+    // has one, from signing in here to deleting your data.
     const view = { registrationId: "r", active: true, issuer: "https://idp.example.org", clientId: "c", expiresAt: Date.now() + 3_600_000, pending: true, ended: null, metadata: [], checks: [{ at: Date.now(), checkedAgainst: "x", jti: "j", httpStatus: 200, error: null, results: [], receiver: null }] };
     const rendered = await Promise.all(
-      [pages.landing(false, false, ["github"]), pages.registerForm("k"), pages.registered({ origin: ORIGIN, registrationId: "r", clientId: "c", clientSecret: "s", authMethod: "client_secret_basic", issuer: "https://idp.example.org", expiresAt: Date.now() + 3_600_000, report: [] }), pages.results([view], "n", ORIGIN)].map((r) => r.text()),
+      [pages.landing(false, false, ["github"]), pages.registerForm("k"), pages.registered({ origin: ORIGIN, registrationId: "r", clientId: "c", clientSecret: "s", authMethod: "client_secret_basic", issuer: "https://idp.example.org", expiresAt: Date.now() + 3_600_000, report: [] }), pages.results([view], "n", ORIGIN), pages.continueToIdp("https://idp.example.org/authorize", "idp.example.org", 10, "")].map((r) => r.text()),
     );
     const linked = new Set(rendered.flatMap((h) => [...h.matchAll(/href="\/help#([a-z-]+)"/g)].map((m) => m[1] as string)));
     expect([...linked].filter((id) => !HELP.some((s) => s.id === id)), "info links to no section").toEqual([]);
-    for (const id of ["register", "confirm", "run", "run-client", "run-details", "run-checks", "run-sign-in", "mint", "own-code", "report"]) expect(linked, id).toContain(id);
+    for (const id of ["what", "sign-in", "register", "confirm", "run", "run-client", "run-details", "run-checks", "run-sign-in", "mint", "own-code", "report", "data"]) expect(linked, id).toContain(id);
+    // Every page a builder passes through has at least one.
+    for (const h of rendered) expect(h).toContain('class="help" href="/help#');
     for (const h of rendered) expect(h).toContain('<a href="/help">Help</a>');
+    // The footer's two links have one each too, on every page.
+    for (const h of rendered) expect(h).toContain('<a href="/llms.txt">For AI assistants</a><a class="help" href="/help#assistants"');
+    // Every page carries the header band with the logo, and a report opens with its summary: the receiver's decision,
+    // the rules passed (info lines don't count), and the refusal checks when the run sent them.
+    for (const h of rendered) expect(h).toContain('<header class="top"><div class="in"><a class="brand" href="/"><img src="/logo.svg"');
+    const rule = (id: string, outcome: string) => ({ id, outcome, level: "MUST", cite: "x", message: "m" });
+    const scored = await pages.results([{ ...view, checks: [{ ...view.checks[0]!, results: [rule("claim.iss", "pass"), rule("claim.aud", "fail"), rule("header.alg.rs256", "info"), rule("probe.two_audiences", "pass"), rule("probe.unknown_audience", "fail")] }] }] as never, "n", ORIGIN).text();
+    expect(scored).toContain('<div class="tile"><b>2 / 4</b><span>rules passed</span></div>');
+    expect(scored).toContain('<div class="tile"><b>1 / 2</b><span>refusal checks</span></div>');
+    expect(rendered[3]).not.toContain("refusal checks");
   });
 
   it("one active registration per tester, accounts at least 30 days old, same-origin forms only", async () => {
