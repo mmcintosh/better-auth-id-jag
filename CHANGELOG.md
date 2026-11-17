@@ -15,6 +15,9 @@
 
 ### Example
 
+- **The example IdP's sign-in and consent pages have a design**, a lighter one in the same family as the public
+  tester's: a card with the demo IdP's own mark (inline, so the pages still load nothing), the logo's charcoal and cyan,
+  Allow and Deny side by side, and light and dark from the system. Tested in workerd.
 - **The public tester has its own help**: `/help` walks through each step with the deployment's own values, how to
   read a report, and common problems, and an ⓘ next to each step on the tester's pages links to its part. The same
   text is Markdown at `/help.md`, for a builder's AI assistant, and `/llms.txt` points an assistant at it, the full
