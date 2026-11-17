@@ -370,6 +370,16 @@ describe.skipIf(!workerd)("tester Worker (workerd, D1)", () => {
     // Every page a builder passes through has at least one.
     for (const h of rendered) expect(h).toContain('class="help" href="/help#');
     for (const h of rendered) expect(h).toContain('<a href="/help">Help</a>');
+    // The footer's two links have one each too, on every page.
+    for (const h of rendered) expect(h).toContain('<a href="/llms.txt">For AI assistants</a><a class="help" href="/help#assistants"');
+    // Every page carries the header band with the logo, and a report opens with its summary: the receiver's decision,
+    // the rules passed (info lines don't count), and the refusal checks when the run sent them.
+    for (const h of rendered) expect(h).toContain('<header class="top"><div class="in"><a class="brand" href="/"><img src="/logo.svg"');
+    const rule = (id: string, outcome: string) => ({ id, outcome, level: "MUST", cite: "x", message: "m" });
+    const scored = await pages.results([{ ...view, checks: [{ ...view.checks[0]!, results: [rule("claim.iss", "pass"), rule("claim.aud", "fail"), rule("header.alg.rs256", "info"), rule("probe.two_audiences", "pass"), rule("probe.unknown_audience", "fail")] }] }] as never, "n", ORIGIN).text();
+    expect(scored).toContain('<div class="tile"><b>2 / 4</b><span>rules passed</span></div>');
+    expect(scored).toContain('<div class="tile"><b>1 / 2</b><span>refusal checks</span></div>');
+    expect(rendered[3]).not.toContain("refusal checks");
   });
 
   it("one active registration per tester, accounts at least 30 days old, same-origin forms only", async () => {

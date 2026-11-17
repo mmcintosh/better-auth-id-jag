@@ -20,9 +20,14 @@
   text is Markdown at `/help.md`, for a builder's AI assistant, and `/llms.txt` points an assistant at it, the full
   guide and the draft. One source (`src/help.ts`) makes all three. Tested in workerd: every info link points at a
   section.
+- **The tester has a design, from its logo**: a header band in the logo's charcoal on every page (the logo, Home, Your
+  results, Help), the home page's four steps as cards like the logo's bricks, the info link as a small cyan dot like
+  its check, each rule's outcome as a coloured pill, and each report opening with its summary (the receiver's
+  decision, the rules passed, and the refusal checks when the run sent them). Light and dark follow the system; system
+  fonts only, so the pages still load nothing from other sites. Tested in workerd.
 - **Every tester page a builder passes through has an ⓘ**, from the signed-out home page (what the tester is,
-  signing in, each step) to the page before the IdP's sign-in and "Test again" and "Delete my data now" on the results
-  page. Tested in workerd: each of those pages has one, and each step's help section has one pointing at it.
+  signing in, each step) to the page before the IdP's sign-in, "Test again" and "Delete my data now" on the results
+  page, and the footer's Help and For AI assistants on every page. Tested in workerd: each of those pages has one, and each step's help section has one pointing at it.
 - **The example IdP and MCP server can serve from one custom domain** (`PUBLIC_ORIGIN`): their issuer identifier is
   then always that origin's, and a request to another address (the `workers.dev` one) gets a 308 to the same path
   there. Unset, as in local development, nothing changes. Tested in workerd for both.

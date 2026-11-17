@@ -752,7 +752,7 @@ describe.skipIf(!workerd)("tester: run the whole flow (workerd, D1)", () => {
     // After a run the reports come first; running again is folded below them.
     expect(results).not.toContain(RUN_OPEN);
     expect(results.indexOf("<h3>Reports")).toBeGreaterThan(-1);
-    expect(results.indexOf("<h3>Reports")).toBeLessThan(results.indexOf("<summary><strong>Test again: run the whole flow</strong></summary>"));
+    expect(results.indexOf("<h3>Reports")).toBeLessThan(results.indexOf("<summary><strong>Test again: run the whole flow</strong>"));
     expect(results.indexOf("<h3>Reports")).toBeLessThan(results.indexOf('id="run"'));
     for (const text of ["Step 1. At your IdP, create a client for the tester", "Client id <span class=\"muted\">(from step 1, at your IdP)", '<option value="auto">Automatic', "Recommended: check that your IdP refuses wrong requests", "Optional: try a refresh token", "Step-by-step help"]) expect(results).toContain(text);
     expect(results).toContain("<details open><summary>Your metadata and keys: <span class=\"pass\">every rule passed</span>");
