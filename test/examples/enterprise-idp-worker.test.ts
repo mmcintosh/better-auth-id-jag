@@ -70,6 +70,11 @@ describe.skipIf(!workerd)("example IdP as a Worker: a tester client, sign-in and
     const session = await call("/api/auth/get-session", { headers: { cookie } });
     expect(((await session.json()) as { user?: { email?: string } }).user?.email).toBe(EMAIL);
     expect(html).toContain('offline_access: "keep access while you\'re away (a refresh token)"');
+    // Both pages wear the demo IdP's own mark (inline, so the policy still loads nothing), the sign-in page with its form.
+    expect(html).toContain('<div class="mark"><svg ');
+    const login = await (await call("/login")).text();
+    expect(login).toContain('<div class="mark"><svg ');
+    expect(login).toContain('<form id="f">');
 
     // What the page's Allow sends: the signed part of the query.
     const names = new Set(to.searchParams.getAll("ba_param"));

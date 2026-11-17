@@ -98,20 +98,51 @@ const names = new Set(params.getAll("ba_param"));
 const signed = new URLSearchParams();
 for (const [k, v] of params) if (k === "sig" || k === "ba_param" || names.has(k)) signed.append(k, v);`;
 
+// The two pages' look: the same family as the public tester's (its logo's charcoal and cyans, system fonts, light and
+// dark from the system), lighter, and with its own mark, since this plays a company's own IdP, not the tester. Nothing
+// is loaded from anywhere: the mark is inline SVG, and the policy allows no images or fonts.
+const IDP_STYLE = `:root { --ink: #18181b; --cyan: #22d3ee; --bg: #f6f7f8; --card: #ffffff; --fg: #18181b; --muted: #52525b; --line: #e4e4e7;
+  --accent: #0e7490; --error: #b91c1c; --button: #18181b; --button-fg: #ffffff; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0f0f11; --card: #18181b; --fg: #f4f4f5; --muted: #a1a1aa; --line: #2e2e33; --accent: #22d3ee;
+  --error: #f87171; --button: #22d3ee; --button-fg: #18181b; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex; flex-direction: column; align-items: center; padding: 48px 16px; }
+.card { width: 100%; max-width: 24rem; background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--cyan); border-radius: 14px; padding: 24px; }
+.mark { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-weight: 650; }
+.mark small { font-weight: 400; color: var(--muted); font-size: 0.8rem; border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+h1 { font-size: 1.4rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+p, li { color: var(--fg); } .muted { color: var(--muted); }
+label { display: block; font-weight: 600; font-size: 0.95rem; }
+input { display: block; width: 100%; margin: 4px 0 16px; padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+input:focus { outline: 2px solid var(--cyan); outline-offset: 1px; }
+button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 10px; border: 1px solid var(--button); background: var(--button); color: var(--button-fg); cursor: pointer; }
+button.quiet { background: transparent; color: var(--fg); border-color: var(--line); }
+button:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
+form button, .actions button { width: 100%; } .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+ul { padding-left: 1.2rem; } #error { color: var(--error); min-height: 1.6em; margin: 12px 0 0; }
+footer { max-width: 24rem; margin-top: 16px; font-size: 0.85rem; color: var(--muted); text-align: center; }`;
+
+const IDP_MARK = `<div class="mark"><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7" fill="#18181b"/><circle cx="14" cy="11" r="4.5" fill="#22d3ee"/><path d="M6.5 22c1.2-4 4.2-6 7.5-6s6.3 2 7.5 6" fill="none" stroke="#0891b2" stroke-width="3" stroke-linecap="round"/></svg>Example IdP <small>demo</small></div>`;
+
+const IDP_FOOTER = `<footer>A demo identity provider for better-auth-id-jag's examples. Use the demo users only.</footer>`;
+
 // The sign-in page. oauth-provider sends the browser here with a signed copy of the authorization request;
 // signing in with that copy (oauth_query) makes the provider answer with where to go next: the client's
 // redirect with a code. The demo users are created by /setup; there is no sign-up.
 const LOGIN_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Example IdP: sign in</title>
-<style>body{font:16px system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}label,input,button{display:block;width:100%;box-sizing:border-box}input{margin:.25rem 0 1rem;padding:.5rem}button{padding:.6rem}#error{color:#b00020}</style>
-</head><body>
-<h1>Example IdP</h1>
-<p>Sign in to continue to the application that sent you here.</p>
+<style>${IDP_STYLE}</style>
+</head><body><main class="card">
+${IDP_MARK}
+<h1>Sign in</h1>
+<p class="muted">Sign in to continue to the application that sent you here.</p>
 <form id="f"><label>Email <input id="email" type="email" autocomplete="username" required></label>
 <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
 <button type="submit">Sign in</button></form>
-<p id="error" role="alert"></p>
+<p id="error" role="alert"></p></main>
+${IDP_FOOTER}
 <script>
 ${SIGNED_QUERY}
 document.getElementById("f").addEventListener("submit", async (e) => {
@@ -135,15 +166,17 @@ document.getElementById("f").addEventListener("submit", async (e) => {
 const CONSENT_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Example IdP: allow access</title>
-<style>body{font:16px system-ui,sans-serif;max-width:22rem;margin:4rem auto;padding:0 1rem}button{padding:.6rem;margin-right:.5rem}#error{color:#b00020}</style>
-</head><body>
-<h1>Example IdP</h1>
-<p>An application sent you here to sign in with your Example IdP account.<span id="who"></span></p>
+<style>${IDP_STYLE}</style>
+</head><body><main class="card">
+${IDP_MARK}
+<h1>Allow access?</h1>
+<p class="muted">An application sent you here to sign in with your Example IdP account.<span id="who"></span></p>
 <p><strong id="client"></strong> asks to:</p>
 <ul id="scopes"></ul>
-<p>Allow lets it continue; Deny sends you back to it with no access.</p>
-<p><button id="allow" type="button">Allow</button><button id="deny" type="button">Deny</button></p>
-<p id="error" role="alert"></p>
+<p class="muted">Allow lets it continue; Deny sends you back to it with no access.</p>
+<div class="actions"><button id="allow" type="button">Allow</button><button id="deny" type="button" class="quiet">Deny</button></div>
+<p id="error" role="alert"></p></main>
+${IDP_FOOTER}
 <script>
 ${SIGNED_QUERY}
 document.getElementById("client").textContent = params.get("client_id") || "(unknown)";
