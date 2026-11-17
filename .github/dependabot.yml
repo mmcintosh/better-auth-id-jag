@@ -31,6 +31,7 @@ updates:
       - dependency-name: http-cache-semantics
       - dependency-name: glob
       - dependency-name: minimatch
+      - dependency-name: picomatch
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

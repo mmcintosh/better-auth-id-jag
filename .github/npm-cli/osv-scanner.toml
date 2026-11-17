@@ -44,3 +44,8 @@ reason = "glob, bundled inside npm (release job only); updated only by a newer n
 id = "GHSA-g3hv-75wg-m249"
 ignoreUntil = 2027-01-06T00:00:00Z
 reason = "minimatch, bundled inside npm (release job only); updated only by a newer npm"
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2027-01-06T00:00:00Z
+reason = "picomatch, bundled inside npm (release job only); no fixed picomatch release yet"

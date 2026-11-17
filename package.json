@@ -119,6 +119,11 @@
       "undici@>=7.0.0 <7.30.1": "^7.30.1",
       "@cloudflare/vitest-plugin>zod@<4.6.6": "^4.6.6",
       "fast-xml-parser@<5.12.0": "^5.12.0"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-fc5q-39xc-vjpf"
+      ]
     }
   },
   "peerDependenciesMeta": {
