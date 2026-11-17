@@ -1885,3 +1885,25 @@ every step `continue-on-error`, so it showed success while its tests failed: 28 
   passed, 186 skipped; it was 74 failed); typecheck on both. `test/receiver/options.test.ts` checks that `act` reaches
   `issueTokens` both ways, and `test/issuer/other-token-exchange.test.ts` the `name` label, both on 1.7. 3 new entries
   in `test/mutations/` (1 receiver, 2 issuer), all caught.
+
+## D-081: the runtime audit ignores one picomatch advisory, which has no fix yet (2026-11-17)
+
+GHSA-fc5q-39xc-vjpf (CVE-2026-112366, high) is a ReDoS in picomatch: a glob such as `+(*)` can make it backtrack for
+a very long time on a short string. It was published on 2026-10-19 and updated on 2026-11-17 to cover every release up
+to 4.0.7, the latest. There is no fixed release, so an override (as in D-021 and D-051) has nothing to point at. The
+runtime audit has failed since that update, on main from `cb12e63` and on every pull request.
+
+The audit reaches picomatch through `better-auth-saml-idp` → `better-auth` → `vitest` → `picomatch`. Vitest is one of
+Better Auth's optional peers, and the audit counts it the way D-021 describes. This package doesn't ship picomatch, and
+the only globs Vitest gives it come from our own test configuration.
+
+- **`pnpm.auditConfig.ignoreGhsas` in `package.json` lists this one advisory.** The audit still fails on any other
+  advisory, picomatch's included. With the entry, `pnpm audit --prod --audit-level low` exits 0 and reports it as
+  ignored; without it, it exits 1.
+- **The npm CLI the release job stages with (`.github/npm-cli`) bundles picomatch 4.0.5** inside its own copy of
+  tinyglobby. As with D-054, it can only change with a newer npm, so the advisory goes into that folder's
+  `osv-scanner.toml` (until 2027-01-06) and picomatch into Dependabot's ignore list for the folder.
+- **Dependabot alerts #42 (`.github/npm-cli`) and #43 (`pnpm-lock.yaml`)** are dismissed as tolerable risk once this
+  is merged (the maintainer's decision, 2026-11-17).
+- **When picomatch publishes a fix,** remove the `ignoreGhsas` entry. If Vitest's range doesn't bring the fixed
+  version in by itself, add an override as in D-021.
