@@ -81,7 +81,7 @@ const runForm = (origin: string, registrationId: string, clientId: string) => `<
 
 /** "Run the whole flow", between the form and the IdP: the pages' policy lets forms post only to this site. */
 export function continueToIdp(to: string, host: string, minutes: number, authNote: string): Response {
-  return page("Sign in at your IdP", `<h1>Sign in at your IdP</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p>There you sign in with one of <strong>your IdP's own users</strong>, not your GitHub or GitLab account (that sign-in was only for this site). If you're already signed in there, your IdP may only ask you to allow the tester's client; if you ticked "try a refresh token", it also asks for <code>offline_access</code>, which is that refresh token.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">${esc(authNote)} The run waits ${minutes} minutes.</p>${FOOTER}`);
+  return page("Sign in at your IdP", `<h1>Sign in at your IdP${helpLink("run-sign-in", "signing in at your IdP")}</h1><p>The tester has started the run. Continue to your IdP's sign-in at <code>${esc(host)}</code>; it sends you back here, and the tester does the rest.</p><p>There you sign in with one of <strong>your IdP's own users</strong>, not your GitHub or GitLab account (that sign-in was only for this site). If you're already signed in there, your IdP may only ask you to allow the tester's client; if you ticked "try a refresh token", it also asks for <code>offline_access</code>, which is that refresh token.</p><p><a href="${esc(to)}"><strong>Continue to ${esc(host)}</strong></a></p><p class="muted">${esc(authNote)} The run waits ${minutes} minutes.</p>${FOOTER}`);
 }
 
 /** A run's ID-JAG that the tester's own token endpoint kept from the receiver, and why (index.ts, notRedeemed). */
@@ -117,9 +117,9 @@ export function landing(signedIn: boolean, closed: boolean, providers: (keyof ty
   return page(
     "Test your IdP",
     `<h1><img src="/logo.svg" alt="" width="40" height="40" style="vertical-align:middle;margin-right:10px">Test your IdP</h1>
-<p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).</p>
+<p class="muted">For people building an ID-JAG issuer (draft-ietf-oauth-identity-assertion-authz-grant-06).${helpLink("what", "what the tester is")}</p>
 <p>Register your IdP, send this receiver an ID-JAG, and see every rule it passed or failed, with the draft section for each, next to what a real receiver decided.</p>
-<ol><li>Sign in with ${names} (accounts at least 30 days old).</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint, or let the tester run the whole flow with a client at your IdP. The first ID-JAG signed with your issuer's published key confirms that you run it.</li><li>Read the report.</li></ol>
+<ol><li>Sign in with ${names} (accounts at least 30 days old).${helpLink("sign-in", "signing in")}</li><li>Enter your issuer. You get a client id and secret here, for 24 hours.${helpLink("register", "registering your issuer")}</li><li>Mint an ID-JAG for this receiver and redeem it at the token endpoint, or let the tester run the whole flow with a client at your IdP. The first ID-JAG signed with your issuer's published key confirms that you run it.${helpLink("run", "running the whole flow")}</li><li>Read the report.${helpLink("report", "reading a report")}</li></ol>
 <p><a href="/help">Help: every step in detail</a></p>
 ${signInFailed ? '<p class="fail">The sign-in didn\'t complete. Try again.</p>' : ""}
 ${closed ? '<p class="fail">The tester is closed for now.</p>' : signedIn ? '<p><a href="/register">Register an IdP</a> &middot; <a href="/results">Your results</a></p><form method="post" action="/signout"><button>Sign out</button></form>' : signIn}
@@ -218,11 +218,11 @@ ${
         .join("")
     : '<p class="muted">No ID-JAGs redeemed yet.</p>'
 }
-${v.active && v.checks.length ? `<details class="box"><summary><strong>Test again: run the whole flow</strong></summary>${runForm(origin, v.registrationId, v.clientId)}</details>${mintBox(origin, v.registrationId, v.issuer, v.clientId)}` : ""}</div>`,
+${v.active && v.checks.length ? `<details class="box"><summary><strong>Test again: run the whole flow</strong>${helpLink("run", "running the whole flow")}</summary>${runForm(origin, v.registrationId, v.clientId)}</details>${mintBox(origin, v.registrationId, v.issuer, v.clientId)}` : ""}</div>`,
         )
         .join("")
     : '<p class="muted">No registrations. <a href="/register">Register an IdP</a>.</p>';
-  const deleteForm = `<div class="box"><p><strong>Delete my data now.</strong> Ends your registrations and deletes them, their results, and your sign-in record at once. Only the anonymous abuse record remains, for up to 7 days.</p><form method="post" action="/delete"><button>Delete my data now</button></form></div>`;
+  const deleteForm = `<div class="box"><p><strong>Delete my data now.</strong>${helpLink("data", "your data")} Ends your registrations and deletes them, their results, and your sign-in record at once. Only the anonymous abuse record remains, for up to 7 days.</p><form method="post" action="/delete"><button>Delete my data now</button></form></div>`;
   return page("Your results", `<h1>Your results</h1><p class="muted">Signed in as ${esc(name)}.</p><p><a href="/">Home</a> &middot; <a href="/register">Register</a></p>${body}${deleteForm}${FOOTER}`);
 }
 

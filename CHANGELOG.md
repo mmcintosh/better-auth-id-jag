@@ -20,6 +20,9 @@
   text is Markdown at `/help.md`, for a builder's AI assistant, and `/llms.txt` points an assistant at it, the full
   guide and the draft. One source (`src/help.ts`) makes all three. Tested in workerd: every info link points at a
   section.
+- **Every tester page a builder passes through has an ⓘ**, from the signed-out home page (what the tester is,
+  signing in, each step) to the page before the IdP's sign-in and "Test again" and "Delete my data now" on the results
+  page. Tested in workerd: each of those pages has one, and each step's help section has one pointing at it.
 - **The example IdP and MCP server can serve from one custom domain** (`PUBLIC_ORIGIN`): their issuer identifier is
   then always that origin's, and a request to another address (the `workers.dev` one) gets a 308 to the same path
   there. Unset, as in local development, nothing changes. Tested in workerd for both.
