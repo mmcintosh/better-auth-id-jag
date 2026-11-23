@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **better-auth-saml-idp, for SAML subject tokens, is now `>=1.8.0 <2`** (the optional peer; was `>=1.2.0 <2`).
+  The interface this package uses hasn't changed since 1.2.0 (`samlIdpExchange` version 1), but 1.8.0 is the release
+  it is now tested against: the SAML end-to-end test (`test/interop/saml-idp-e2e`) passes all 19 checks on it, with
+  Better Auth 1.7.27. Every earlier better-auth-saml-idp release is deprecated on npm ("Allows Better Auth versions
+  with security advisories; upgrade to 1.8.0 or later, with Better Auth 1.7.16+"), and 1.8.0 asks for the same Better
+  Auth range as this package (`>=1.7.16 <1.8.0`). A host without better-auth-saml-idp isn't affected. With an older
+  one installed, npm moves it to 1.8.0 when the host's own range allows that (`^1.7.1` does), and stops with
+  `ERESOLVE` when it doesn't (an exact `1.7.1`) until the host raises it; pnpm keeps the older one and warns about the
+  peer.
 - **Ready for Better Auth 1.8, which the peer range doesn't allow yet (`<1.8.0`).** On 1.8.0-beta.10, the suite
   passes. The receiver also passes the ID-JAG's `act` to oauth-provider as its own `act` parameter: 1.8 drops `act`
   from the extra claims, where 1.7 takes it, so an agent's access token would have read as a person's.
