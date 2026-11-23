@@ -442,7 +442,7 @@ provenance).
   against it.
 - `pnpm pack:check` is still clean with the new peers.
 
-## D-021: audit overrides (2026-10-06)
+## D-021: audit overrides (2026-10-06) (removed by D-082)
 
 The Dependencies workflow's runtime audit failed on `96d138d`. Declaring `better-auth-saml-idp` as an (optional) peer
 (D-020) let pnpm install it with Better Auth's own optional peers (Prisma, mysql2), which brought `deepmerge-ts` <8
@@ -1060,7 +1060,7 @@ The maintainer's decision (2026-10-20: "move to 1.7.12").
   inside the range moves only the lockfile; the exact development pins are bumped as before.
   No advisory covers zod 4.6.x or jose 6.2.x.
 
-## D-051: `fast-uri`, `undici` and a development `zod` overrides, as D-021 (2026-10-26)
+## D-051: `fast-uri`, `undici` and a development `zod` overrides, as D-021 (2026-10-26) (removed by D-082)
 
 The nightly runtime audit (`pnpm audit --prod`) failed from 2026-10-24: four `fast-uri` advisories in <3.1.9,
 published 2026-10-23 (GHSA-w74x-v6f9-j3xg and GHSA-wjr9-j795-jxcr moderate, GHSA-xhq7-xmqj-769h and
@@ -1592,7 +1592,7 @@ The public tester (`examples/workers/tester`):
 - **Evidence:** `test/examples/tester-worker.test.ts` (workerd, D1), a test for each, each failing with its fix taken
   out.
 
-## D-072: a development `fast-xml-parser` override, as D-051 (2026-11-11)
+## D-072: a development `fast-xml-parser` override, as D-051 (2026-11-11) (removed by D-082)
 
 GHSA-474x-hrwr-fgx4 (low, published 2026-11-10): `fast-xml-parser` up to 5.11.2 spends quadratic CPU on a stop-node
 body with many unterminated tags, and only with the non-default `stopNodes` option. Fixed in 5.12.0. The path is
@@ -1886,7 +1886,7 @@ every step `continue-on-error`, so it showed success while its tests failed: 28 
   `issueTokens` both ways, and `test/issuer/other-token-exchange.test.ts` the `name` label, both on 1.7. 3 new entries
   in `test/mutations/` (1 receiver, 2 issuer), all caught.
 
-## D-081: the runtime audit ignores one picomatch advisory, which has no fix yet (2026-11-17)
+## D-081: the runtime audit ignores one picomatch advisory, which has no fix yet (2026-11-17) (undone by D-082)
 
 GHSA-fc5q-39xc-vjpf (CVE-2026-112366, high) is a ReDoS in picomatch: a glob such as `+(*)` can make it backtrack for
 a very long time on a short string. It was published on 2026-10-19 and updated on 2026-11-17 to cover every release up
@@ -1907,3 +1907,59 @@ the only globs Vitest gives it come from our own test configuration.
   is merged (the maintainer's decision, 2026-11-17).
 - **When picomatch publishes a fix,** remove the `ignoreGhsas` entry. If Vitest's range doesn't bring the fixed
   version in by itself, add an override as in D-021.
+
+## D-082: better-auth-saml-idp 1.8.0, and the audit workarounds removed (2026-11-22)
+
+The runtime audit (`pnpm audit --prod`) has failed every night since 2026-11-20 on GHSA-7589-6fvf-x4pw (high, published
+2026-11-19): a ReDoS in `effect`'s `Schema.TemplateLiteral`, in `effect` 3.22.0 and earlier, fixed in 3.22.1. The path
+was `better-auth-saml-idp` 1.2.0 → `better-auth` → `prisma` 7.10.1 → `@prisma/config` → `effect` 3.20.0. `@prisma/config`
+pins `effect` at exactly 3.20.0, and no newer Prisma 7 release exists, so Dependabot's security update failed
+("update_not_possible"). This package ships none of it.
+
+The cause was the same as in D-021 and D-081: `better-auth-saml-idp` was an optional peer and nothing else, so pnpm
+recorded it in the root's production dependencies, and `--prod` walked Better Auth's optional peers through it. Being a
+peer only also left it at 1.2.0 (2026-10-06) in the lockfile, nine releases behind 1.8.0 (2026-11-07), because
+Dependabot never proposes a peer-only package; the SAML end-to-end project's exact pins were not in `dependabot.yml`
+either.
+
+- **`better-auth-saml-idp` 1.8.0 is an exact development dependency**, as `better-auth-scim-provisioning` already is.
+  `pnpm audit --prod` now reaches only what a host installs with this package (`jose`, `zod`) and finds nothing, with no
+  ignore entry. The full audit still lists `effect`, through this repository's own `prisma` development dependency
+  (the adapter tests); the OSV scan reports that tier under code scanning without blocking.
+- **The optional peer is `>=1.8.0 <2`** (was `>=1.2.0 <2`). The code needs nothing newer than 1.2.0: 1.8.0's
+  `dist/exchange.d.ts` has the same `SamlIdpExchange` version 1 and the same nine error codes as
+  `src/issuer/saml-exchange.ts`. The floor is a support choice: every release before 1.8.0 is deprecated on npm ("Allows
+  Better Auth versions with security advisories; upgrade to 1.8.0 or later, with Better Auth 1.7.16+", read
+  2026-11-22), and 1.8.0 is what this package now tests against. 1.8.0's own peers are `better-auth` and
+  `@better-auth/core` `>=1.7.16 <1.8.0`, this package's range. Checked with the packed package in an empty project
+  holding `better-auth-saml-idp@^1.7.1`: npm moved it to 1.8.0 without an error; pnpm kept 1.7.1 and reported a peer
+  issue. With an exact `1.7.1`, npm stops with `ERESOLVE` (`Could not resolve dependency: peerOptional
+  better-auth-saml-idp@">=1.8.0 <2"`), so for those hosts this is a breaking change: a minor release in 0.x. The
+  startup error, the `saml` option's documentation and `docs/tracks/issuer.md` say 1.8.0 too.
+- **The SAML end-to-end project** pins better-auth-saml-idp 1.8.0, `@xmldom/xmldom` 0.9.12 (1.8.0's own range is
+  `^0.9.12`) and `jose` 6.2.18, and Better Auth 1.7.27 with the development pins, all as `devDependencies` now, so
+  Dependabot puts them in the `dev` group with the root's saml-idp rather than in `runtime` (the shipped `jose` and
+  `zod`). Its `@xmldom/xmldom@<0.8.15` override is gone: the one 0.8 copy left is `xml-crypto`'s own, at 0.8.15.
+  `dependabot.yml`'s npm entry now covers `/test/interop/saml-idp-e2e` as well as `/`, with the same Better Auth
+  exclusion and cooldown. That folder's lockfile is git-ignored, so Dependabot updates its `package.json` pins only.
+- **D-081 undone:** GHSA-fc5q-39xc-vjpf (picomatch) was withdrawn on 2026-11-18. The `ignoreGhsas` entry, the
+  `.github/npm-cli/osv-scanner.toml` entry, picomatch in that folder's Dependabot ignore list and the pointer comment in
+  `dependencies.yml` are removed.
+- **The D-021, D-051 and D-072 overrides removed**, all seven. A fresh resolve with none of them (no lockfile) already
+  picks fixed versions of every package they forced: `deepmerge-ts` 8.0.2, `mysql2` 3.24.4 and 3.24.6, `sharp` 0.35.5,
+  `fast-uri` 3.1.9, `undici` 7.30.1, `zod` 4.6.6 and 4.6.7, `fast-xml-parser` 5.12.1; `pnpm audit` on it lists only the
+  `effect` advisory above. Removing them changes no resolved version in the lockfile.
+- **Development pin 1.7.27** (D-048's rule; was 1.7.25), every `better-auth` and `@better-auth/*` package, and
+  `better-call` 1.4.5 → 1.4.6, the exact version 1.7.27 depends on. `@better-auth/utils` stays 0.5.1. 1.7.27's
+  notes that touch this package: unpinned signatures now prefer a key of the primary `jwks.keyPairConfig.alg`
+  (#12655), which is the algorithm `idJagIssuer` checks at startup when `signingAlgorithm` isn't set
+  (`src/issuer/plugin.ts`); the issuer still
+  checks the algorithm of every ID-JAG it signs (`assertIssuableAlgorithm`, `src/issuer/exchange.ts`);
+  `originBoundFields` now defaults to `["post_logout_redirect_uris"]` for CIMD clients (#12822), which this package
+  doesn't set; `jwks_uri` and CIMD fetches work on Cloudflare Workers (#12817). The floor stays 1.7.16: no Better Auth
+  advisory is newer than 2026-11-03.
+- **Evidence:** `pnpm audit --prod --audit-level low` "No known vulnerabilities found"; typecheck, lint, `docs:check`,
+  `pack:check`, the example Workers' and their tests' typecheck, and the three example Workers' `wrangler deploy
+  --dry-run`; the suite 1260 passed, 208 skipped (Node and workerd; the database adapter rows run in CI); every
+  `better-auth` and `@better-auth/*` package once in the lockfile, at 1.7.27; the SAML end-to-end project on 1.7.27
+  with better-auth-saml-idp 1.8.0, 19 passed.

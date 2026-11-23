@@ -2,23 +2,22 @@
   "name": "e2e-saml-idjag",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "better-auth": "1.7.25",
-    "@better-auth/core": "1.7.25",
-    "@better-auth/oauth-provider": "1.7.25",
-    "@better-auth/mcp": "1.7.25",
+  "devDependencies": {
+    "better-auth": "1.7.27",
+    "@better-auth/core": "1.7.27",
+    "@better-auth/oauth-provider": "1.7.27",
+    "@better-auth/mcp": "1.7.27",
     "better-auth-id-jag": "file:../../..",
-    "better-auth-saml-idp": "1.2.0",
-    "@xmldom/xmldom": "0.8.15",
-    "jose": "6.2.12"
+    "better-auth-saml-idp": "1.8.0",
+    "@xmldom/xmldom": "0.9.12",
+    "jose": "6.2.18"
   },
   "pnpm": {
     "overrides": {
-      "better-auth": "1.7.25",
-      "@better-auth/core": "1.7.25",
-      "@better-auth/oauth-provider": "1.7.25",
-      "@better-auth/utils": "0.5.1",
-      "@xmldom/xmldom@<0.8.15": "0.8.15"
+      "better-auth": "1.7.27",
+      "@better-auth/core": "1.7.27",
+      "@better-auth/oauth-provider": "1.7.27",
+      "@better-auth/utils": "0.5.1"
     }
   }
 }

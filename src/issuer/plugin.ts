@@ -53,7 +53,7 @@ export function checkIssuerHost(ctx: AuthContext, state: IssuerState): void {
   // Plugins' init run in order, so it must be installed before this one.
   if (state.options.saml !== undefined && getSamlIdpExchange({ context: ctx }) === undefined)
     throw new Error(
-      "idJagIssuer: the saml option needs better-auth-saml-idp (>= 1.2.0) with token exchange enabled, installed before idJagIssuer() in plugins: ctx.context.samlIdpExchange (version 1) is missing",
+      "idJagIssuer: the saml option needs better-auth-saml-idp (>= 1.8.0) with token exchange enabled, installed before idJagIssuer() in plugins: ctx.context.samlIdpExchange (version 1) is missing",
     );
   if (state.options.allowPublicClients)
     ctx.logger.warn("[id-jag] allowPublicClients is on: public clients can obtain ID-JAGs without client authentication. This is outside draft -06 section 4.3.3, which says the IdP MUST authenticate the client.");

@@ -2,7 +2,7 @@
 
 A real SAML sign-in at better-auth-saml-idp, with assertion exchange on (`tokenExchange` on the SP), is followed by
 our issuer's two SAML paths and our receiver:
-- **Path (b):** the Assertion → a refresh token (draft -06 §4.5) → an ID-JAG → an access token.
+- **Path (b):** the Assertion → a refresh token (draft -06 section 4.5) → an ID-JAG → an access token.
 - **Path (a):** the Assertion → an ID-JAG directly → an access token.
 
 It also checks the attacks that cross the two repositories:
@@ -10,8 +10,8 @@ It also checks the attacks that cross the two repositories:
 - a tampered assertion, refused, and it doesn't burn the real one;
 - another client presenting the agent's assertion with the agent's `client_id` forged in the body, refused on both paths, and it doesn't consume it either.
 
-It runs as its own project, so both packages share **one** Better Auth (pnpm overrides). Both repositories
-develop on 1.7.25.
+It runs as its own project, so both packages share **one** Better Auth (pnpm overrides). This repository
+develops on 1.7.27.
 
 ```sh
 pnpm build                                  # this repository's dist
@@ -21,5 +21,5 @@ pnpm install --ignore-workspace --ignore-scripts   # its own project, not part o
 node e2e.mjs
 ```
 
-It installs better-auth-saml-idp **1.2.0 from npm**, the first release with assertion exchange. To test an
+It installs better-auth-saml-idp **1.8.0 from npm** (the first release with assertion exchange was 1.2.0). To test an
 unreleased branch instead, point the dependency at `file:../../../../better-auth-saml-idp`.

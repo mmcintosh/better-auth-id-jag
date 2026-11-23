@@ -3,8 +3,10 @@
 # 1.7 releases are tested by CI's latest-1.7 matrix entry.
 version: 2
 updates:
+  # The package, and the SAML end-to-end test's own project (its exact pins, saml-idp among them, would otherwise
+  # never be proposed again).
   - package-ecosystem: npm
-    directory: /
+    directories: ["/", "/test/interop/saml-idp-e2e"]
     schedule: { interval: weekly }
     cooldown: { default-days: 3 }
     open-pull-requests-limit: 5
@@ -31,7 +33,6 @@ updates:
       - dependency-name: http-cache-semantics
       - dependency-name: glob
       - dependency-name: minimatch
-      - dependency-name: picomatch
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
