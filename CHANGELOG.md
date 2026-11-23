@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Breaking
+
+What to change when you upgrade from 0.8.x:
+
+- **Only with SAML subject tokens (`saml` on `idJagIssuer()`): better-auth-saml-idp 1.8.0 or later.** Earlier
+  releases are deprecated on npm. Name 1.8.0 or later in your own `package.json`: with an exact older version there,
+  npm stops with `ERESOLVE`, and pnpm keeps the older one and warns about the peer. Without better-auth-saml-idp,
+  nothing changes. The details are under Changed.
+
 ### Changed
 
 - **better-auth-saml-idp, for SAML subject tokens, is now `>=1.8.0 <2`** (the optional peer; was `>=1.2.0 <2`).
@@ -66,6 +75,11 @@
 
 ### Documentation
 
+- **README, checked against every change since 0.8.0.** Test your IdP points to the tester's own help (`/help`,
+  `/help.md`, `/llms.txt`). Install links to what changes for hosts on Better Auth 1.8. Examples says the example MCP
+  server checks tokens with `requireMcpAuth` and so needs Better Auth 1.7.25 or later (this package still needs
+  1.7.16), and that the example IdP and MCP server can serve from one custom domain. Runtimes and databases says the
+  CI row on Better Auth 1.8 fails when a 1.8 release breaks the suite, and isn't required for merging.
 - **Okta and xaa.dev re-run after the example MCP server moved to a custom domain** (`docs/interop.md`): Okta's ID
   token and refresh token, and xaa.dev's OIDC and SAML variants, accepted at the new address, each finding the same
   user as before. **Okta 2026.45.1 issued an ID-JAG with any scope asked for**, whatever the connection allowed
