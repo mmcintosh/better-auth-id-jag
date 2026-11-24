@@ -84,9 +84,9 @@
     "@better-auth/oauth-provider": "1.7.27",
     "@better-auth/scim": "1.7.27",
     "@better-auth/sso": "1.7.27",
-    "@biomejs/biome": "2.6.7",
-    "@cloudflare/vitest-plugin": "1.8.2",
-    "@cloudflare/workers-types": "5.20261114.1",
+    "@biomejs/biome": "2.6.8",
+    "@cloudflare/vitest-plugin": "1.9.0",
+    "@cloudflare/workers-types": "5.20261121.1",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "@types/node": "26.6.6",
@@ -96,16 +96,16 @@
     "better-auth-scim-provisioning": "1.8.2",
     "drizzle-orm": "0.45.4",
     "esbuild": "0.28.2",
-    "fast-check": "4.10.2",
-    "mongodb": "7.9.0",
+    "fast-check": "4.10.3",
+    "mongodb": "7.9.1",
     "mysql2": "3.24.6",
     "pg": "8.23.1",
     "prisma": "7.10.1",
     "publint": "0.3.25",
     "typescript": "7.0.2",
     "typescript-5": "npm:typescript@5.9.3",
-    "vitest": "5.1.0",
-    "wrangler": "4.162.0"
+    "vitest": "5.1.1",
+    "wrangler": "4.166.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
