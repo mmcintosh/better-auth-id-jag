@@ -110,20 +110,20 @@ describe("audit events", () => {
     const { endpoint, settle, rows } = await setup();
     const seen: RefusedEvent[] = [];
     const options: AuditOptions = { events: { onRefused: (e) => void seen.push(e) }, auditLog: { retentionDays: 1 } };
-    const jti = `j ${crypto.randomUUID()}`;
+    const jti = `j\u2028${crypto.randomUUID()}`;
     emit(endpoint({ "user-agent": "agent\u0007\u0085X-Injected: 1", "x-forwarded-for": "203.0.113.9" }), options, {
       type: "id-jag.refused",
       side: "receiver",
       reason: "untrusted_issuer",
       authenticated: true,
       clientId: "c\u0000lient",
-      iss: "https://evil‮.example\n[fake log line]",
+      iss: "https://evil\u202e.example\n[fake log line]",
       jti,
-      detail: "d etail",
+      detail: "d\u2029etail",
     });
     await settle();
     expect(seen[0]).toMatchObject({ iss: "https://evil.example[fake log line]", clientId: "client", detail: "detail", userAgent: "agentX-Injected: 1" });
-    expect(seen[0]?.jti).not.toContain(" ");
+    expect(seen[0]?.jti).not.toContain("\u2028");
     const [row] = (await rows("id-jag.refused")).filter((r) => r.clientId === "client");
     expect(row?.iss).toBe("https://evil.example[fake log line]");
   });
