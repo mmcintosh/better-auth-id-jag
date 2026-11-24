@@ -1963,3 +1963,44 @@ either.
   --dry-run`; the suite 1260 passed, 208 skipped (Node and workerd; the database adapter rows run in CI); every
   `better-auth` and `@better-auth/*` package once in the lockfile, at 1.7.27; the SAML end-to-end project on 1.7.27
   with better-auth-saml-idp 1.8.0, 19 passed.
+
+## D-083: development pin 1.7.28, and the receiver tests' auth instances share one connection lock (2026-11-24)
+
+D-048's rule: development pins follow the newest 1.7.x once it is a day old.
+
+- **Change:** every `better-auth` and `@better-auth/*` development pin 1.7.27 → 1.7.28 (published 2026-11-24), and the
+  SAML end-to-end project with them. `better-call` stays 1.4.6 and `@better-auth/utils` 0.5.1, the versions 1.7.28
+  depends on. The peer range and CI's floor rows stay on 1.7.16: no Better Auth advisory is newer than 2026-11-03
+  (checked 2026-11-24).
+- **Why the tests needed a change:** on 1.7.28, two tests in `test/receiver/concurrency.test.ts` failed, the six
+  parallel JIT grants for one subject held at the account insert, and the same with SAML `sub_id`. 1.7.28 deletes a
+  user inside a transaction (#12858; `deleteUser` in Better Auth's internal adapter), and those tests run two auth
+  instances on one node:sqlite `DatabaseSync`. Given the bare `DatabaseSync`, each instance builds its own Kysely, with
+  its own connection lock, over the one connection, so one instance's `begin` ran inside the other's transaction
+  ("cannot start a transaction within a transaction"). The receiver's cleanup of the losing first use then failed and
+  was logged (`src/receiver/resolve.ts`), and the user it should have removed stayed, never linked to the subject, as
+  that path is meant to fail. Single-instance tests, and every test in workerd on D1, passed on 1.7.28 unchanged.
+- **The fix, in the tests only:** the receiver tests' `database()` (`test/support/receiver-host.ts`) returns, on
+  Node, one Kysely over a fresh in-memory database (`{ db, type: "sqlite", transaction: true }`, Better Auth's own
+  option for a Kysely instance) instead of the bare `DatabaseSync`. Instances given the same one share its lock, as
+  servers sharing a pool queue for its connections; a single instance runs as before, since Better Auth built the same
+  Kysely from the `DatabaseSync` itself. The replay test in `test/receiver/hosts.test.ts` shares one database between
+  two instances the same way and gets the shared lock too. The other helpers (`issuer-host.ts`, `hosts.ts`,
+  `interop-hosts.ts`, `core-host.ts`) keep the bare `DatabaseSync`; the issuer registry tests that share one between
+  instances pass on 1.7.28. A file database per instance was not used: node:sqlite waits for a file lock
+  synchronously, and the lock's holder is in the same thread.
+- **New development dependencies:** `@better-auth/kysely-adapter` (the `NodeSqliteDialect` Better Auth uses for
+  node:sqlite), pinned with the other `@better-auth/*` packages and added to `scripts/use-better-auth.sh`, so CI's
+  matrix moves it too; it has the same dialect from 1.7.16. `kysely` 0.29.9, in the range Better Auth takes
+  (`^0.28.17 || ^0.29.0`), kept current by Dependabot's dev group.
+- **1.7.28's other changes in what this package builds on:** oauth-provider adds a realm to its Basic challenge
+  (#12789) and answers invalid client IDs without a 500 (#12854); overlapping JWKS refreshes keep the newer result
+  (#12850); sso counts providers when enforcing its registration cap (#12929). The suite passes on 1.7.28 with no other
+  change.
+- **Evidence:** `pnpm audit --prod --audit-level low` "No known vulnerabilities found"; typecheck, lint, `docs:check`
+  (139 links), `pack:check`, the example Workers' and their tests' typecheck, and the three example Workers'
+  `wrangler deploy --dry-run`; the suite 1260 passed, 208 skipped (Node and workerd; the database adapter rows run in
+  CI); on 1.7.28 without the `database()` change, `concurrency.test.ts` failed 2 of 14 on each of two runs, and with
+  it, `concurrency.test.ts` and `hosts.test.ts` passed 20 of 20 on each of five runs; every `better-auth` and
+  `@better-auth/*` package once in the lockfile, at 1.7.28, and `kysely` once, at 0.29.9; the SAML end-to-end project
+  on 1.7.28 with better-auth-saml-idp 1.8.0, 19 passed.
