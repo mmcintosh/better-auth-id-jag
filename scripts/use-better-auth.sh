@@ -17,7 +17,7 @@ echo "better-auth $want -> $v"
 # And the @better-auth/utils that version pins: @better-auth/core takes utils as a peer, and pnpm keeps an
 # auto-installed peer at its old version, so going back from 1.7.13 (utils 0.5.1) to 1.7.10 (0.5.0) left two cores.
 u="$(npm view "better-auth@$v" 'dependencies.@better-auth/utils')"
-pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v" "@better-auth/drizzle-adapter@$v" "@better-auth/utils@$u"
+pnpm add -D -E "better-auth@$v" "@better-auth/core@$v" "@better-auth/oauth-provider@$v" "@better-auth/mcp@$v" "@better-auth/cimd@$v" "@better-auth/sso@$v" "@better-auth/scim@$v" "@better-auth/drizzle-adapter@$v" "@better-auth/kysely-adapter@$v" "@better-auth/utils@$u"
 # Then dedupe, so packages that take Better Auth through a range resolve to this version too: @better-auth/mcp and
 # @better-auth/cimd depend on @better-auth/oauth-provider ^1.7.x, and better-auth-saml-idp takes better-auth and
 # @better-auth/core as peers; pnpm otherwise keeps the lockfile's newer copies for them. With the 1.7.22 lockfile, mcp's

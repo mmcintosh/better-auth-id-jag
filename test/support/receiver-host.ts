@@ -25,10 +25,18 @@ export const SCOPES = ["openid", "profile", "email", "offline_access", "read", "
 export const uniqueEmail = (domain = "example.com") => `ada+${crypto.randomUUID()}@${domain}`;
 export const now = () => Math.floor(Date.now() / 1000);
 
+/**
+ * A fresh database: the test file's D1 in workerd; on Node, an in-memory node:sqlite database behind one Kysely, so
+ * auth instances given the same one share its connection lock, as servers sharing a pool do. Given the bare
+ * `DatabaseSync`, each instance would build its own Kysely and lock, and one instance's `begin` could run inside
+ * another's transaction on the one connection ("cannot start a transaction within a transaction"): Better Auth
+ * 1.7.28 deletes users in a transaction (better-auth#12858), which the concurrency tests' cleanup of a losing first
+ * use does.
+ */
 export async function database(): Promise<unknown> {
   if (navigator.userAgent === "Cloudflare-Workers") return (await import("cloudflare:test")).env.DB;
-  const { DatabaseSync } = await import("node:sqlite");
-  return new DatabaseSync(":memory:");
+  const [{ DatabaseSync }, { Kysely }, { NodeSqliteDialect }] = await Promise.all([import("node:sqlite"), import("kysely"), import("@better-auth/kysely-adapter/node-sqlite-dialect")]);
+  return { db: new Kysely({ dialect: new NodeSqliteDialect({ database: new DatabaseSync(":memory:") }) }), type: "sqlite", transaction: true };
 }
 
 type Alg = "ES256" | "RS256" | "EdDSA";

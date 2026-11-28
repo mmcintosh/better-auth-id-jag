@@ -48,7 +48,7 @@ person ─sign in─▶ IdP ─ID token─▶ client ─token exchange─▶ IdP
 - **Fetching itself:** a Worker can't fetch its own `workers.dev` URL; the request never completes. `requireMcpAuth`
   used to fetch the server's own JWKS by URL, so this example checked tokens itself; since Better Auth 1.7.25 it reads
   the keys in process (better-auth/better-auth#12501), and `/mcp` uses it as is, so the MCP server needs Better Auth
-  1.7.25 or later (the examples build with this repository's pinned version, 1.7.27). On 1.8 it also checks the token
+  1.7.25 or later (the examples build with this repository's pinned version, 1.7.28). On 1.8 it also checks the token
   against the authorization server's records: its client must exist and not be disabled.
   `test/receiver/exit.test.ts` runs it against these tokens.
 
